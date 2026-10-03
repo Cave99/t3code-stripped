@@ -3616,6 +3616,8 @@ function toolGroupSummaryIconName(
     case "link-pr":
     case "unlink-pr":
     case "list-prs":
+    case "watch-pr":
+    case "unwatch-pr":
       return "pull-request";
     case "read":
       return "eye";
