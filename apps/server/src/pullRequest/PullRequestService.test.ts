@@ -19,6 +19,9 @@ import type {
   PullRequestReviewerCapabilities,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
+import type { ServerSettings } from "@t3tools/contracts";
+import * as ServerSettingsService from "../serverSettings.ts";
 import { PullRequestOperationError } from "@t3tools/contracts";
 
 import * as ProjectService from "../project/ProjectService.ts";
@@ -369,6 +372,7 @@ function fakeProvider(
 }
 
 function makeService(input: {
+  readonly settings?: ServerSettings;
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
@@ -379,6 +383,9 @@ function makeService(input: {
   return Effect.flatMap(
     Layer.build(
       Layer.mergeAll(
+        Layer.mock(ServerSettingsService.ServerSettingsService)({
+          getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
+        }),
         Layer.succeed(
           PullRequestProviderRegistry.PullRequestProviderRegistry,
           PullRequestProviderRegistry.fromProviders(input.providers),
@@ -4984,4 +4991,63 @@ it.effect("carries a bounded number of its own marks and says it held more", () 
     assert.lengthOf(read.files, PullRequestFilesViewed.MAX_FILES_VIEWED_ROWS);
     assert.strictEqual(read.truncated, true);
   }),
+);
+
+it.effect.each([
+  { action: "merge", environmentValue: true, projectValue: false, expected: false },
+  { action: "merge", environmentValue: false, projectValue: true, expected: true },
+  { action: "merge", environmentValue: true, projectValue: undefined, expected: true },
+  { action: "merge", environmentValue: false, projectValue: undefined, expected: false },
+  { action: "enable-auto-merge", environmentValue: true, projectValue: false, expected: false },
+  { action: "enable-auto-merge", environmentValue: false, projectValue: true, expected: true },
+  { action: "enable-auto-merge", environmentValue: true, projectValue: undefined, expected: true },
+] as const)(
+  "resolves agent credits for $action with environment=$environmentValue and project=$projectValue",
+  ({ action, environmentValue, projectValue, expected }) =>
+    Effect.gen(function* () {
+      const calls: boolean[] = [];
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" }),
+        ],
+        settings: {
+          ...DEFAULT_SERVER_SETTINGS,
+          removeAgentCreditsOnMerge: environmentValue,
+          projectSettingsOverrides:
+            projectValue === undefined
+              ? {}
+              : {
+                  ["p1" as ProjectId]: { removeAgentCreditsOnMerge: projectValue },
+                },
+        },
+        providers: [
+          fakeProvider("github", {
+            capabilities: {
+              ...fakeProvider("github").capabilities,
+              actions: ["merge", "enable-auto-merge"],
+            },
+            getChangeRequestSummary: () => Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z")),
+            getViewerPermissions: () =>
+              Effect.succeed({
+                actions: ["merge", "enable-auto-merge"],
+                comment: true,
+                resolve: true,
+                verdicts: ["comment"],
+                requestReviewers: false,
+              }),
+            runAction: (input) =>
+              Effect.sync(() => {
+                calls.push(input.removeAgentCreditsOnMerge === true);
+              }),
+          }),
+        ],
+      });
+      yield* service.runAction({
+        projectId: "p1" as ProjectId,
+        repository: "acme/web",
+        number: 1,
+        action,
+      });
+      assert.deepStrictEqual(calls, [expected]);
+    }),
 );
