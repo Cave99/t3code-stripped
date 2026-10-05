@@ -53,6 +53,7 @@ export function evaluatePullRequestWatch(
   // An empty list keeps the last state: a host can answer with one when its check read fails.
   let failedChecks = headMoved ? [] : watch.failedChecks;
   let passed = headMoved ? false : watch.passed;
+  let passedChecks = headMoved ? [] : watch.passedChecks;
   if (detail.checks.length > 0) {
     const failed = detail.checks.filter(isFailedCheck);
     const newlyFailed = failed.filter((check) => !failedChecks.includes(check.name));
@@ -73,6 +74,7 @@ export function evaluatePullRequestWatch(
       changes.push({ kind: "checks-passed", count: gate.length, required: required.length > 0 });
     }
     passed = passedNow;
+    passedChecks = passedNow ? gateNames : [];
   }
 
   const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();
@@ -111,6 +113,7 @@ export function evaluatePullRequestWatch(
       headSha,
       failedChecks,
       passed,
+      passedChecks,
       remarksThrough,
       remarkIds,
       conflicting,
