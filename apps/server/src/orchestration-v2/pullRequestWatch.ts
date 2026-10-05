@@ -63,7 +63,13 @@ export function evaluatePullRequestWatch(
     const required = detail.checks.filter((check) => check.required === true);
     const gate = required.length > 0 ? required : detail.checks;
     const passedNow = gate.every((check) => check.status !== "pending" && !isFailedCheck(check));
-    if (passedNow && !passed) {
+    const gateNames = gate.map((check) => check.name);
+    // A watch saved before passedChecks existed takes the current names, so it does not wake.
+    const told = passed && passedChecks.length === 0 ? gateNames : passedChecks;
+    // A required job created and finished between two passes is never seen pending. Without
+    // required checks, any check counts, and advisory bots keep adding passed ones: no wake.
+    const gateGrew = required.length > 0 && gateNames.some((name) => !told.includes(name));
+    if (passedNow && (!passed || gateGrew)) {
       changes.push({ kind: "checks-passed", count: gate.length, required: required.length > 0 });
     }
     passed = passedNow;
