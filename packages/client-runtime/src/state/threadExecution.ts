@@ -212,7 +212,6 @@ export function deriveThreadRuntime(
   const usageLimitedRun = presentedUsageLimitRun(projection);
   const latestRunProjection = presentedLatestRun(projection);
   const activityRun = deriveThreadActivityRun(projection);
-  if (latestRun === null && projection.thread.activeProviderThreadId === null) return null;
   const activeRunId =
     latestMatchingRun(projection, (run) => INTERRUPTIBLE_RUN_STATUSES.has(run.status))?.id ?? null;
   const hasPendingBackgroundTasks =
@@ -222,7 +221,14 @@ export function deriveThreadRuntime(
       turnItems: projection.turnItems,
       activeProviderThreadId: projection.thread.activeProviderThreadId,
       runs: projection.runs,
+      pullRequests: projection.thread.pullRequests,
     }).length > 0;
+  if (
+    latestRun === null &&
+    projection.thread.activeProviderThreadId === null &&
+    !hasPendingBackgroundTasks
+  )
+    return null;
   return {
     status: usageLimitedRun
       ? "failed"
