@@ -49,6 +49,10 @@ uses the project's instructions and recent commit subjects.
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments.
 
+Hold **Shift** in the GitHub pull request list for quick actions.
+To close several, press **Close**, drag across the rows in the same group, and release.
+Press **Escape** before releasing to cancel. Failed closes stay in the list so you can retry them.
+
 GitHub supports auto-merge while checks are outstanding, approving waiting fork workflows, and
 opening a revert pull request for a merged change.
 
