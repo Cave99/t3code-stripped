@@ -256,7 +256,10 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     readonly continueThreadsAfterServerUpdate?: boolean;
   } = {},
 ): Layer.Layer<
-  Orchestrator.OrchestratorV2 | EffectWorker.OrchestrationEffectWorkerV2 | EventSink.EventSinkV2,
+  | Orchestrator.OrchestratorV2
+  | EffectWorker.OrchestrationEffectWorkerV2
+  | EventSink.EventSinkV2
+  | ProviderSessionManager.ProviderSessionManagerV2,
   Error | MigrationError | PlatformError.PlatformError | SqlError
 > {
   const serverConfigLayer = Layer.effect(
@@ -451,6 +454,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
   );
   const replayRuntime = Layer.mergeAll(
     orchestratorProvided,
+    providerSessionManagerProvided,
     effectWorkerProvided,
     eventSinkProvided,
     continuationWorkerProvided,
