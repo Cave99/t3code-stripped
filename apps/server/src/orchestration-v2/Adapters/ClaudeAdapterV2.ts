@@ -1051,7 +1051,7 @@ const getNativeThreadId = Effect.fnUntraced(function* (
 ) {
   const nativeThreadId = providerThread.nativeThreadRef?.nativeId;
   if (nativeThreadId === undefined || nativeThreadId === null) {
-    return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+    return yield* new ProviderAdapterProtocolError({
       driver: CLAUDE_PROVIDER,
       detail: `Provider thread ${providerThread.id} is missing a native Claude session id.`,
     });
@@ -1075,13 +1075,13 @@ const getNativeConversationHeadId = Effect.fnUntraced(function* (
     return undefined;
   }
   if (nativeHeadRef.driver !== CLAUDE_PROVIDER) {
-    return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+    return yield* new ProviderAdapterProtocolError({
       driver: CLAUDE_PROVIDER,
       detail: `Provider thread ${providerThread.id} has a non-Claude native conversation head reference.`,
     });
   }
   if (nativeHeadRef.nativeId === null) {
-    return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+    return yield* new ProviderAdapterProtocolError({
       driver: CLAUDE_PROVIDER,
       detail: `Provider thread ${providerThread.id} has a Claude native conversation head reference without a native id.`,
     });
@@ -1266,7 +1266,7 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
       continue;
     }
     if (!isSupportedClaudeImageMimeType(attachment.mimeType)) {
-      return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+      return yield* new ProviderAdapterProtocolError({
         driver: CLAUDE_PROVIDER,
         detail: `Unsupported Claude image attachment type '${attachment.mimeType}'`,
       });
@@ -1277,7 +1277,7 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
       attachment,
     });
     if (attachmentPath === null) {
-      return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+      return yield* new ProviderAdapterProtocolError({
         driver: CLAUDE_PROVIDER,
         detail: `Invalid attachment id '${attachment.id}'`,
       });
@@ -1286,7 +1286,7 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
     const bytes = yield* input.fileSystem.readFile(attachmentPath).pipe(
       Effect.mapError(
         (cause) =>
-          new ProviderAdapter.ProviderAdapterProtocolError({
+          new ProviderAdapterProtocolError({
             driver: CLAUDE_PROVIDER,
             detail: `Failed to read attachment '${attachment.id}'`,
             payload: cause,
@@ -1323,12 +1323,8 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   } satisfies SDKUserMessage;
 });
 
-// Stable per run attempt, so a replayed prompt offer matches its recording.
-// Claude echoes it back as user_message_uuid on the turn that answers it.
-export function claudePromptUuid(attemptId: string): NonNullable<SDKUserMessage["uuid"]> {
-  const hex = NodeCrypto.createHash("sha256").update(`t3-claude-prompt:${attemptId}`).digest("hex");
-  const variant = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+export function isClaudePromptUuid(value: string): value is NonNullable<SDKUserMessage["uuid"]> {
+  return /^[^-]+-[^-]+-[^-]+-[^-]+-[^-]+$/.test(value);
 }
 
 type ClaudeAssistantContentBlock = SDKAssistantMessage["message"]["content"][number];
@@ -2357,14 +2353,17 @@ function claudeEchoedPromptUuids(message: SDKMessage): ReadonlyArray<string> {
   return typeof uuid === "string" ? [uuid] : [];
 }
 
-// The prompt uuid a command_lifecycle frame (queued, started, completed)
+// The prompt a command_lifecycle frame (queued, started, completed)
 // acknowledges. A CLI that sends them also echoes that uuid on the result of
 // the turn answering the prompt; one that does not keeps the old path.
-function claudeAcknowledgedPromptUuid(message: SDKMessage): string | null {
+function claudePromptLifecycle(
+  message: SDKMessage,
+): { readonly uuid: string; readonly state: string } | null {
   const type: unknown = Reflect.get(message, "type");
   if (type !== "command_lifecycle") return null;
   const uuid: unknown = Reflect.get(message, "command_uuid");
-  return typeof uuid === "string" ? uuid : null;
+  const state: unknown = Reflect.get(message, "state");
+  return typeof uuid === "string" && typeof state === "string" ? { uuid, state } : null;
 }
 
 // A result that answers a turn other than the pending prompt's. An echo
@@ -2630,6 +2629,8 @@ interface ActiveClaudeTurnContext {
   // prompt's turn echoes this uuid (see handleSdkMessage).
   readonly promptUuid: string | null;
   promptEcho: "pending" | "confirmed";
+  // Claude acknowledged starting the prompt (command_lifecycle "started").
+  promptStarted: boolean;
   // Root frames seen before the echo; held only when the CLI echoes early.
   gatedFramesBeforeEcho: number;
   readonly heldRootFrames: Array<SDKMessage>;
@@ -4561,7 +4562,7 @@ export function makeClaudeAdapterV2(
           const nodeId = idAllocator.derive.approvalNode({ requestId });
           const providerSessionId = input.context.input.providerThread.providerSessionId;
           if (providerSessionId === null) {
-            return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+            return yield* new ProviderAdapterProtocolError({
               driver: CLAUDE_PROVIDER,
               detail: `Provider thread ${input.context.input.providerThread.id} is missing a provider session id.`,
             });
@@ -6378,11 +6379,32 @@ export function makeClaudeAdapterV2(
             yield* handleRoutedSdkMessage(input);
             return;
           }
-          if (
-            liveQuery.promptEchoMode === "unknown" &&
-            claudeAcknowledgedPromptUuid(message) === context.promptUuid
-          ) {
-            liveQuery.promptEchoMode = "acknowledged";
+          const lifecycle = claudePromptLifecycle(message);
+          if (lifecycle?.uuid === context.promptUuid) {
+            if (liveQuery.promptEchoMode === "unknown") {
+              liveQuery.promptEchoMode = "acknowledged";
+            }
+            if (lifecycle.state === "started") {
+              context.promptStarted = true;
+            }
+            // Claude finishes a prompt whose uuid its transcript already
+            // holds without starting it, and no turn will ever answer it.
+            if (lifecycle.state === "completed" && !context.promptStarted) {
+              yield* Effect.logWarning("orchestration-v2.claude-prompt-completed-without-turn", {
+                providerTurnId: context.providerTurnId,
+                promptUuid: context.promptUuid,
+              });
+              yield* finalizeActiveTurn({
+                context,
+                status: "failed",
+                completedAt: yield* DateTime.now,
+                failure: makeProviderFailure({
+                  class: "provider_error",
+                  message: "Claude acknowledged the message but never started a turn for it.",
+                }),
+              });
+              return;
+            }
           }
           if (!isClaudePromptEchoGatedFrame(message)) {
             // Frames the held turn produced through its own tool uses (a
@@ -6983,6 +7005,23 @@ export function makeClaudeAdapterV2(
             const startedAt = yield* DateTime.now;
             const nativeThreadId = yield* getNativeThreadId(turnInput.providerThread);
             const nativeTurnId = `turn:${turnInput.attemptId}`;
+            // Fresh for every offer: Claude acks a prompt whose uuid its
+            // transcript already holds without running a turn, and a session
+            // can outlive this database (or be resumed from a copy of it), so
+            // a uuid derived from run ids can repeat.
+            const promptUuid = isClaudeProviderContinuationTurn(turnInput)
+              ? null
+              : yield* crypto.randomUUIDv4.pipe(
+                  Effect.filterOrFail(isClaudePromptUuid),
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderAdapterProtocolError({
+                        driver: CLAUDE_PROVIDER,
+                        detail: "Failed to allocate a Claude prompt uuid.",
+                        payload: cause,
+                      }),
+                  ),
+                );
             const providerTurnId = idAllocator.derive.providerTurn({
               driver: CLAUDE_PROVIDER,
               nativeTurnId,
@@ -6990,7 +7029,7 @@ export function makeClaudeAdapterV2(
             const providerTurnOrdinal = turnInput.providerTurnOrdinal;
             const currentTurn = yield* Ref.get(activeTurn);
             if (currentTurn !== null) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              return yield* new ProviderAdapterProtocolError({
                 driver: CLAUDE_PROVIDER,
                 detail: `Claude provider turn ${currentTurn.providerTurnId} is still active.`,
               });
@@ -7040,6 +7079,7 @@ export function makeClaudeAdapterV2(
                 ? null
                 : claudePromptUuid(turnInput.attemptId),
               promptEcho: isClaudeProviderContinuationTurn(turnInput) ? "confirmed" : "pending",
+              promptStarted: false,
               gatedFramesBeforeEcho: 0,
               heldRootFrames: [],
             };
@@ -7183,13 +7223,13 @@ export function makeClaudeAdapterV2(
               return;
             }
             if (existing === null) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              return yield* new ProviderAdapterProtocolError({
                 driver: CLAUDE_PROVIDER,
                 detail: `Claude provider thread ${turnInput.providerThread.id} has no live query.`,
               });
             }
             if (currentTurn?.providerTurnId !== turnInput.providerTurnId) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              return yield* new ProviderAdapterProtocolError({
                 driver: CLAUDE_PROVIDER,
                 detail: `Claude provider turn ${turnInput.providerTurnId} is not the active turn.`,
               });
@@ -7242,14 +7282,14 @@ export function makeClaudeAdapterV2(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2SteerInput) {
             const existing = yield* Ref.get(queryContext);
             if (existing === null) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              return yield* new ProviderAdapterProtocolError({
                 driver: CLAUDE_PROVIDER,
                 detail: `Claude provider thread ${turnInput.providerThread.id} has no live query.`,
               });
             }
             const currentTurn = yield* Ref.get(activeTurn);
             if (currentTurn?.providerTurnId !== turnInput.providerTurnId) {
-              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              return yield* new ProviderAdapterProtocolError({
                 driver: CLAUDE_PROVIDER,
                 detail: `Claude provider turn ${turnInput.providerTurnId} is not the active turn.`,
               });
@@ -7443,7 +7483,7 @@ export function makeClaudeAdapterV2(
                 return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
                   driver: CLAUDE_PROVIDER,
                   requestId: requestInput.requestId,
-                  cause: new ProviderAdapter.ProviderAdapterProtocolError({
+                  cause: new ProviderAdapterProtocolError({
                     driver: CLAUDE_PROVIDER,
                     detail: `No pending Claude runtime request ${requestInput.requestId}.`,
                   }),
@@ -7457,7 +7497,7 @@ export function makeClaudeAdapterV2(
                 return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
                   driver: CLAUDE_PROVIDER,
                   requestId: requestInput.requestId,
-                  cause: new ProviderAdapter.ProviderAdapterProtocolError({
+                  cause: new ProviderAdapterProtocolError({
                     driver: CLAUDE_PROVIDER,
                     detail: `Claude ${pending.requestKind} request ${requestInput.requestId} requires an approval decision.`,
                   }),
@@ -7490,7 +7530,7 @@ export function makeClaudeAdapterV2(
             function* (rollbackInput) {
               const currentTurn = yield* Ref.get(activeTurn);
               if (currentTurn !== null) {
-                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                return yield* new ProviderAdapterProtocolError({
                   driver: CLAUDE_PROVIDER,
                   detail: `Cannot roll back Claude provider thread ${rollbackInput.providerThread.id} while provider turn ${currentTurn.providerTurnId} is active.`,
                 });
@@ -7565,7 +7605,7 @@ export function makeClaudeAdapterV2(
             function* (forkInput) {
               const currentTurn = yield* Ref.get(activeTurn);
               if (currentTurn !== null) {
-                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                return yield* new ProviderAdapterProtocolError({
                   driver: CLAUDE_PROVIDER,
                   detail: `Cannot fork Claude provider thread ${forkInput.sourceProviderThread.id} while provider turn ${currentTurn.providerTurnId} is active.`,
                 });
