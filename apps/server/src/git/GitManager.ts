@@ -732,20 +732,6 @@ export const make = Effect.gen(function* () {
     Effect.map((settings) => settings.worktreesDirectory),
     Effect.orElseSucceed(() => ""),
   );
-  const createWorktree: GitManager["Service"]["createWorktree"] = Effect.fn(
-    "GitManager.createWorktree",
-  )(function* (input, options) {
-    const submodules =
-      options?.submodules !== undefined
-        ? options.submodules
-        : yield* projectSettingsFor(input).pipe(
-            Effect.map((settings) => settings.worktreeSubmodules),
-            Effect.orElseSucceed(() => null),
-          );
-    const worktreesDirectory = yield* readWorktreesDirectory;
-    return yield* gitCore.createWorktree(input, { worktreesDirectory, ...options, submodules });
-  });
-
   const readRepositoryInstructions = (cwd: string, fileName: string) =>
     Effect.gen(function* () {
       const root = yield* fileSystem.realPath(cwd);

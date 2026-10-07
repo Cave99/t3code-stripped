@@ -1,3 +1,4 @@
+import * as ServerSettings from "../serverSettings.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -274,6 +275,8 @@ export const make = Effect.gen(function* () {
     (input: Input) =>
       ensureGit(operation, input.cwd).pipe(Effect.andThen(run(input)));
 
+  const settings = yield* ServerSettings.ServerSettingsService;
+
   return GitWorkflowService.of({
     isRepository: (cwd) =>
       registry.detect({ cwd }).pipe(
@@ -347,7 +350,15 @@ export const make = Effect.gen(function* () {
       ),
     createWorktree: (input, options) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
-        Effect.andThen(git.createWorktree(input, options)),
+        Effect.andThen(
+          settings.getSettings.pipe(
+            Effect.map((settings) => settings.worktreesDirectory),
+            Effect.orElseSucceed(() => ""),
+            Effect.flatMap((worktreesDirectory) =>
+              git.createWorktree(input, { worktreesDirectory, ...options }),
+            ),
+          ),
+        ),
       ),
     listLocalBranchNames: (cwd) =>
       ensureGitCommand("GitWorkflowService.listLocalBranchNames", cwd).pipe(
