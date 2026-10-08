@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 App Testing"
+  short_description: "Verify the desktop app against isolated state"
+  default_prompt: "Use $test-t3-app to verify the affected desktop flow against isolated development state."
