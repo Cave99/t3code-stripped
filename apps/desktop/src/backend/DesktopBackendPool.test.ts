@@ -1,9 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
@@ -16,29 +14,6 @@ import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
-import type { DesktopBackendSnapshot, DesktopBackendStartConfig } from "./DesktopBackendManager.ts";
-
-function makeStubInstance(
-  id: DesktopBackendPool.BackendInstanceId,
-  label: string,
-): DesktopBackendPool.DesktopBackendInstance {
-  const snapshot: DesktopBackendSnapshot = {
-    desiredRunning: false,
-    ready: false,
-    activePid: Option.none(),
-    restartAttempt: 0,
-    restartScheduled: false,
-  };
-  return {
-    id,
-    label: Effect.succeed(label),
-    start: Effect.void,
-    stop: () => Effect.void,
-    currentConfig: Effect.succeed(Option.none<DesktopBackendStartConfig>()),
-    snapshot: Effect.succeed(snapshot),
-    waitForReady: (_timeout: Duration.Duration) => Effect.succeed(false),
-  };
-}
 
 function makePoolLayer(
   labelRef: Ref.Ref<string>,
@@ -104,24 +79,18 @@ function makePoolLayer(
 }
 
 describe("DesktopBackendPool", () => {
-  it.effect("layerTest dies when no instances are supplied", () =>
-    Effect.exit(
-      DesktopBackendPool.DesktopBackendPool.pipe(Effect.provide(DesktopBackendPool.layerTest([]))),
-    ).pipe(Effect.map((exit) => assert.equal(exit._tag, "Failure"))),
-  );
-
   it.effect("resolves the primary label lazily after pool layer construction", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const labelRef = yield* Ref.make("Windows");
+        const labelRef = yield* Ref.make("Default");
         const pool = yield* DesktopBackendPool.DesktopBackendPool.pipe(
           Effect.provide(makePoolLayer(labelRef)),
         );
         const primary = yield* pool.primary;
 
-        yield* Ref.set(labelRef, "WSL (Ubuntu)");
+        yield* Ref.set(labelRef, "Updated");
 
-        assert.equal(yield* primary.label, "WSL (Ubuntu)");
+        assert.equal(yield* primary.label, "Updated");
       }),
     ),
   );

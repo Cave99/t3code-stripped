@@ -50,11 +50,8 @@ const baseConfig: DesktopBackendManager.DesktopBackendStartConfig = {
     desktopTelemetryFd: 4,
     desktopTelemetryControlFd: 5,
   },
-  bootstrapDelivery: "fd3",
-  extendEnv: true,
   httpBaseUrl: new URL("http://127.0.0.1:3773"),
   captureOutput: true,
-  preflightFailure: Option.none(),
 };
 
 const configWithObservability: DesktopBackendBootstrapValue = {
@@ -117,9 +114,6 @@ interface MakeInstanceInput {
   readonly backendOutputLog?: Partial<DesktopObservability.DesktopBackendOutputLogShape>;
   readonly onReady?: Effect.Effect<void>;
   readonly onShutdown?: Effect.Effect<void>;
-  readonly onPreflightFailed?: (
-    failure: DesktopBackendManager.PreflightFailure,
-  ) => Effect.Effect<boolean>;
   readonly config?: DesktopBackendManager.DesktopBackendStartConfig;
   readonly configResolve?: Effect.Effect<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -174,7 +168,6 @@ function makeTestInstance(input: MakeInstanceInput) {
     configResolve: input.configResolve ?? Effect.succeed(input.config ?? baseConfig),
     ...(input.onReady ? { onReady: () => input.onReady! } : {}),
     ...(input.onShutdown ? { onShutdown: () => input.onShutdown! } : {}),
-    ...(input.onPreflightFailed ? { onPreflightFailed: input.onPreflightFailed } : {}),
   });
 
   return instance.pipe(Effect.provide(servicesLayer));
@@ -1222,74 +1215,57 @@ describe("DesktopBackendManager", () => {
     ),
   );
 
-  it.effect("stopAllPoolInstances bounds the quit finalizer when backends hang", () =>
+  it.effect("stopBackend bounds the quit finalizer when the backend hangs", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        // Each backend's process-scope finalizer reports when it starts and
-        // when it finishes, keyed by instance name, so the test can prove
-        // both backends reached each milestone instead of inferring it from
-        // a shared flag or a clock advance.
-        const teardownStarted = yield* Queue.unbounded<string>();
-        const teardownFinished = yield* Queue.unbounded<string>();
+        // The backend's process-scope finalizer reports when it starts and
+        // finishes, so the test proves each milestone instead of inferring it
+        // from a clock advance.
+        const teardownStarted = yield* Deferred.make<void>();
+        const teardownFinished = yield* Deferred.make<void>();
         const allowTeardown = yield* Deferred.make<void>();
 
-        const makeInstance = (name: string) =>
-          makeTestInstance({
-            spawnerLayer: Layer.succeed(
-              ChildProcessSpawner.ChildProcessSpawner,
-              ChildProcessSpawner.make(() =>
-                Effect.gen(function* () {
-                  const scope = yield* Scope.Scope;
-                  yield* Scope.addFinalizer(
-                    scope,
-                    Queue.offer(teardownStarted, name).pipe(
-                      Effect.andThen(Deferred.await(allowTeardown)),
-                      Effect.andThen(Queue.offer(teardownFinished, name)),
-                      Effect.asVoid,
-                    ),
-                  );
-                  return makeProcess({ exitCode: Effect.never });
-                }),
-              ),
+        const instance = yield* makeTestInstance({
+          spawnerLayer: Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() =>
+              Effect.gen(function* () {
+                const scope = yield* Scope.Scope;
+                yield* Scope.addFinalizer(
+                  scope,
+                  Deferred.succeed(teardownStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(allowTeardown)),
+                    Effect.andThen(Deferred.succeed(teardownFinished, undefined)),
+                    Effect.asVoid,
+                  ),
+                );
+                return makeProcess({ exitCode: Effect.never });
+              }),
             ),
-            httpClientLayer: httpClientLayer(() => Effect.never),
-          });
-
-        const instance1 = yield* makeInstance("instance1");
-        const instance2 = yield* makeInstance("instance2");
-
-        yield* instance1.start;
-        yield* instance2.start;
-
-        const mockPool = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
-          list: Effect.succeed([instance1, instance2]),
-          get: () => Effect.succeedNone,
-          primary: Effect.die(new Error("primary not implemented")),
-          register: () => Effect.die(new Error("register not implemented")),
-          unregister: () => Effect.die(new Error("unregister not implemented")),
+          ),
+          httpClientLayer: httpClientLayer(() => Effect.never),
         });
+        yield* instance.start;
 
-        // Mirror the quit path: register stopAllPoolInstances as a scope
-        // finalizer and let the scope close run it, rather than calling it
-        // as an ordinary interruptible effect.
+        // Mirror the quit path: register stopBackend as a scope finalizer and
+        // let the scope close run it, rather than calling it as an ordinary
+        // interruptible effect.
         const quitFiber = yield* Effect.scoped(
-          Effect.addFinalizer(() => DesktopApp.stopAllPoolInstances()),
-        ).pipe(Effect.provide(mockPool), Effect.forkChild);
+          Effect.addFinalizer(() => DesktopApp.stopBackend()),
+        ).pipe(Effect.provide(DesktopBackendPool.layerTest(instance)), Effect.forkChild);
 
-        const started = yield* Queue.takeN(teardownStarted, 2);
-        assert.deepEqual(started.toSorted(), ["instance1", "instance2"]);
+        yield* Deferred.await(teardownStarted);
 
-        // Both backends are now hung in teardown. Advancing past the 5s
-        // budget must let the quit finalizer return without them.
+        // The backend is now hung in teardown. Advancing past the 5s budget
+        // must let the quit finalizer return without it.
         yield* TestClock.adjust(Duration.seconds(5));
         yield* Fiber.join(quitFiber);
-        assert.equal(yield* Queue.size(teardownFinished), 0);
+        assert.isFalse(yield* Deferred.isDone(teardownFinished));
 
-        // The timed-out closes keep running in the background and finish
-        // once the backends unblock.
+        // The timed-out close keeps running in the background and finishes
+        // once the backend unblocks.
         yield* Deferred.succeed(allowTeardown, undefined);
-        const finished = yield* Queue.takeN(teardownFinished, 2);
-        assert.deepEqual(finished.toSorted(), ["instance1", "instance2"]);
+        yield* Deferred.await(teardownFinished);
       }).pipe(Effect.provide(TestClock.layer())),
     ),
   );

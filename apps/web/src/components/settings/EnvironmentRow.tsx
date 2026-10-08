@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import type { EnvironmentPresentation } from "~/state/environments";
-import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 
 /**
@@ -13,7 +12,6 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 export function environmentTransportLabel(environment: EnvironmentPresentation): string {
   const { entry } = environment;
   if (entry.target._tag === "PrimaryConnectionTarget") return "This machine";
-  if (isDesktopLocalConnectionTarget(entry.target)) return "Local backend";
   return environment.displayUrl ?? "Remote link";
 }
 

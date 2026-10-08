@@ -4,7 +4,6 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "./DesktopLocalEnvironmentAuth.ts";
@@ -19,8 +18,6 @@ const config = {
     t3Home: "/tmp/t3",
     host: "127.0.0.1",
     desktopBootstrapToken: "desktop-bootstrap-token",
-    tailscaleServeEnabled: false,
-    tailscaleServePort: 443,
   },
   httpBaseUrl: new URL("http://127.0.0.1:3773"),
   captureOutput: true,
@@ -52,15 +49,9 @@ describe("DesktopLocalEnvironmentAuth", () => {
           ),
         ),
       );
-      const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
-        list: Effect.succeed([
-          {
-            id: PRIMARY_LOCAL_ENVIRONMENT_ID,
-            label: Effect.succeed("Windows"),
-            currentConfig: Effect.succeedSome(config),
-          },
-        ]),
-      } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+      const poolLayer = DesktopBackendPool.layerTest({
+        currentConfig: Effect.succeedSome(config),
+      } as unknown as DesktopBackendPool.DesktopBackendInstance);
       const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
         Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
       );

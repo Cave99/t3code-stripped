@@ -21,7 +21,7 @@ import {
   KeybindingWhen,
   ResolvedKeybindingsConfig,
 } from "./keybindings.ts";
-import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
+import { EditorId, FileManagerRevealKind } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
@@ -615,7 +615,6 @@ export const ServerConfig = Schema.Struct({
    * Absent on servers that predate the feature; empty when the machine has no
    * sshd or no advertisable name.
    */
-  remoteOpenTargets: Schema.optionalKey(ForwardCompatibleArray(RemoteOpenTarget)),
   observability: ServerObservability,
   settings: ServerSettings,
   /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */

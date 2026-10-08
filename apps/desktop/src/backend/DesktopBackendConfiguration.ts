@@ -230,12 +230,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ELECTRON_RUN_AS_NODE: "1",
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
-      extendEnv: true,
       bootstrap,
-      bootstrapDelivery: "fd3",
       httpBaseUrl: backendExposure.httpBaseUrl,
       captureOutput: true,
-      preflightFailure: Option.none(),
     } satisfies DesktopBackendManager.DesktopBackendStartConfig;
   },
 );

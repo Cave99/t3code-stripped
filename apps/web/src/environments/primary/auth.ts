@@ -7,7 +7,7 @@ import type {
   AuthSessionId,
   AuthSessionState,
 } from "@t3tools/contracts";
-import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
+import { EnvironmentHttpCommonError } from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -166,14 +166,8 @@ export function takePairingTokenFromUrl(): string | null {
 }
 
 function getDesktopBootstrapCredential(): string | null {
-  // Both backends share the same bootstrap token (DesktopBackendConfiguration
-  // mints one tokenRef and feeds it to both resolvers), so picking the
-  // primary entry is fine even when the WSL backend is also registered.
-  const bootstraps = window.desktopBridge?.getLocalEnvironmentBootstraps() ?? [];
-  const primary = bootstraps.find((entry) => entry.id === PRIMARY_LOCAL_ENVIRONMENT_ID);
-  return typeof primary?.bootstrapToken === "string" && primary.bootstrapToken.length > 0
-    ? primary.bootstrapToken
-    : null;
+  const token = window.desktopBridge?.getLocalEnvironmentBootstrap()?.bootstrapToken;
+  return typeof token === "string" && token.length > 0 ? token : null;
 }
 
 export async function fetchSessionState(): Promise<AuthSessionState> {

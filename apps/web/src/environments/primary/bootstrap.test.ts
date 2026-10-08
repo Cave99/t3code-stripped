@@ -191,15 +191,12 @@ describe("environmentBootstrap", () => {
         replaceState: vi.fn(),
       },
       desktopBridge: {
-        getLocalEnvironmentBootstraps: () => [
-          {
-            id: "primary",
-            label: "Windows",
-            httpBaseUrl: "http://127.0.0.1:3773",
-            wsBaseUrl: "ws://127.0.0.1:3773",
-            bootstrapToken: "desktop-bootstrap-token",
-          },
-        ],
+        getLocalEnvironmentBootstrap: () => ({
+          label: "Windows",
+          httpBaseUrl: "http://127.0.0.1:3773",
+          wsBaseUrl: "ws://127.0.0.1:3773",
+          bootstrapToken: "desktop-bootstrap-token",
+        }),
       },
     });
     await installDescriptorApi();
@@ -233,14 +230,11 @@ describe("environmentBootstrap", () => {
       location: new URL("http://127.0.0.1:5733/"),
       history: { replaceState: vi.fn() },
       desktopBridge: {
-        getLocalEnvironmentBootstraps: () => [
-          {
-            id: "primary",
-            label: "Local environment",
-            httpBaseUrl: "http://127.0.0.1:3773",
-            bootstrapToken: "desktop-bootstrap-token",
-          },
-        ],
+        getLocalEnvironmentBootstrap: () => ({
+          label: "Local environment",
+          httpBaseUrl: "http://127.0.0.1:3773",
+          bootstrapToken: "desktop-bootstrap-token",
+        }),
       },
     });
 
@@ -262,7 +256,7 @@ describe("environmentBootstrap", () => {
       location: new URL("t3code://app/"),
       desktopBridge: {
         getLocalEnvironmentEnabled: () => false,
-        getLocalEnvironmentBootstraps: () => [],
+        getLocalEnvironmentBootstrap: () => null,
       },
     });
 

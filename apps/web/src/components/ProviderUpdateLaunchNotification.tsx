@@ -1,197 +1,305 @@
 import { useNavigate } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
 import { DownloadIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { type ServerProvider, type ProviderInstanceId } from "@t3tools/contracts";
 
-import { useEnvironments } from "~/state/environments";
-import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
+import { primaryServerProvidersAtom, serverEnvironment } from "../state/server";
+import { usePrimaryEnvironment } from "../state/environments";
 import { useDismissedProviderUpdateNotificationKeys } from "../providerUpdateDismissal";
-import { ProviderUpdateEnvironmentRows } from "./ProviderUpdateEnvironmentRows";
-import { useLocalEnvironmentUpdateGroups } from "./ProviderUpdateLaunchNotification.environments";
+import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import {
+  canOneClickUpdateProviderCandidate,
   collectProviderUpdateCandidates,
-  environmentGroupsWithUpdates,
+  collectUpdatedProviderSnapshots,
+  firstFailedProviderUpdateMessage,
   getProviderUpdateInitialToastView,
-  localEnvironmentUpdateNotificationKey,
+  getProviderUpdateProgressToastView,
+  getProviderUpdateRejectedToastView,
+  providerUpdateNotificationKey,
+  shouldShowPrimaryProviderUpdateToast,
+  type ProviderUpdateToastView,
 } from "./ProviderUpdateLaunchNotification.logic";
-import { ProviderUpdatePrimaryNotification } from "./ProviderUpdatePrimaryNotification";
-import { stackedThreadToast, toastManager } from "./ui/toast";
-
-/**
- * True when a desktop-local secondary backend (the parallel WSL backend) is
- * present alongside the primary. Local secondaries connect over loopback with a
- * `local:<backendInstanceId>` bearer connection id; everything else (SSH, relay,
- * remote) is ignored. Gating on this keeps non-WSL users on the unchanged
- * single-prompt flow.
- */
-function useHasLocalSecondaryEnvironment(): boolean {
-  const { environments } = useEnvironments();
-  return useMemo(
-    () =>
-      environments.some((environment) => isDesktopLocalConnectionTarget(environment.entry.target)),
-    [environments],
-  );
-}
-
-/**
- * The provider update popover. With a WSL backend present it splits the update
- * trigger per environment; without one (the common case) it falls back to the
- * single-prompt flow so non-WSL users see no change.
- */
-export function ProviderUpdateLaunchNotification() {
-  const hasLocalSecondary = useHasLocalSecondaryEnvironment();
-
-  return hasLocalSecondary ? (
-    <ProviderUpdateEnvironmentsNotification />
-  ) : (
-    <ProviderUpdatePrimaryNotification />
-  );
-}
+import { hiddenToastActionProps, stackedThreadToast, toastManager } from "./ui/toast";
+import { useAtomCommand } from "../state/use-atom-command";
 
 const seenProviderUpdateNotificationKeys = new Set<string>();
 type ProviderUpdateToastId = ReturnType<typeof toastManager.add>;
 
-// While a local backend (e.g. WSL) is still connecting, defer the popover so it
-// reflects every environment. Cap the wait so a stuck or failed backend can't
-// suppress the primary's updates indefinitely.
-const SETTLING_GRACE_MS = 30_000;
+type ActiveProviderUpdateToast =
+  | { readonly kind: "prompt"; readonly key: string; readonly toastId: ProviderUpdateToastId }
+  | {
+      readonly kind: "update";
+      readonly key: string;
+      readonly providerInstanceIds: ReadonlySet<ProviderInstanceId>;
+      readonly providerCount: number;
+    };
 
-function ProviderUpdateEnvironmentsNotification() {
+function ProviderUpdateToastIcon({ provider }: { provider: ServerProvider }) {
+  return (
+    <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+      <ProviderInstanceIcon
+        driverKind={provider.driver}
+        displayName={provider.displayName ?? provider.driver}
+        iconClassName="size-4"
+      />
+      <span className="absolute -right-1 -bottom-1 inline-flex size-3 items-center justify-center rounded-full bg-popover">
+        <DownloadIcon aria-hidden="true" className="size-2.5 text-success" strokeWidth={2.5} />
+      </span>
+    </span>
+  );
+}
+
+function addProviderUpdateToast(input: {
+  readonly view: ProviderUpdateToastView;
+  readonly openSettings: (toastId: ProviderUpdateToastId) => void;
+}) {
+  if (input.view.type === "loading" || input.view.type === "success") {
+    return toastManager.add({
+      type: input.view.type,
+      title: input.view.title,
+      description: input.view.description,
+      timeout: 0,
+      actionProps: hiddenToastActionProps,
+      data: {
+        hideCopyButton: true,
+        ...(input.view.dismissAfterVisibleMs !== undefined
+          ? { dismissAfterVisibleMs: input.view.dismissAfterVisibleMs }
+          : {}),
+      },
+    });
+  }
+
+  let toastId!: ProviderUpdateToastId;
+  toastId = toastManager.add(
+    stackedThreadToast({
+      type: input.view.type,
+      title: input.view.title,
+      description: input.view.description,
+      timeout: 0,
+      actionProps: {
+        children: "Settings",
+        onClick: () => input.openSettings(toastId),
+      },
+      actionVariant: "outline",
+      data: {
+        hideCopyButton: true,
+      },
+    }),
+  );
+  return toastId;
+}
+
+/** Prompts once per new set of provider updates on the local environment. */
+export function ProviderUpdateLaunchNotification() {
   const navigate = useNavigate();
-  const { groups, isAnySettling } = useLocalEnvironmentUpdateGroups();
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const primaryEnvironment = usePrimaryEnvironment();
+  const updateProvider = useAtomCommand(serverEnvironment.updateProvider, {
+    reportFailure: false,
+  });
+  const activeToastRef = useRef<ActiveProviderUpdateToast | null>(null);
   const { dismissedNotificationKeys, dismissNotificationKey } =
     useDismissedProviderUpdateNotificationKeys();
 
-  const activeToastRef = useRef<{
-    readonly toastId: ProviderUpdateToastId;
-    readonly key: string;
-  } | null>(null);
-  const notificationKeyRef = useRef<string | null>(null);
-  // Whether the user has triggered an update from the current toast. Until they
-  // do, the prompt is replaced when the available updates change; afterward it
-  // is kept so in-progress rows are not torn down.
-  const hasInteractedRef = useRef(false);
-
-  // Close our prompt if this flow unmounts (e.g. the WSL backend is disabled
-  // and we fall back to the single-prompt flow).
+  // Close any prompt this component owns on unmount so it does not linger.
   useEffect(() => {
     return () => {
-      if (activeToastRef.current !== null) {
-        toastManager.close(activeToastRef.current.toastId);
-        activeToastRef.current = null;
+      const activeToast = activeToastRef.current;
+      if (activeToast?.kind === "prompt") {
+        toastManager.close(activeToast.toastId);
       }
+      activeToastRef.current = null;
     };
   }, []);
 
-  const updateGroups = useMemo(() => environmentGroupsWithUpdates(groups), [groups]);
-  const notificationKey = useMemo(() => localEnvironmentUpdateNotificationKey(groups), [groups]);
-  useEffect(() => {
-    notificationKeyRef.current = notificationKey;
-  }, [notificationKey]);
-
-  // Title summarizes the distinct providers on offer across all environments;
-  // the per-environment detail lives in the popover body.
-  const candidateUnion = useMemo(
-    () => collectProviderUpdateCandidates(updateGroups.flatMap((group) => group.candidates)),
-    [updateGroups],
+  const updateProviders = useMemo(() => collectProviderUpdateCandidates(providers), [providers]);
+  const notificationKey = useMemo(
+    () => providerUpdateNotificationKey(updateProviders),
+    [updateProviders],
+  );
+  const oneClickProviders = useMemo(
+    () =>
+      updateProviders.filter((provider) => canOneClickUpdateProviderCandidate(provider, providers)),
+    [providers, updateProviders],
   );
 
-  // Defer while any local backend is still connecting, up to the grace period.
-  const [settleGraceElapsed, setSettleGraceElapsed] = useState(false);
+  const openProviderSettings = useCallback(
+    (toastId?: ProviderUpdateToastId) => {
+      const activeToast = activeToastRef.current;
+      if (toastId !== undefined) {
+        toastManager.close(toastId);
+      } else if (activeToast?.kind === "prompt") {
+        toastManager.close(activeToast.toastId);
+      }
+      if (
+        activeToast &&
+        (toastId === undefined ||
+          (activeToast.kind === "prompt" && activeToast.toastId === toastId))
+      ) {
+        activeToastRef.current = null;
+      }
+      void navigate({ to: "/settings/providers" });
+    },
+    [navigate],
+  );
+
   useEffect(() => {
-    if (!isAnySettling) {
-      setSettleGraceElapsed(false);
+    const activeToast = activeToastRef.current;
+    if (activeToast?.kind !== "update") {
       return;
     }
-    const timer = setTimeout(() => setSettleGraceElapsed(true), SETTLING_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [isAnySettling]);
-  const isGated = isAnySettling && !settleGraceElapsed;
 
-  const openProviderSettings = useCallback(() => {
-    const active = activeToastRef.current;
-    if (active !== null) {
-      toastManager.close(active.toastId);
-      activeToastRef.current = null;
+    const activeProviders = providers.filter((provider) =>
+      activeToast.providerInstanceIds.has(provider.instanceId),
+    );
+    const view = getProviderUpdateProgressToastView({
+      providers: activeProviders,
+      providerCount: activeToast.providerCount,
+    });
+    if (!shouldShowPrimaryProviderUpdateToast(view)) {
+      return;
     }
-    void navigate({ to: "/settings/providers" });
-  }, [navigate]);
+
+    addProviderUpdateToast({ view, openSettings: openProviderSettings });
+    activeToastRef.current = null;
+  }, [providers, openProviderSettings]);
 
   useEffect(() => {
-    // Whether a fresh prompt can actually be shown for the current update set.
-    const canShowPrompt =
-      notificationKey !== null &&
-      !isGated &&
-      !dismissedNotificationKeys.has(notificationKey) &&
-      !seenProviderUpdateNotificationKeys.has(notificationKey);
-
-    // Close a prompt the user hasn't acted on yet when the available updates
-    // change: when they clear entirely (key null) so the toast doesn't linger,
-    // and when a fresh set is ready to replace it. Keep it only while a backend
-    // is re-settling (updates still exist, just gated) — and once an update is
-    // in progress, so its rows survive.
-    const active = activeToastRef.current;
-    if (
-      active &&
-      active.key !== notificationKey &&
-      !hasInteractedRef.current &&
-      (notificationKey === null || !isGated)
-    ) {
-      toastManager.close(active.toastId);
+    const activeToast = activeToastRef.current;
+    if (activeToast?.kind === "prompt" && activeToast.key !== notificationKey) {
+      toastManager.close(activeToast.toastId);
       activeToastRef.current = null;
     }
 
-    if (!notificationKey || !canShowPrompt || activeToastRef.current !== null) {
+    if (
+      !notificationKey ||
+      dismissedNotificationKeys.has(notificationKey) ||
+      seenProviderUpdateNotificationKeys.has(notificationKey) ||
+      activeToastRef.current
+    ) {
       return;
     }
 
     seenProviderUpdateNotificationKeys.add(notificationKey);
-    hasInteractedRef.current = false;
 
+    const initialView = getProviderUpdateInitialToastView({ updateProviders, oneClickProviders });
+
+    let toastId!: ProviderUpdateToastId;
+    let updateStarted = false;
+    const openSettings = () => openProviderSettings(toastId);
     const dismissPrompt = () => {
-      // Dismiss whatever set is still on offer at close time, so the popover
-      // does not re-pop for updates the user just declined.
-      const liveKey = notificationKeyRef.current;
-      if (liveKey) {
-        dismissNotificationKey(liveKey);
-      }
-      activeToastRef.current = null;
+      dismissNotificationKey(notificationKey);
     };
 
-    const toastId = toastManager.add(
+    const runUpdates = () => {
+      if (updateStarted || oneClickProviders.length === 0 || !primaryEnvironment) {
+        return;
+      }
+      updateStarted = true;
+
+      const providerCount = oneClickProviders.length;
+      const providerInstanceIds = new Set(oneClickProviders.map((provider) => provider.instanceId));
+      const activeUpdate: ActiveProviderUpdateToast = {
+        kind: "update",
+        key: notificationKey,
+        providerInstanceIds,
+        providerCount,
+      };
+      activeToastRef.current = activeUpdate;
+
+      toastManager.close(toastId);
+
+      void (async () => {
+        const results = [];
+        for (const provider of oneClickProviders) {
+          results.push(
+            await updateProvider({
+              environmentId: primaryEnvironment.environmentId,
+              input: {
+                provider: provider.driver,
+                instanceId: provider.instanceId,
+              },
+            }),
+          );
+        }
+
+        const activeUpdateToast = activeToastRef.current;
+        if (activeUpdateToast !== activeUpdate) {
+          return;
+        }
+
+        const failedMessage = firstFailedProviderUpdateMessage(results);
+        if (failedMessage) {
+          addProviderUpdateToast({
+            view: getProviderUpdateRejectedToastView(providerCount, failedMessage),
+            openSettings: openProviderSettings,
+          });
+          activeToastRef.current = null;
+          return;
+        }
+
+        const updatedProviderSnapshots = collectUpdatedProviderSnapshots({
+          results,
+          providerInstanceIds,
+        });
+        const view = getProviderUpdateProgressToastView({
+          providers: updatedProviderSnapshots,
+          providerCount,
+        });
+        if (shouldShowPrimaryProviderUpdateToast(view)) {
+          addProviderUpdateToast({ view, openSettings: openProviderSettings });
+          activeToastRef.current = null;
+        }
+      })();
+    };
+
+    toastId = toastManager.add(
       stackedThreadToast({
-        type: "warning",
-        title: getProviderUpdateInitialToastView({
-          updateProviders: candidateUnion,
-          oneClickProviders: candidateUnion,
-        }).title,
-        description: (
-          <ProviderUpdateEnvironmentRows
-            onInteract={() => {
-              hasInteractedRef.current = true;
-            }}
-          />
-        ),
+        type: initialView.type,
+        title: initialView.title,
+        description: initialView.description,
         timeout: 0,
-        actionProps: {
-          children: "Settings",
-          onClick: openProviderSettings,
-        },
+        actionProps:
+          oneClickProviders.length > 0
+            ? {
+                children: "Update",
+                onClick: runUpdates,
+              }
+            : {
+                children: "Settings",
+                onClick: openSettings,
+              },
         actionVariant: "outline",
         data: {
+          leadingIcon:
+            updateProviders.length === 1 ? (
+              <ProviderUpdateToastIcon provider={updateProviders[0]!} />
+            ) : undefined,
           hideCopyButton: true,
-          leadingIcon: <DownloadIcon aria-hidden="true" className="size-4 text-success" />,
           onClose: dismissPrompt,
+          ...(oneClickProviders.length > 0
+            ? {
+                secondaryActionProps: {
+                  children: "Settings",
+                  onClick: openSettings,
+                },
+                secondaryActionVariant: "outline" as const,
+              }
+            : {}),
         },
       }),
     );
-    activeToastRef.current = { toastId, key: notificationKey };
+    activeToastRef.current = { kind: "prompt", key: notificationKey, toastId };
   }, [
-    notificationKey,
-    isGated,
-    candidateUnion,
-    dismissedNotificationKeys,
+    updateProvider,
     dismissNotificationKey,
+    dismissedNotificationKeys,
+    notificationKey,
+    oneClickProviders,
     openProviderSettings,
+    primaryEnvironment,
+    updateProviders,
   ]);
 
   return null;
