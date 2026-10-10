@@ -151,11 +151,6 @@ import {
   PullRequestUpdateInput,
 } from "./pullRequest.ts";
 import {
-  RelayClientInstallFailedError,
-  RelayClientInstallProgressEventSchema,
-  RelayClientStatusSchema,
-} from "./relayClient.ts";
-import {
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationGetWorkflowScriptError,
   OrchestrationV2DispatchCommandError,
@@ -222,7 +217,6 @@ import {
 } from "./previewAutomation.ts";
 import {
   ServerConfigStreamEvent,
-  DesktopUpdateCommitInput,
   ServerConfig,
   ServerProviderUpdateError,
   ServerProviderUpdateInput,
@@ -230,10 +224,6 @@ import {
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
   ServerProviderUpdatedPayload,
-  ServerSelfUpdateError,
-  ServerSelfUpdateInput,
-  ServerSelfUpdateProgressEvent,
-  ServerSelfUpdateResult,
   ServerTraceDiagnosticsResult,
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
@@ -257,18 +247,6 @@ import {
 } from "./providerUsageLimits.ts";
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
-import {
-  ScheduledTaskDeleteInput,
-  ScheduledTaskDeleteResult,
-  ScheduledTaskError,
-  ScheduledTaskListInput,
-  ScheduledTaskListResult,
-  ScheduledTaskRunNowInput,
-  ScheduledTaskRunNowResult,
-  ScheduledTaskSetEnabledInput,
-  ScheduledTaskUpsertInput,
-  ScheduledTaskMutationResult,
-} from "./scheduledTask.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,

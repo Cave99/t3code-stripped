@@ -4,7 +4,6 @@ import {
   PreviewTabId,
   ThreadId,
   type PreviewAutomationStreamEvent,
-  type RelayClientInstallProgressEvent,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   WS_METHODS,
@@ -16,7 +15,6 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
-import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -32,13 +30,7 @@ import {
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
-import {
-  EnvironmentRpcRequestObserver,
-  request,
-  runStream,
-  subscribe,
-  subscribeDynamicWithSession,
-} from "./client.ts";
+import { subscribe, subscribeDynamicWithSession } from "./client.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -46,15 +38,6 @@ const TARGET = new PrimaryConnectionTarget({
   httpBaseUrl: "https://environment.example.test",
   wsBaseUrl: "wss://environment.example.test",
 });
-
-const INSTALL_CHECKING: RelayClientInstallProgressEvent = {
-  type: "progress",
-  stage: "checking",
-};
-const INSTALL_DOWNLOADING: RelayClientInstallProgressEvent = {
-  type: "progress",
-  stage: "downloading",
-};
 
 function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
   return {

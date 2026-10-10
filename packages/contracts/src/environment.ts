@@ -31,7 +31,7 @@ export type ExecutionEnvironmentPlatformArch = typeof ExecutionEnvironmentPlatfo
  * Servers detect one from the hardware they run on (`platform.machine`), and
  * the `environmentIcon` server setting lets a user pick one instead.
  */
-export const ENVIRONMENT_MACHINE_KINDS = [
+const ENVIRONMENT_MACHINE_KINDS = [
   "server",
   "cloud",
   "linux",
@@ -42,7 +42,6 @@ export const ENVIRONMENT_MACHINE_KINDS = [
 ] as const;
 export const EnvironmentMachineKind = Schema.Literals(ENVIRONMENT_MACHINE_KINDS);
 export type EnvironmentMachineKind = typeof EnvironmentMachineKind.Type;
-export const isEnvironmentMachineKind = Schema.is(EnvironmentMachineKind);
 
 export const ExecutionEnvironmentPlatform = Schema.Struct({
   os: ExecutionEnvironmentPlatformOs,

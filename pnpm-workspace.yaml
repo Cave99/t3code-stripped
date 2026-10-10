@@ -29,7 +29,6 @@ catalog:
   "@effect/tsgo": 0.41.0
   "@effect/vitest": 4.0.0-rc.115
   "@legendapp/list": 3.3.5
-  "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
   "@pierre/diffs": 1.3.0-beta.10
   "@tailwindcss/node": 4.3.3
@@ -89,8 +88,6 @@ overrides:
   # dependency, and their schemas fail to decode under a second Effect copy.
   # The `effect` override above already collapses them; these name the edge so it
   # stays pinned on its own. OpenCode2Client.live.test.ts re-proves it on bumps.
-  "@opencode/protocol>effect": "catalog:"
-  "@opencode/schema>effect": "catalog:"
   node-abi: 4.33.0
   lightningcss: "catalog:"
   tailwindcss: "catalog:"
