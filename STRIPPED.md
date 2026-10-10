@@ -72,5 +72,6 @@ Development does not prebuild production assets. Electron spawns `apps/server/sr
 
 ## Remaining verification
 
-- **Electron window smoke test:** in progress by the maintainer.
+- **Electron window smoke test:** with a copy of real data, the app loads, connects with the launch token, and renders the sidebar and composer. Interactive checks (thread switching, settings, removed-provider threads) are still to do by hand.
+- **Cold first dev launch:** the first `pnpm dev` after a fresh Vite dependency optimisation failed to load `main.tsx` (hundreds of `net::ERR_INSUFFICIENT_RESOURCES` from the `t3code-dev://` proxy); a restart loaded fine. It may be specific to the sandboxed shell that launched it, since Chromium could not create its cache directories there. Re-check from a normal terminal.
 - **Build time:** investigated and accepted. The web build takes ~27.7s, including ~22s in React Compiler's Babel pass. The compiler stays for runtime performance; no build-time change is planned.
