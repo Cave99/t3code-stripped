@@ -171,3 +171,31 @@ describe("DesktopBackendConfiguration", () => {
     ),
   );
 });
+
+it.effect(
+  "keeps one secret across backend restarts and generates a fresh secret per desktop launch",
+  () =>
+    Effect.gen(function* () {
+      const resolveLaunch = withHarness(
+        Effect.gen(function* () {
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          const [first, restarted] = yield* Effect.all(
+            [configuration.resolvePrimary, configuration.resolvePrimary],
+            { concurrency: "unbounded" },
+          );
+          assert.equal(first.bootstrap.host, "127.0.0.1");
+          assert.match(first.bootstrap.desktopBootstrapToken ?? "", /^[a-f0-9]{48}$/);
+          assert.equal(
+            first.bootstrap.desktopBootstrapToken,
+            restarted.bootstrap.desktopBootstrapToken,
+          );
+          assert.notProperty(first.env, "T3CODE_DESKTOP_BOOTSTRAP_TOKEN");
+          assert.include(first.args, "--bootstrap-fd");
+          return first.bootstrap.desktopBootstrapToken;
+        }),
+      );
+      const first = yield* resolveLaunch;
+      const second = yield* resolveLaunch;
+      assert.notEqual(first, second);
+    }),
+);

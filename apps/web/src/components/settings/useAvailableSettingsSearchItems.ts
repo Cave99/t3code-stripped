@@ -1,10 +1,8 @@
 import { useMemo } from "react";
-import { AuthAccessWriteScope } from "@t3tools/contracts";
 
 import { isElectron } from "~/env";
 import { isLocalEnvironmentDisabled } from "~/localEnvironment";
 import { useEnvironments } from "~/state/environments";
-import { usePrimarySessionState } from "~/environments/primary";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import type { SettingsScopeSearch } from "./settingsScope";
 import {
@@ -14,14 +12,8 @@ import {
 
 export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch = {}) {
   const { environments } = useEnvironments();
-  const primarySessionState = usePrimarySessionState();
   const localEnvironmentDisabled = isLocalEnvironmentDisabled();
-  const canManageLocalBackend =
-    !localEnvironmentDisabled &&
-    (isElectron ||
-      ((primarySessionState.data?.authenticated &&
-        primarySessionState.data.scopes?.includes(AuthAccessWriteScope)) ??
-        false));
+  const canManageLocalBackend = !localEnvironmentDisabled && isElectron;
 
   return useMemo(
     () =>

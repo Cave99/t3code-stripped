@@ -75,8 +75,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ? (result as ReturnType<DesktopBridge["getLocalEnvironmentBootstrap"]>)
       : null;
   },
-  getLocalEnvironmentBearerToken: () =>
-    ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
   getLocalEnvironmentEnabled: () =>
     ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL) !== false,
   setLocalEnvironmentEnabled: (enabled) =>

@@ -256,21 +256,8 @@ process.on("SIGTERM", onSignal);
 let verdict: object = { status: "failed", reason: "verification did not finish" };
 try {
   await ready;
-  const tokenResponse = await fetch(`${origin}/oauth/token`, {
-    method: "POST",
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
-      subject_token: bootstrap,
-      subject_token_type: "urn:t3:params:oauth:token-type:environment-bootstrap",
-      requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
-    }),
-  });
-  NodeAssert.ok(tokenResponse.ok, `Authentication failed: ${tokenResponse.status}`);
-  const token = Schema.decodeUnknownSync(Schema.Struct({ access_token: Schema.String }))(
-    await tokenResponse.json(),
-  );
   const headers = {
-    Authorization: `Bearer ${token.access_token}`,
+    Authorization: `Bearer ${bootstrap}`,
     "Content-Type": "application/json",
     [ORCHESTRATION_PROTOCOL_HEADER]: String(ORCHESTRATION_PROTOCOL_VERSION),
   };
@@ -287,16 +274,8 @@ try {
     }),
   });
   NodeAssert.ok(created.ok, `Project creation failed: ${created.status} ${await created.text()}`);
-  const ticketResponse = await fetch(`${origin}/api/auth/websocket-ticket`, {
-    method: "POST",
-    headers,
-  });
-  NodeAssert.ok(ticketResponse.ok, `WebSocket authentication failed: ${ticketResponse.status}`);
-  const ticket = Schema.decodeUnknownSync(Schema.Struct({ ticket: Schema.String }))(
-    await ticketResponse.json(),
-  );
   const socket = Socket.layerWebSocket(
-    `${origin.replace("http:", "ws:")}/ws?orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}&wsTicket=${encodeURIComponent(ticket.ticket)}`,
+    `${origin.replace("http:", "ws:")}/ws?orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}&token=${encodeURIComponent(bootstrap)}`,
   ).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal));
   const protocol = RpcClient.layerProtocolSocket().pipe(
     Layer.provide(socket),

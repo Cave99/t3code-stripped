@@ -3,7 +3,6 @@ import {
   EnvironmentId,
   ORCHESTRATION_PROTOCOL_HEADER,
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
-  type AuthSessionState,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -13,8 +12,10 @@ import {
   type PreparedHttpAuthorization,
 } from "../connection/model.ts";
 import { remoteHttpClientLayer } from "../rpc/http.ts";
-import { withOrchestrationProtocolHeader } from "./environmentHttpAuth.ts";
-import { fetchEnvironmentSessionState } from "./session.ts";
+import {
+  executeAuthenticatedEnvironmentHttpRequest,
+  withOrchestrationProtocolHeader,
+} from "./environmentHttpAuth.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -30,25 +31,22 @@ const prepared = (httpAuthorization: PreparedHttpAuthorization | null): Prepared
   httpAuthorization,
   target: TARGET,
 });
-const SESSION = {
-  authenticated: true,
-  auth: {
-    policy: "loopback-browser",
-    bootstrapMethods: ["one-time-token"],
-    sessionMethods: ["browser-session-cookie", "bearer-access-token"],
-    sessionCookieName: "t3_session",
-  },
-  scopes: ["orchestration:read", "orchestration:operate"],
-  sessionMethod: "browser-session-cookie",
-} satisfies AuthSessionState;
+const SNAPSHOT = { projects: [], updatedAt: "2026-10-10T00:00:00.000Z" };
 
 const requestSession = (httpAuthorization: PreparedHttpAuthorization | null) => {
   const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
   const fetchFn: typeof fetch = async (request, init) => {
     calls.push({ url: String(request), init: init ?? {} });
-    return Response.json(SESSION);
+    return Response.json(SNAPSHOT);
   };
-  return fetchEnvironmentSessionState({ prepared: prepared(httpAuthorization) }).pipe(
+  return executeAuthenticatedEnvironmentHttpRequest({
+    prepared: prepared(httpAuthorization),
+    group: "projects",
+    method: "GET",
+    timeoutMs: 1000,
+    url: (base) => new URL("/api/projects", base).href,
+    request: ({ client, headers }) => client.snapshot({ headers }),
+  }).pipe(
     Effect.provide(remoteHttpClientLayer(fetchFn)),
     Effect.map((session) => ({ session, calls })),
   );
@@ -58,17 +56,18 @@ describe("authenticated environment HTTP requests", () => {
   it.effect("sends the bearer token for bearer connections", () =>
     Effect.gen(function* () {
       const { session, calls } = yield* requestSession({ _tag: "Bearer", token: "token-1" });
-      expect(session).toEqual(SESSION);
+      expect(session).toEqual(SNAPSHOT);
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.url).toBe("http://127.0.0.1:3773/api/auth/session");
+      expect(calls[0]?.url).toBe("http://127.0.0.1:3773/api/projects");
       expect(new Headers(calls[0]?.init.headers).get("authorization")).toBe("Bearer token-1");
     }),
   );
 
-  it.effect("relies on the session cookie when there is no bearer token", () =>
+  it.effect("never sends cookies when there is no credential", () =>
     Effect.gen(function* () {
       const { calls } = yield* requestSession(null);
       expect(new Headers(calls[0]?.init.headers).has("authorization")).toBe(false);
+      expect(calls[0]?.init.credentials).toBe("omit");
     }),
   );
 });

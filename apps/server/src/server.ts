@@ -21,7 +21,7 @@ import {
   assetRouteLayer,
   attachmentUploadRouteLayer,
   serverEnvironmentHttpApiLayer,
-  browserApiCorsLayer,
+  desktopCorsLayer,
   httpCompressionLayer,
   untracedRequestsLayer,
 } from "./http.ts";
@@ -91,10 +91,8 @@ import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import * as HeapSnapshot from "./observability/HeapSnapshot.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
-import { authHttpApiLayer, environmentAuthenticatedAuthLayer } from "./auth/http.ts";
-import * as ReplayMarkers from "./auth/replayMarkers.ts";
+import { localAuthHttpLayer } from "./auth/local.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
-import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -324,12 +322,6 @@ const ServerEnvironmentLayerLive = ServerEnvironment.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
 );
 
-const AuthLayerLive = EnvironmentAuth.layer.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-  Layer.provide(ServerEnvironmentLayerLive),
-  Layer.provide(ServerSecretStore.layer),
-);
-
 const OrchestrationV2RuntimeLayerLive = OrchestrationV2ProductionLayerLive.pipe(
   Layer.provide(ProviderEventIngestor.analyticsLive),
   Layer.provide(CheckpointStoreLayerLive),
@@ -407,7 +399,6 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
   ProviderInstallationRefreshLive,
-  ReplayMarkers.layer,
 ).pipe(
   // Core Services
   Layer.provideMerge(OrchestrationApplicationLayerLive),
@@ -453,7 +444,6 @@ const RuntimeCoreDependenciesLive = RuntimeCoreDependenciesBaseLive.pipe(
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, ProjectFaviconResolverLayerLive)),
   Layer.provideMerge(RepositoryIdentityResolverLayerLive),
   Layer.provideMerge(ServerEnvironmentLayerLive),
-  Layer.provideMerge(AuthLayerLive),
   Layer.provideMerge(ServerSecretStore.layer),
 );
 
@@ -480,12 +470,11 @@ const commandReadinessLayer = HttpRouter.middleware(
 const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
-      Layer.provide(authHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(pullRequestHttpApiLayer),
       Layer.provide(projectHttpApiLayer),
       Layer.provide(serverEnvironmentHttpApiLayer),
-      Layer.provide(environmentAuthenticatedAuthLayer),
+      Layer.provide(localAuthHttpLayer),
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
@@ -508,7 +497,7 @@ const makeRoutesLayer = Layer.mergeAll(
   Layer.provide(PullRequestServiceLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(commandReadinessLayer),
-  Layer.provide(browserApiCorsLayer),
+  Layer.provide(desktopCorsLayer),
   Layer.provide(httpCompressionLayer),
 );
 

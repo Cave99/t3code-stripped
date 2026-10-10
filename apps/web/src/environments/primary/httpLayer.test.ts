@@ -3,17 +3,15 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { HttpClient } from "effect/unstable/http";
 
-import { __resetDesktopPrimaryAuthForTests } from "./desktopAuth";
 import { makePrimaryEnvironmentHttpLayer } from "./httpLayer";
 
 describe("primary environment HTTP layer", { concurrent: false }, () => {
   afterEach(() => {
-    __resetDesktopPrimaryAuthForTests();
     Reflect.deleteProperty(globalThis, "window");
     vi.unstubAllGlobals();
   });
 
-  it.effect("uses cookie credentials for browser primary environments", () => {
+  it.effect("omits browser cookies even without a desktop credential", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(globalThis, "window", {
@@ -27,10 +25,10 @@ describe("primary environment HTTP layer", { concurrent: false }, () => {
     });
 
     return Effect.gen(function* () {
-      yield* HttpClient.get("http://127.0.0.1:3773/api/auth/session");
+      yield* HttpClient.get("http://127.0.0.1:3773/.well-known/t3/environment");
 
       const request = new Request(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]);
-      expect(request.credentials).toBe("include");
+      expect(request.credentials).toBe("omit");
       expect(request.headers.get("authorization")).toBeNull();
     }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
   });
@@ -49,17 +47,16 @@ describe("primary environment HTTP layer", { concurrent: false }, () => {
             wsBaseUrl: "ws://127.0.0.1:3773",
             bootstrapToken: "desktop-bootstrap-token",
           }),
-          getLocalEnvironmentBearerToken: vi.fn().mockResolvedValue("desktop-bearer-token"),
         } as unknown as DesktopBridge,
       },
     });
 
     return Effect.gen(function* () {
-      yield* HttpClient.get("http://127.0.0.1:3773/api/connect/link-state");
+      yield* HttpClient.get("http://127.0.0.1:3773/api/projects");
 
       const request = new Request(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]);
-      expect(request.credentials).not.toBe("include");
-      expect(request.headers.get("authorization")).toBe("Bearer desktop-bearer-token");
+      expect(request.credentials).toBe("omit");
+      expect(request.headers.get("authorization")).toBe("Bearer desktop-bootstrap-token");
     }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
   });
 });

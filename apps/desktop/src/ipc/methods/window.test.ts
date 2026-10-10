@@ -15,10 +15,16 @@ vi.mock("electron", () => ({
   BrowserWindow: { fromWebContents: ownerWindow },
 }));
 
+import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
-import { getWindowFullscreenState, pasteAsText, pickProjectFavicon } from "./window.ts";
+import {
+  getLocalEnvironmentBootstrap,
+  getWindowFullscreenState,
+  pasteAsText,
+  pickProjectFavicon,
+} from "./window.ts";
 
 describe("getWindowFullscreenState", () => {
   it.effect("reads the current native window state", () => {
@@ -136,3 +142,25 @@ describe("pickProjectFavicon", () => {
     }),
   );
 });
+
+it.effect("hands the backend launch secret to the renderer through bootstrap IPC", () =>
+  Effect.gen(function* () {
+    const bootstrap = yield* getLocalEnvironmentBootstrap.handler();
+    assert.deepEqual(bootstrap, {
+      label: "This device",
+      httpBaseUrl: "http://127.0.0.1:3773/",
+      wsBaseUrl: "ws://127.0.0.1:3773/",
+      bootstrapToken: "launch-secret",
+    });
+  }).pipe(
+    Effect.provide(
+      DesktopBackendPool.layerTest({
+        label: Effect.succeed("This device"),
+        currentConfig: Effect.succeedSome({
+          bootstrap: { desktopBootstrapToken: "launch-secret" },
+          httpBaseUrl: new URL("http://127.0.0.1:3773"),
+        }),
+      } as unknown as DesktopBackendPool.DesktopBackendInstance),
+    ),
+  ),
+);

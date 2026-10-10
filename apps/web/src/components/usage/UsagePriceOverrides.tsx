@@ -1,21 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { ChevronDownIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react";
-import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/unstable/reactivity";
 import { useRef, useState } from "react";
 
-import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
-import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { EnvironmentUsageStatus } from "../../state/usage";
-import {
-  resolvePrimaryOperateAccess,
-  resolveRemoteOperateAccess,
-} from "../settings/ProviderSettingsPanel.logic";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -49,16 +42,6 @@ import {
 const priceTargetsAtom = Atom.make((get): readonly UsagePriceTarget[] =>
   [...get(environmentPresentations.presentationsAtom)].map(([environmentId, environment]) => {
     const settings = get(serverEnvironment.settingsValueAtom(environmentId));
-    const session = get(environmentSession.sessionStateAtom(environmentId));
-    const sessionAccess = {
-      session: Option.getOrNull(AsyncResult.value(session)),
-      isPending: session.waiting,
-      hasError: session._tag === "Failure",
-    };
-    const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
-    const access = isPrimary
-      ? resolvePrimaryOperateAccess({ ...sessionAccess, isPrimary, hasDesktopBridge: isElectron })
-      : resolveRemoteOperateAccess(sessionAccess);
     return {
       environmentId,
       label: environment.entry.target.label,
@@ -70,11 +53,7 @@ const priceTargetsAtom = Atom.make((get): readonly UsagePriceTarget[] =>
             ? "Prices not loaded"
             : environment.serverConfig?.environment.capabilities.usagePriceOverrides !== true
               ? "Update server to edit prices"
-              : access === "pending"
-                ? "Checking permissions…"
-                : access === "denied"
-                  ? "Read-only access"
-                  : null,
+              : null,
     };
   }),
 );

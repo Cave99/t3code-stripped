@@ -1,5 +1,4 @@
 import {
-  AuthOrchestrationReadScope,
   EnvironmentHttpApi,
   ThreadId,
   TurnItemId,
@@ -15,8 +14,7 @@ import {
   failEnvironmentInternal,
   failEnvironmentInvalidRequest,
   failEnvironmentNotFound,
-  requireEnvironmentScope,
-} from "../auth/http.ts";
+} from "../environment/httpErrors.ts";
 import * as OrchestrationEventStore from "../persistence/Services/OrchestrationEventStore.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import {
@@ -172,7 +170,6 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         "shellSnapshot",
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
-          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           return yield* loadShellSnapshot().pipe(
             Effect.catch((cause) =>
               failEnvironmentInternal("orchestration_snapshot_failed", cause),
@@ -184,7 +181,6 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         "threadSnapshot",
         Effect.fn("environment.orchestration.threadSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
-          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           const snapshot = yield* loadThreadSnapshot(
             args.params.threadId,
             "orchestration_thread_snapshot_failed",
@@ -199,7 +195,6 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         "threadBoundedSnapshot",
         Effect.fn("environment.orchestration.threadBoundedSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
-          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           const snapshot = yield* loadThreadSnapshotWindow(args.params.threadId);
           const bounded = buildBoundedThreadProjection({
             projection: snapshot.projection,
@@ -219,7 +214,6 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         "threadHistoryPage",
         Effect.fn("environment.orchestration.threadHistoryPage")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
-          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           let anchorItemId;
           try {
             anchorItemId = TurnItemId.make(decodeThreadHistoryCursor(args.query.cursor).si);

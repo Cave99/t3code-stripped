@@ -64,7 +64,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           environmentId: input.expectedEnvironmentId,
           label: "Authorized bearer environment",
           httpBaseUrl: input.httpBaseUrl,
-          socketUrl: "wss://authorized.example.test/ws?wsTicket=bearer",
+          socketUrl: "wss://authorized.example.test/ws?token=bearer",
           httpAuthorization: {
             _tag: "Bearer" as const,
             token: input.bearerToken,
@@ -102,7 +102,6 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
       ClientCapabilities.ClientPresentation,
       ClientCapabilities.ClientPresentation.of({
         metadata: { label: "Test Client", deviceType: "desktop", surface: "web" },
-        scopes: [],
       }),
     ),
     Layer.succeed(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization, remote),
@@ -114,7 +113,10 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 describe("ConnectionResolver", () => {
   it.effect("blocks an old host during discovery before opening orchestration RPC", () =>
     Effect.gen(function* () {
-      const brokerLayer = yield* makeDependencies({ descriptorProtocolVersion: null });
+      const brokerLayer = yield* makeDependencies({
+        primaryBearerToken: "launch-secret",
+        descriptorProtocolVersion: null,
+      });
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
       const target = new PrimaryConnectionTarget({
         environmentId: ENVIRONMENT_ID,
@@ -133,6 +135,7 @@ describe("ConnectionResolver", () => {
   it.effect("blocks an incompatible host during discovery before opening orchestration RPC", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies({
+        primaryBearerToken: "launch-secret",
         descriptorProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION + 1,
       });
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
@@ -150,7 +153,7 @@ describe("ConnectionResolver", () => {
     }),
   );
 
-  it.effect("prepares a primary environment without remote capabilities", () =>
+  it.effect("rejects a primary environment without its desktop credential", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies();
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
@@ -161,14 +164,8 @@ describe("ConnectionResolver", () => {
         wsBaseUrl: "ws://127.0.0.1:3777",
       });
 
-      expect(yield* broker.prepare(catalogEntry(target))).toEqual({
-        environmentId: ENVIRONMENT_ID,
-        label: "Primary",
-        httpBaseUrl: "http://127.0.0.1:3777",
-        socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2",
-        httpAuthorization: null,
-        target,
+      expect(yield* Effect.flip(broker.prepare(catalogEntry(target)))).toMatchObject({
+        reason: "authentication",
       });
     }),
   );
@@ -187,7 +184,7 @@ describe("ConnectionResolver", () => {
               environmentId: input.expectedEnvironmentId,
               label: "Primary",
               httpBaseUrl: input.httpBaseUrl,
-              socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=desktop",
+              socketUrl: "ws://127.0.0.1:3777/ws?token=desktop",
               httpAuthorization: {
                 _tag: "Bearer" as const,
                 token: input.bearerToken,
@@ -204,7 +201,7 @@ describe("ConnectionResolver", () => {
       });
 
       expect(yield* broker.prepare(catalogEntry(target))).toMatchObject({
-        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2",
+        socketUrl: "ws://127.0.0.1:3777/ws?token=desktop&orchestrationProtocol=2",
         httpAuthorization: { _tag: "Bearer", token: "desktop-bearer" },
         target,
       });
@@ -238,7 +235,7 @@ describe("ConnectionResolver", () => {
               environmentId: input.expectedEnvironmentId,
               label: "Saved",
               httpBaseUrl: input.httpBaseUrl,
-              socketUrl: "wss://environment.example.test/ws?wsTicket=ticket",
+              socketUrl: "wss://environment.example.test/ws?token=ticket",
               httpAuthorization: {
                 _tag: "Bearer" as const,
                 token: input.bearerToken,
@@ -250,7 +247,7 @@ describe("ConnectionResolver", () => {
 
       expect(
         (yield* broker.prepare(catalogEntry(target, Option.some(profile)))).socketUrl,
-      ).toContain("wsTicket=ticket");
+      ).toContain("token=ticket");
       expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "secret-bearer", method: "direct" }]);
     }),
   );

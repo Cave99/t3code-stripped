@@ -27,7 +27,6 @@ import * as Socket from "effect/unstable/socket/Socket";
 
 import {
   AVAILABLE_CONNECTION_STATE,
-  ConnectionBlockedError,
   ConnectionTransientError,
   PrimaryConnectionTarget,
   type PreparedConnection,
@@ -111,7 +110,7 @@ const PREPARED: PreparedConnection = {
   environmentId: TARGET.environmentId,
   label: TARGET.label,
   httpBaseUrl: TARGET.httpBaseUrl,
-  socketUrl: "wss://environment.example.test/ws?wsTicket=test",
+  socketUrl: "wss://environment.example.test/ws?token=test",
   httpAuthorization: null,
   target: TARGET,
 };
@@ -129,12 +128,6 @@ const SERVER_CONFIG: ServerConfigType = {
       repositoryIdentity: true,
       connectionProbe: true,
     },
-  },
-  auth: {
-    policy: "loopback-browser",
-    bootstrapMethods: ["one-time-token"],
-    sessionMethods: ["browser-session-cookie", "bearer-access-token"],
-    sessionCookieName: "t3_session",
   },
   cwd: "/tmp/workspace",
   keybindingsConfigPath: "/tmp/workspace/keybindings.json",
@@ -883,9 +876,10 @@ describe("RpcSessionFactory", () => {
                       {
                         _tag: "Fail",
                         error: {
-                          _tag: "EnvironmentAuthorizationError",
+                          _tag: "ServerSettingsError",
                           message: "config subscription rejected",
-                          requiredScope: "orchestration:read",
+                          operation: "read-file",
+                          settingsPath: "/settings.json",
                         },
                       },
                     ],
@@ -895,8 +889,10 @@ describe("RpcSessionFactory", () => {
           const firstClosedExit = yield* Fiber.join(firstClosed);
           expect(Exit.isFailure(firstClosedExit)).toBe(true);
           if (failure === "typed" && Exit.isFailure(firstClosedExit)) {
-            expect(Cause.squash(firstClosedExit.cause)).toBeInstanceOf(ConnectionBlockedError);
-            expect(Cause.squash(firstClosedExit.cause)).toMatchObject({ reason: "permission" });
+            expect(Cause.squash(firstClosedExit.cause)).toBeInstanceOf(ConnectionTransientError);
+            expect(Cause.squash(firstClosedExit.cause)).toMatchObject({
+              reason: "remote-unavailable",
+            });
           }
           yield* SubscriptionRef.set(activeSession, Option.none());
 

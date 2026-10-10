@@ -1,44 +1,7 @@
-import {
-  AuthAccessTokenType,
-  type AuthClientPresentationMetadata,
-  AuthEnvironmentBootstrapTokenType,
-  AuthTokenExchangeGrantType,
-  type ClientConnectionMethod,
-  type AuthEnvironmentScope,
-} from "@t3tools/contracts";
-import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
+import type { AuthClientPresentationMetadata, ClientConnectionMethod } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { environmentEndpointUrl } from "../environment/endpoint.ts";
-import {
-  executeEnvironmentHttpRequest,
-  makeEnvironmentHttpApiGroupClient,
-  type RemoteEnvironmentRequestError,
-} from "../rpc/http.ts";
+export type { RemoteEnvironmentRequestError as RemoteEnvironmentAuthError } from "../rpc/http.ts";
 
-export {
-  RemoteEnvironmentAuthInvalidJsonError,
-  RemoteEnvironmentAuthTimeoutError,
-  RemoteEnvironmentAuthUndeclaredStatusError,
-} from "../rpc/http.ts";
-export type RemoteEnvironmentAuthError = RemoteEnvironmentRequestError;
-
-const DEFAULT_REMOTE_REQUEST_TIMEOUT_MS = 10_000;
-
-const clientMetadataTokenExchangeFields = (
-  clientMetadata: AuthClientPresentationMetadata | undefined,
-) => {
-  const displayOs = clientMetadata?.os;
-  return {
-    ...(clientMetadata?.label ? { client_label: clientMetadata.label } : {}),
-    ...(clientMetadata?.deviceType ? { client_device_type: clientMetadata.deviceType } : {}),
-    ...(displayOs && displayOs !== "unknown" && displayOs !== "other"
-      ? { client_os: displayOs }
-      : {}),
-  };
-};
-
-// The server reads these off the /ws upgrade URL next to wsTicket. Optional on
-// both ends: old servers ignore unknown params, old clients never send them.
 export const appendClientConnectionParams = (
   url: URL,
   clientMetadata: AuthClientPresentationMetadata | undefined,
@@ -83,92 +46,16 @@ export const appendClientConnectionParams = (
   }
 };
 
-export const bootstrapRemoteBearerSession = Effect.fn(
-  "clientRuntime.authorization.bootstrapRemoteBearerSession",
-)(function* (input: {
-  readonly httpBaseUrl: string;
-  readonly credential: string;
-  readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
-  readonly clientMetadata?: AuthClientPresentationMetadata;
-  readonly timeoutMs?: number;
-}) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
-  return yield* executeEnvironmentHttpRequest(
-    environmentEndpointUrl(input.httpBaseUrl, "/oauth/token"),
-    input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.token({
-      headers: {},
-      payload: {
-        grant_type: AuthTokenExchangeGrantType,
-        subject_token: input.credential,
-        subject_token_type: AuthEnvironmentBootstrapTokenType,
-        requested_token_type: AuthAccessTokenType,
-        ...(input.scopes ? { scope: encodeOAuthScope(input.scopes) } : {}),
-        ...clientMetadataTokenExchangeFields(input.clientMetadata),
-      },
-    }),
-  );
-});
-
-export const fetchRemoteSessionState = Effect.fn(
-  "clientRuntime.authorization.fetchRemoteSessionState",
-)(function* (input: {
-  readonly httpBaseUrl: string;
-  readonly bearerToken: string;
-  readonly timeoutMs?: number;
-}) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
-  return yield* executeEnvironmentHttpRequest(
-    environmentEndpointUrl(input.httpBaseUrl, "/api/auth/session"),
-    input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.session({
-      headers: {
-        authorization: `Bearer ${input.bearerToken}`,
-      },
-    }),
-  );
-});
-
-export const issueRemoteWebSocketTicket = Effect.fn(
-  "clientRuntime.authorization.issueRemoteWebSocketTicket",
-)(function* (input: {
-  readonly httpBaseUrl: string;
-  readonly bearerToken: string;
-  readonly timeoutMs?: number;
-}) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
-  return yield* executeEnvironmentHttpRequest(
-    environmentEndpointUrl(input.httpBaseUrl, "/api/auth/websocket-ticket"),
-    input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.webSocketTicket({
-      headers: {
-        authorization: `Bearer ${input.bearerToken}`,
-      },
-    }),
-  );
-});
-
-export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
-  "clientRuntime.authorization.resolveRemoteWebSocketConnectionUrl",
-)(function* (input: {
+export const resolveRemoteWebSocketConnectionUrl = (input: {
   readonly wsBaseUrl: string;
-  readonly httpBaseUrl: string;
   readonly bearerToken: string;
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly connectionMethod?: ClientConnectionMethod;
-  readonly timeoutMs?: number;
-}) {
-  const issued = yield* issueRemoteWebSocketTicket({
-    httpBaseUrl: input.httpBaseUrl,
-    bearerToken: input.bearerToken,
-    ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+}) =>
+  Effect.sync(() => {
+    const url = new URL(input.wsBaseUrl);
+    if (url.pathname === "" || url.pathname === "/") url.pathname = "/ws";
+    url.searchParams.set("token", input.bearerToken);
+    appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
+    return url.toString();
   });
-
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
-  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
-  return url.toString();
-});

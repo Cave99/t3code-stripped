@@ -3,10 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   EnvironmentAuthInvalidError,
   EnvironmentInternalError,
-  EnvironmentOperationForbiddenError,
   EnvironmentRequestInvalidError,
   EnvironmentResourceNotFoundError,
-  EnvironmentScopeRequiredError,
 } from "./environmentHttp.ts";
 
 const traceId = "trace-1";
@@ -26,16 +24,6 @@ describe("environment HTTP errors", () => {
         reason: "missing_credential",
         traceId,
       }),
-      new EnvironmentScopeRequiredError({
-        code: "insufficient_scope",
-        requiredScope: "orchestration:read",
-        traceId,
-      }),
-      new EnvironmentOperationForbiddenError({
-        code: "operation_forbidden",
-        reason: "current_session_revoke_not_allowed",
-        traceId,
-      }),
       new EnvironmentResourceNotFoundError({
         code: "not_found",
         reason: "thread_not_found",
@@ -50,8 +38,6 @@ describe("environment HTTP errors", () => {
     const details = [
       "invalid_command",
       "missing_credential",
-      "orchestration:read",
-      "current_session_revoke_not_allowed",
       "thread_not_found",
       "orchestration_snapshot_failed",
     ];

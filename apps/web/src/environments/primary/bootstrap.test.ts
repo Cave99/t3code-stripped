@@ -262,7 +262,7 @@ describe("environmentBootstrap", () => {
 
     expect(readPrimaryEnvironmentTarget()).toBeNull();
     expect(getPrimaryKnownEnvironment()).toBeNull();
-    expect(() => resolvePrimaryEnvironmentHttpUrl("/api/auth/session")).toThrow(
+    expect(() => resolvePrimaryEnvironmentHttpUrl("/api/projects")).toThrow(
       "The local environment is disabled.",
     );
   });

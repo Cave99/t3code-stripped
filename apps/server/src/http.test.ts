@@ -15,12 +15,12 @@ import * as ServerConfig from "./config.ts";
 
 import {
   assetResponseHeaders,
-  browserApiCorsLayer,
+  desktopCorsLayer,
   assetFileResponse,
   downloadContentDisposition,
 } from "./http.ts";
 
-describe("browser API CORS", () => {
+describe("desktop API CORS", () => {
   it("accepts protocol negotiation with authenticated browser headers", async () => {
     const routeLayer = Layer.effectDiscard(
       Effect.gen(function* () {
@@ -28,7 +28,7 @@ describe("browser API CORS", () => {
         yield* router.add("GET", "/api/environment", HttpServerResponse.empty());
       }),
     );
-    const appLayer = Layer.merge(routeLayer, browserApiCorsLayer).pipe(
+    const appLayer = Layer.merge(routeLayer, desktopCorsLayer).pipe(
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "http-cors-test-" })),
       Layer.provide(NodeServices.layer),
     );
@@ -39,19 +39,18 @@ describe("browser API CORS", () => {
         new Request("https://backend.example/api/environment", {
           method: "OPTIONS",
           headers: {
-            origin: "https://app.t3.codes",
+            origin: "t3code://app",
             "access-control-request-method": "GET",
-            "access-control-request-headers": [
-              ORCHESTRATION_PROTOCOL_HEADER,
-              "authorization",
-              "dpop",
-            ].join(", "),
+            "access-control-request-headers": [ORCHESTRATION_PROTOCOL_HEADER, "authorization"].join(
+              ", ",
+            ),
           },
         }),
       );
 
       expect(response.status).toBe(204);
-      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.has("access-control-allow-credentials")).toBe(false);
+      expect(response.headers.get("access-control-allow-origin")).toBe("t3code://app");
       const allowedHeaders = new Set(
         (response.headers.get("access-control-allow-headers") ?? "")
           .split(",")
@@ -59,7 +58,14 @@ describe("browser API CORS", () => {
       );
       expect(allowedHeaders.has(ORCHESTRATION_PROTOCOL_HEADER)).toBe(true);
       expect(allowedHeaders.has("authorization")).toBe(true);
-      expect(allowedHeaders.has("dpop")).toBe(true);
+      expect(allowedHeaders.has("dpop")).toBe(false);
+      const rejected = await handler(
+        new Request("http://127.0.0.1:3773/api/environment", {
+          method: "OPTIONS",
+          headers: { origin: "https://evil.example", "access-control-request-method": "GET" },
+        }),
+      );
+      expect(rejected.headers.has("access-control-allow-origin")).toBe(false);
     } finally {
       await dispose();
     }

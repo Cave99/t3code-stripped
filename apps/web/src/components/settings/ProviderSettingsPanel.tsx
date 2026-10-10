@@ -29,8 +29,6 @@ import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { isElectron } from "../../env";
-import { usePrimarySessionState } from "../../environments/primary";
 import {
   useEnvironmentSettings,
   usePersistEnvironmentProviderInstanceMutation,
@@ -46,7 +44,6 @@ import {
   type EnvironmentPresentation,
 } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
-import { useEnvironmentSessionState } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getRelativeTimeState } from "../../timestampFormat";
 import {
@@ -111,8 +108,6 @@ import {
   isProviderSettingsEnvironmentAvailable,
   type ProviderEnvironmentAccess,
   type ProviderOperateAccess,
-  resolvePrimaryOperateAccess,
-  resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
 
@@ -447,83 +442,10 @@ function SelectedEnvironmentProviderSettings({
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
 }) {
-  const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
-  if (isPrimary) {
-    // The desktop app owns its primary server outright; a browser session
-    // checks the scopes its cookie session was granted.
-    if (isElectron) {
-      return (
-        <AccessGatedProviderSettings
-          environment={environment}
-          operateAccess="granted"
-          deviceTabs={deviceTabs}
-          targetInstanceId={targetInstanceId}
-        />
-      );
-    }
-    return (
-      <PrimarySessionGatedProviderSettings
-        environment={environment}
-        deviceTabs={deviceTabs}
-        targetInstanceId={targetInstanceId}
-      />
-    );
-  }
-  return (
-    <RemoteSessionGatedProviderSettings
-      environment={environment}
-      deviceTabs={deviceTabs}
-      targetInstanceId={targetInstanceId}
-    />
-  );
-}
-
-function PrimarySessionGatedProviderSettings({
-  environment,
-  deviceTabs,
-  targetInstanceId,
-}: {
-  readonly environment: EnvironmentPresentation;
-  readonly deviceTabs?: ReactNode;
-  readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
-  const primarySessionState = usePrimarySessionState();
-  const operateAccess = resolvePrimaryOperateAccess({
-    isPrimary: true,
-    hasDesktopBridge: false,
-    session: primarySessionState.data,
-    isPending: primarySessionState.isPending,
-    hasError: primarySessionState.error !== null,
-  });
   return (
     <AccessGatedProviderSettings
+      operateAccess="granted"
       environment={environment}
-      operateAccess={operateAccess}
-      deviceTabs={deviceTabs}
-      targetInstanceId={targetInstanceId}
-    />
-  );
-}
-
-function RemoteSessionGatedProviderSettings({
-  environment,
-  deviceTabs,
-  targetInstanceId,
-}: {
-  readonly environment: EnvironmentPresentation;
-  readonly deviceTabs?: ReactNode;
-  readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
-  const sessionState = useEnvironmentSessionState(environment.environmentId);
-  const operateAccess = resolveRemoteOperateAccess({
-    session: sessionState.data,
-    isPending: sessionState.isPending,
-    hasError: sessionState.hasError,
-  });
-  return (
-    <AccessGatedProviderSettings
-      environment={environment}
-      operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
     />

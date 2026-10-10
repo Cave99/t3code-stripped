@@ -7,11 +7,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ORCHESTRATION_PROTOCOL_HEADER,
   ORCHESTRATION_PROTOCOL_VERSION,
-  AuthSessionId,
-  AuthOrchestrationReadScope,
   EnvironmentHttpApi,
   EnvironmentAuthenticatedAuth,
-  EnvironmentAuthenticatedPrincipal,
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationV2RpcSchemas,
   OrchestrationV2ThreadDetailSnapshot,
@@ -117,16 +114,7 @@ const services = management.pipe(
 class TransferApi extends HttpApi.make("environment").add(
   EnvironmentHttpApi.groups.orchestration,
 ) {}
-const auth = Layer.succeed(EnvironmentAuthenticatedAuth, (effect) =>
-  effect.pipe(
-    Effect.provideService(EnvironmentAuthenticatedPrincipal, {
-      sessionId: AuthSessionId.make("transfer-session"),
-      subject: "transfer-test",
-      method: "browser-session-cookie",
-      scopes: new Set([AuthOrchestrationReadScope]),
-    }),
-  ),
-);
+const auth = Layer.succeed(EnvironmentAuthenticatedAuth, (effect) => effect);
 const group = RpcGroup.make(
   Rpc.make(ORCHESTRATION_V2_WS_METHODS.subscribeThread, {
     payload: OrchestrationV2RpcSchemas.subscribeThread.input,

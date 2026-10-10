@@ -40,13 +40,6 @@ export function mapRemoteEnvironmentError(
         detail: "The environment credential is invalid.",
         traceId: error.traceId,
       });
-    case "EnvironmentScopeRequiredError":
-    case "EnvironmentOperationForbiddenError":
-      return new ConnectionBlockedError({
-        reason: "permission",
-        detail: "The environment credential does not grant the required access.",
-        traceId: error.traceId,
-      });
     case "EnvironmentRequestInvalidError":
       return new ConnectionBlockedError({
         reason: "configuration",

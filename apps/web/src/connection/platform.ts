@@ -14,7 +14,6 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
 import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
-import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -103,7 +102,6 @@ const capabilitiesLayer = Layer.effectContext(
   Effect.sync(() => {
     const presentation = ClientCapabilities.ClientPresentation.of({
       metadata: clientMetadata(),
-      scopes: AuthStandardClientScopes,
     });
     const primaryAuth = ClientCapabilities.PrimaryEnvironmentAuth.of({
       bearerToken: Effect.tryPromise({

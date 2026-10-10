@@ -1,4 +1,4 @@
-import type { AuthClientPresentationMetadata, AuthEnvironmentScope } from "@t3tools/contracts";
+import type { AuthClientPresentationMetadata } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
@@ -9,7 +9,6 @@ export class ClientPresentation extends Context.Service<
   ClientPresentation,
   {
     readonly metadata: AuthClientPresentationMetadata;
-    readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   }
 >()("@t3tools/client-runtime/platform/capabilities/ClientPresentation") {}
 

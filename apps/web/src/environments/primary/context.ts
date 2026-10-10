@@ -6,7 +6,6 @@ import {
 import type { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { PrimaryEnvironmentRequestError, retryTransientBootstrap } from "./auth";
 import { PrimaryEnvironmentHttpClient } from "./httpClient";
 
 import { runPrimaryHttp } from "../../lib/runtime";
@@ -36,22 +35,11 @@ function createPrimaryKnownEnvironment(input: {
 }
 
 async function fetchPrimaryEnvironmentDescriptor(): Promise<ExecutionEnvironmentDescriptor> {
-  return retryTransientBootstrap(async () => {
-    let descriptor: ExecutionEnvironmentDescriptor;
-    try {
-      descriptor = await runPrimaryHttp(
-        PrimaryEnvironmentHttpClient.pipe(Effect.flatMap((client) => client.metadata.descriptor())),
-      );
-    } catch (error) {
-      throw PrimaryEnvironmentRequestError.fromCause({
-        operation: "fetch-environment-descriptor",
-        cause: error,
-      });
-    }
-
-    writePrimaryEnvironmentDescriptor(descriptor);
-    return descriptor;
-  });
+  const descriptor = await runPrimaryHttp(
+    PrimaryEnvironmentHttpClient.pipe(Effect.flatMap((client) => client.metadata.descriptor())),
+  );
+  writePrimaryEnvironmentDescriptor(descriptor);
+  return descriptor;
 }
 
 function readPrimaryEnvironmentDescriptor(): ExecutionEnvironmentDescriptor | null {

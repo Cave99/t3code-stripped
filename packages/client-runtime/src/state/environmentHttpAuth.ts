@@ -5,7 +5,7 @@ import {
 } from "@t3tools/contracts";
 import { FetchHttpClient, type HttpMethod } from "effect/unstable/http";
 
-import type { PreparedConnection, PreparedHttpAuthorization } from "../connection/model.ts";
+import type { PreparedConnection } from "../connection/model.ts";
 import {
   executeEnvironmentHttpRequest,
   makeEnvironmentHttpApiGroupClient,
@@ -29,24 +29,7 @@ export function withOrchestrationProtocolHeader(
 }
 
 /**
- * Primary/local environments with no bearer credential authenticate the
- * browser via a session cookie. A cross-origin `fetch` does not send cookies by
- * default, so those requests must opt into credentialed mode; bearer
- * connections carry their credential in a header and need no cookies. Applied
- * per-request via `FetchHttpClient.RequestInit`, which the fetch client reads
- * from the fiber context at request time.
- */
-const withEnvironmentCredentials = <A, E, R>(
-  authorization: PreparedHttpAuthorization | null,
-  request: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> =>
-  authorization === null
-    ? request.pipe(Effect.provideService(FetchHttpClient.RequestInit, { credentials: "include" }))
-    : request;
-
-/**
- * Run an environment HTTP request with the connection's credential: primary/local
- * connections send cookies, bearer connections send a static `Bearer` header.
+ * Run an environment HTTP request with the desktop launch secret in a Bearer header.
  */
 export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
   "clientRuntime.state.executeAuthenticatedEnvironmentHttpRequest",
@@ -78,7 +61,9 @@ export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
   return yield* executeEnvironmentHttpRequest(
     requestUrl,
     input.timeoutMs,
-    withEnvironmentCredentials(authorization, input.request({ client, headers })),
+    input
+      .request({ client, headers })
+      .pipe(Effect.provideService(FetchHttpClient.RequestInit, { credentials: "omit" })),
   ).pipe(
     Effect.timeoutOrElse({
       duration: input.timeoutMs,

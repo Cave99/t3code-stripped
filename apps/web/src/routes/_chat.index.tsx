@@ -20,10 +20,10 @@ import { useEnvironments } from "../state/environments";
 import { APP_DISPLAY_NAME } from "~/branding";
 
 function ChatIndexRouteView() {
-  const { authGateState } = Route.useRouteContext();
+  const { localEnvironmentEnabled } = Route.useRouteContext();
   const { environments, isReady } = useEnvironments();
 
-  if (authGateState.status === "hosted-static") {
+  if (!localEnvironmentEnabled) {
     if (!isReady) return null;
     if (environments.length === 0) return <HostedStaticOnboardingState />;
   }

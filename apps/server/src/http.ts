@@ -1,8 +1,4 @@
-import {
-  AuthOrchestrationOperateScope,
-  AuthOrchestrationReadScope,
-  EnvironmentHttpApi,
-} from "@t3tools/contracts";
+import { EnvironmentHttpApi } from "@t3tools/contracts";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Mime from "effect/unstable/http/Mime";
 import * as Data from "effect/Data";
@@ -34,18 +30,12 @@ import {
   validateAttachmentUploadToken,
 } from "./assets/AttachmentUpload.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
-import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
-import {
-  annotateEnvironmentRequest,
-  failEnvironmentScopeRequired,
-  failEnvironmentAuthInvalid,
-  failEnvironmentInternal,
-} from "./auth/http.ts";
+import { authenticateLocalRequest, desktopOrigins } from "./auth/local.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
-import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from "./httpCors.ts";
+import { annotateEnvironmentRequest } from "./environment/httpErrors.ts";
+import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
 
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
-const DESKTOP_RENDERER_ORIGINS = ["t3code://app", "t3code-dev://app"];
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 // HTML previews are agent output, not the app. The sandbox gives the document an
 // opaque origin: scripts run, but same-origin cookies, storage, and API calls are
@@ -226,48 +216,23 @@ export const httpCompressionLayer = HttpRouter.middleware(HttpMiddleware.compres
   global: true,
 });
 
-export const browserApiCorsLayer = Layer.unwrap(
+export const desktopCorsLayer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    const devOrigin = config.devUrl?.origin;
-    // Dev uses credentialed requests from Vite or the Electron custom origin, so both must be
-    // explicit. Packaged desktop omits credentials and uses Effect's default wildcard origin.
-    //
     return HttpRouter.cors({
-      ...(devOrigin
-        ? {
-            allowedOrigins: [devOrigin, ...DESKTOP_RENDERER_ORIGINS],
-            credentials: true,
-          }
-        : {}),
-      allowedMethods: browserApiCorsAllowedMethods,
-      allowedHeaders: browserApiCorsAllowedHeaders,
+      allowedOrigins: desktopOrigins(config),
+      allowedMethods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: [
+        "authorization",
+        "b3",
+        "traceparent",
+        "content-type",
+        ORCHESTRATION_PROTOCOL_HEADER,
+      ],
       maxAge: 600,
     });
   }),
 );
-
-const authenticateRawRouteWithScope = (
-  scope: typeof AuthOrchestrationReadScope | typeof AuthOrchestrationOperateScope,
-) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-    const session = yield* serverAuth.authenticateHttpRequest(request).pipe(
-      Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
-        failEnvironmentAuthInvalid(
-          EnvironmentAuth.serverAuthCredentialReason(error),
-          EnvironmentAuth.serverAuthDpopFailureReason(error),
-        ),
-      ),
-      Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
-        failEnvironmentInternal("internal_error", error),
-      ),
-    );
-    if (!session.scopes.includes(scope)) {
-      return yield* failEnvironmentScopeRequired(scope);
-    }
-  });
 
 export const serverEnvironmentHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -296,7 +261,7 @@ export const otlpTracesProxyRouteLayer = HttpRouter.add(
   "POST",
   OTLP_TRACES_PROXY_PATH,
   Effect.gen(function* () {
-    yield* authenticateRawRouteWithScope(AuthOrchestrationOperateScope);
+    yield* authenticateLocalRequest(yield* HttpServerRequest.HttpServerRequest, "http");
     const request = yield* HttpServerRequest.HttpServerRequest;
     const config = yield* ServerConfig.ServerConfig;
     const otlpTracesUrl = config.otlpTracesUrl;
@@ -339,14 +304,13 @@ export const otlpTracesProxyRouteLayer = HttpRouter.add(
   }).pipe(
     Effect.catchTags({
       EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
-      EnvironmentInternalError: HttpServerRespondable.toResponse,
-      EnvironmentScopeRequiredError: HttpServerRespondable.toResponse,
     }),
     Effect.withTracerEnabled(false),
   ),
 );
 
-const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_PATH]);
+// WebSocket upgrades carry the launch secret in their query, which must never enter a span.
+const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_PATH, "/ws"]);
 
 // Skips the HTTP server span for UNTRACED_REQUEST_PATHS. That span starts
 // before routing, so a route handler cannot skip it. TracerDisabledWhen is one

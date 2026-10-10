@@ -4,7 +4,6 @@ import {
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceContextNotFoundError,
-  EnvironmentAuthorizationError,
   EnvironmentId,
   type ProjectCloneSnapshot,
   ProjectId,
@@ -72,7 +71,6 @@ describe("createAssetEnvironmentAtoms", () => {
     { name: "primary reconnect", path: "/tmp/frame.png", primary: "reconnecting" },
     { name: "same environment", path: "/tmp/clip.mp4", primary: "same" },
     { name: "non-media", path: "/tmp/report.html" },
-    { name: "authorization failure", path: "/tmp/clip.mp4", error: "auth" },
   ])("uses the correct environment for $name", (scenario) =>
     Effect.gen(function* () {
       const remoteId = EnvironmentId.make("remote");
@@ -83,16 +81,11 @@ describe("createAssetEnvironmentAtoms", () => {
         path: scenario.path,
       };
       const error =
-        scenario.error === "auth"
-          ? new EnvironmentAuthorizationError({
-              message: "denied",
-              requiredScope: "orchestration:read",
-            })
-          : scenario.error === "inspection"
-            ? new AssetWorkspaceAssetInspectionError({ resource, cause: new Error("unreadable") })
-            : scenario.error === "context"
-              ? new AssetWorkspaceContextNotFoundError({ resource })
-              : new AssetWorkspaceAssetNotFoundError({ resource });
+        scenario.error === "inspection"
+          ? new AssetWorkspaceAssetInspectionError({ resource, cause: new Error("unreadable") })
+          : scenario.error === "context"
+            ? new AssetWorkspaceContextNotFoundError({ resource })
+            : new AssetWorkspaceAssetNotFoundError({ resource });
       const calls: EnvironmentId[] = [];
       const supervisors = new Map<
         EnvironmentId,

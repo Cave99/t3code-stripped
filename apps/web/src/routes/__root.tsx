@@ -56,7 +56,6 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { shellEnvironment } from "../state/shell";
 import { useAtomValue } from "@effect/atom-react";
@@ -78,18 +77,10 @@ import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
 export const Route = createRootRoute({
-  beforeLoad: async ({ location }) => {
-    if (isLocalEnvironmentDisabled()) {
-      return {
-        authGateState: {
-          status: "hosted-static",
-        } as const,
-      };
-    }
-
-    const authGateState = await resolveInitialServerAuthGateState();
+  beforeLoad: ({ location }) => {
+    const localEnvironmentEnabled = !isLocalEnvironmentDisabled();
     if (
-      authGateState.status === "authenticated" &&
+      localEnvironmentEnabled &&
       getDesktopSnapShotBridge() &&
       shouldResumeSnapShotSetupOnStartup() &&
       location.pathname !== "/settings/snap-shot"
@@ -97,7 +88,7 @@ export const Route = createRootRoute({
       throw redirect({ to: "/settings/snap-shot", replace: true });
     }
     return {
-      authGateState,
+      localEnvironmentEnabled,
     };
   },
   component: RootRouteView,
@@ -123,26 +114,10 @@ function RootRouteNotFoundView() {
   );
 }
 
-/** Shown when the renderer cannot authenticate to the bundled local server. */
-function LocalServerUnavailableView(props: { readonly message?: string | undefined }) {
-  return (
-    <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-6">
-      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-        <h1 className="text-lg font-medium text-foreground">Could not reach the local server</h1>
-        <p className="text-sm text-muted-foreground">
-          {props.message ?? `${APP_DISPLAY_NAME} could not connect to its bundled server.`}
-        </p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
-      </div>
-    </main>
-  );
-}
-
 function RootRouteView() {
   useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
-  const { authGateState } = Route.useRouteContext();
-  const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
+  const { localEnvironmentEnabled } = Route.useRouteContext();
   const returningFromWelcomeRef = useRef(pathname === "/welcome");
 
   useEffect(() => {
@@ -183,19 +158,6 @@ function RootRouteView() {
     );
   }
 
-  if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
-    return (
-      <>
-        <DocumentTitleSync />
-        <LocalServerUnavailableView
-          message={
-            authGateState.status === "requires-auth" ? authGateState.errorMessage : undefined
-          }
-        />
-      </>
-    );
-  }
-
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
@@ -218,25 +180,22 @@ function RootRouteView() {
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
-        <FirstRunGate
-          enabled={primaryEnvironmentAuthenticated}
-          hostedStatic={authGateState.status === "hosted-static"}
-        >
-          {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
+        <FirstRunGate enabled={localEnvironmentEnabled} hostedStatic={!localEnvironmentEnabled}>
+          {localEnvironmentEnabled ? <AuthenticatedTracingBootstrap /> : null}
           {isElectron ? <RunningThreadKeepAlive /> : null}
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
           <SlowRpcRequestToastCoordinator />
-          {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
+          {localEnvironmentEnabled ? <LegacyThreadMigrationToast /> : null}
           <ProjectCloneToastCoordinator />
           <HostedStaticEnvironmentBootstrap />
-          {primaryEnvironmentAuthenticated ? (
+          {localEnvironmentEnabled ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />
           ) : null}
-          {primaryEnvironmentAuthenticated ? <PlanAgentSelectionHeal /> : null}
-          {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
+          {localEnvironmentEnabled ? <PlanAgentSelectionHeal /> : null}
+          {localEnvironmentEnabled ? <ProviderUpdateLaunchNotification /> : null}
           {appShell}
           {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}

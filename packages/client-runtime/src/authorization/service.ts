@@ -90,7 +90,6 @@ export const make = Effect.gen(function* () {
       }
       const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
         wsBaseUrl: input.wsBaseUrl,
-        httpBaseUrl: input.httpBaseUrl,
         bearerToken: input.bearerToken,
         clientMetadata: presentation.metadata,
         connectionMethod: input.connectionMethod,

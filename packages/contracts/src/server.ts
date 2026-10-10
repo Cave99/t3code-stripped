@@ -5,7 +5,6 @@ import {
   ExecutionEnvironmentDescriptor,
   ServerSelfUpdateMethod,
 } from "./environment.ts";
-import { ServerAuthDescriptor } from "./auth.ts";
 import {
   ForwardCompatibleArray,
   IsoDateTime,
@@ -601,7 +600,6 @@ export function environmentThemeFileHasColors(file: EnvironmentThemeFile): boole
 
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
-  auth: ServerAuthDescriptor,
   cwd: TrimmedNonEmptyString,
   keybindingsConfigPath: TrimmedNonEmptyString,
   keybindings: ResolvedKeybindingsConfig,

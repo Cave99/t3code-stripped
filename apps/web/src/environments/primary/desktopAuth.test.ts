@@ -1,7 +1,7 @@
 import type { DesktopBridge } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
 
-import { __resetDesktopPrimaryAuthForTests, readDesktopPrimaryBearerToken } from "./desktopAuth";
+import { readDesktopPrimaryBearerToken } from "./desktopAuth";
 
 describe("desktop primary auth", () => {
   beforeEach(() => {
@@ -12,22 +12,23 @@ describe("desktop primary auth", () => {
   });
 
   afterEach(() => {
-    __resetDesktopPrimaryAuthForTests();
     Reflect.deleteProperty(globalThis, "window");
   });
 
-  it("reuses the main-process bearer token across renderer requests", async () => {
-    const getLocalEnvironmentBearerToken = vi.fn().mockResolvedValue("desktop-bearer-token");
+  it("reads the launch secret from bootstrap IPC for each request", async () => {
+    const getLocalEnvironmentBootstrap = vi
+      .fn()
+      .mockReturnValue({ bootstrapToken: "launch-secret" });
     window.desktopBridge = {
-      getLocalEnvironmentBearerToken,
+      getLocalEnvironmentBootstrap,
     } as unknown as DesktopBridge;
 
-    await expect(readDesktopPrimaryBearerToken()).resolves.toBe("desktop-bearer-token");
-    await expect(readDesktopPrimaryBearerToken()).resolves.toBe("desktop-bearer-token");
-    expect(getLocalEnvironmentBearerToken).toHaveBeenCalledTimes(1);
+    await expect(readDesktopPrimaryBearerToken()).resolves.toBe("launch-secret");
+    await expect(readDesktopPrimaryBearerToken()).resolves.toBe("launch-secret");
+    expect(getLocalEnvironmentBootstrap).toHaveBeenCalledTimes(2);
   });
 
-  it("does not require desktop auth in a browser", async () => {
+  it("returns no credential without the desktop bridge", async () => {
     await expect(readDesktopPrimaryBearerToken()).resolves.toBeNull();
   });
 });
