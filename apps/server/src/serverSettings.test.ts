@@ -1154,7 +1154,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       yield* secrets.set("bitbucket-access-token", new TextEncoder().encode("stale-token"));
       yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
 
-      yield* serverSettings.updateSettings({ cursorKeychainUsageEnabled: true });
+      yield* serverSettings.updateSettings({ newWorktreesStartFromOrigin: false });
 
       assert.isTrue(Option.isNone(yield* secrets.get("bitbucket-access-token")));
     }).pipe(Effect.provide(makeServerSettingsLayerWithSecrets())),

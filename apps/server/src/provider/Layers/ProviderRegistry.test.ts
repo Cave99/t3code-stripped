@@ -33,7 +33,7 @@ import {
 import * as PlatformError from "effect/PlatformError";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { deepMerge } from "@t3tools/shared/Struct";
+
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
@@ -42,13 +42,9 @@ import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import { applyProviderCompatibility } from "../providerCompatibility.ts";
-import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
-import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
-import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
+
 import {
   mergeProviderSnapshot,
-  mergeProviderSnapshots,
-  selectProvidersByKind,
   upsertProviderWorkspaceSnapshot,
   ProviderRegistryLive,
 } from "./ProviderRegistry.ts";
@@ -733,82 +729,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
           ...refreshedProvider.models,
         ]);
-      });
-
-      it("drops stale ACP Registry models missing from a completed discovery probe", () => {
-        const previousProvider = {
-          instanceId: ProviderInstanceId.make("acpRegistry_codex"),
-          driver: ProviderDriverKind.make("acpRegistry"),
-          status: "ready",
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          checkedAt: "2026-08-13T00:00:00.000Z",
-          version: "1.2.0",
-          models: [
-            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
-            {
-              slug: "gpt-5.6-sol[low]",
-              name: "GPT-5.6-Sol (low)",
-              isCustom: false,
-              capabilities: null,
-            },
-            { slug: "default", name: "Default", isCustom: false, capabilities: null },
-          ],
-          slashCommands: [],
-          skills: [],
-        } as const satisfies ServerProvider;
-        const refreshedProvider = {
-          ...previousProvider,
-          checkedAt: "2026-08-13T00:01:00.000Z",
-          models: [
-            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
-          ],
-        } satisfies ServerProvider;
-
-        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
-          ...refreshedProvider.models,
-        ]);
-      });
-
-      it("retains ACP Registry models while discovery has not completed", () => {
-        const previousProvider = {
-          instanceId: ProviderInstanceId.make("acpRegistry_codex"),
-          driver: ProviderDriverKind.make("acpRegistry"),
-          status: "ready",
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          checkedAt: "2026-08-13T00:00:00.000Z",
-          version: "1.2.0",
-          models: [
-            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
-          ],
-          slashCommands: [],
-          skills: [],
-        } as const satisfies ServerProvider;
-        const checkingProvider = {
-          ...previousProvider,
-          checkedAt: "2026-08-13T00:01:00.000Z",
-          auth: { status: "unknown" },
-          models: [{ slug: "default", name: "Default", isCustom: false, capabilities: null }],
-        } satisfies ServerProvider;
-        const failedProbeProvider = {
-          ...checkingProvider,
-          status: "warning",
-        } satisfies ServerProvider;
-
-        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, checkingProvider).models, [
-          { slug: "default", name: "Default", isCustom: false, capabilities: null },
-          { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
-        ]);
-        assert.deepStrictEqual(
-          mergeProviderSnapshot(previousProvider, failedProbeProvider).models,
-          [
-            { slug: "default", name: "Default", isCustom: false, capabilities: null },
-            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
-          ],
-        );
       });
 
       describe("Codex model inventories", () => {

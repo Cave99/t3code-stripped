@@ -117,12 +117,7 @@ export function SourceControlWritingSettingsSection() {
     (entry) =>
       entry.instanceId === defaultModelSelection.instanceId && entry.enabled && entry.isAvailable,
   );
-  const modelOptionsByInstance = getCustomModelOptionsByInstance(
-    settings,
-    textGenerationProviders,
-    activeSelection.instanceId,
-    activeSelection.model,
-  );
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(settings, textGenerationProviders);
   const writerModelDisabledReason = useScopedModelDisabledReason(settings, instanceEntries);
 
   return (

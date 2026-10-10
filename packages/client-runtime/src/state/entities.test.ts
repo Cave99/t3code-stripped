@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  OrchestrationV2ThreadShell,
   MessageId,
   NodeId,
   ProviderInstanceId,
@@ -9,6 +10,7 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -25,6 +27,8 @@ import {
 import { v2Projection, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import { deriveLatestThreadRun, deriveThreadRuntime } from "./threadExecution.ts";
 import { derivePendingThreadRequests } from "./threadRequests.ts";
+
+const decodeThreadShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShell);
 
 const environmentId = EnvironmentId.make("environment-v2");
 
@@ -66,6 +70,19 @@ describe("scoped entity keys", () => {
 });
 
 describe("V2 client presentation", () => {
+  it.each(["cursor", "antigravity", "opencode", "grok", "pi", "muse", "acpRegistry", "gemini"])(
+    "decodes and presents stored threads for removed provider %s",
+    (instanceId) => {
+      const stored = decodeThreadShell({
+        ...v2ThreadShell,
+        providerInstanceId: instanceId,
+        modelSelection: { instanceId, model: "historical-model" },
+      });
+      const shell = presentThreadShell(environmentId, stored);
+      expect(shell.providerInstanceId).toBe(instanceId);
+      expect(shell.modelSelection).toEqual({ instanceId, model: "historical-model" });
+    },
+  );
   it("presents shell timestamps and status without constructing V1 state", () => {
     const shell = presentThreadShell(environmentId, v2ThreadShell);
     expect(shell.environmentId).toBe(environmentId);

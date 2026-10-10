@@ -19,7 +19,6 @@ import { ORCHESTRATOR_REPLAY_FIXTURES } from "./fixtures/index.ts";
 import { subagentInput } from "./fixtures/subagent/input.ts";
 import { runOrchestratorV2Scenario } from "./OrchestratorScenario.ts";
 import { makeOrchestratorV2ProviderReplayLayer } from "./ProviderReplayHarness.ts";
-import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayTranscriptNdjson.ts";
 import { CLAUDE_MODEL_SELECTION, materializeFixtureInput } from "./fixtures/shared.ts";
 import {
   THREAD_FORK_NATIVE_CONTINUE_FORK_MARKER,
@@ -135,12 +134,7 @@ describe("Claude Agent SDK replay fixtures", () => {
   it.effect("refuses messages to a native subagent thread without touching it", () =>
     Effect.gen(function* () {
       const raw = yield* readClaudeTranscriptFixture("subagent");
-      const transcript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-        materializeReplayTranscriptRuntimeInstructions(raw, {
-          driver: ProviderDriverKind.make("claudeAgent"),
-          model: CLAUDE_MODEL_SELECTION.model,
-        }),
-      );
+      const transcript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(raw);
       const materialized = yield* materializeFixtureInput({
         scenario: "subagent",
         fixtureInput: subagentInput(),

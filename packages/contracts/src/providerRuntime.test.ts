@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { ProviderRuntimeEvent } from "./providerRuntime.ts";
+import { ProviderRuntimeEvent, RuntimeEventRaw } from "./providerRuntime.ts";
+
+const decodeRawEvent = Schema.decodeUnknownSync(RuntimeEventRaw);
 
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
+  it.each(["opencode.sdk.event", "acp.jsonrpc", "acp.grok.extension"])(
+    "preserves historical raw event source %s",
+    (source) => {
+      const event = { source, payload: { historical: true } };
+      expect(decodeRawEvent(event)).toEqual(event);
+    },
+  );
   it("requires input and output totals for complete turn usage", () => {
     const completeEvent = {
       type: "turn.completed",

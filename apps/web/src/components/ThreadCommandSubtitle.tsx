@@ -44,8 +44,6 @@ export function ThreadCommandSubtitle(props: {
   isCurrent: boolean;
   driverKind?: ProviderDriverKind | null;
   providerDisplayName?: string | null;
-  acpRegistryAgentId?: string | undefined;
-  acpRegistryIconUrl?: string | undefined;
   variant?: ThreadCommandSubtitleVariant;
   className?: string;
 }) {

@@ -29,8 +29,6 @@ export const ModelListRow = memo(function ModelListRow(props: {
    */
   providerDisplayName: string;
   providerAccentColor?: string | undefined;
-  acpRegistryAgentId?: string | undefined;
-  acpRegistryIconUrl?: string | undefined;
   isFavorite: boolean;
   isSelected: boolean;
   showSelection?: boolean;

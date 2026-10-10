@@ -1952,8 +1952,6 @@ export function GeneralSettingsPanel() {
   const textGenerationModelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     textGenerationProviders,
-    textGenInstanceId,
-    textGenModel,
   );
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,

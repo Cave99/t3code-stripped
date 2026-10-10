@@ -53,10 +53,6 @@ export interface ProviderInstanceEntry {
   readonly driverKind: ProviderDriverKind;
   readonly displayName: string;
   readonly accentColor?: string | undefined;
-  /** Registry identity used to resolve the official icon for generic ACP instances. */
-  readonly acpRegistryAgentId?: string | undefined;
-  /** Catalog-advertised icon URL. The renderer still applies the official-CDN allowlist. */
-  readonly acpRegistryIconUrl?: string | undefined;
   readonly continuationGroupKey?: string | undefined;
   readonly enabled: boolean;
   readonly installed: boolean;
@@ -126,9 +122,6 @@ export function deriveProviderInstanceEntries(
       driverKind,
       displayName: resolveProviderInstanceDisplayName(snapshot),
       accentColor: normalizeProviderAccentColor(snapshot.accentColor),
-      ...(driverKind === "acpRegistry" && snapshot.iconUrl
-        ? { acpRegistryIconUrl: snapshot.iconUrl }
-        : {}),
       continuationGroupKey: snapshot.continuation?.groupKey,
       enabled: snapshot.enabled,
       installed: snapshot.installed,
@@ -203,25 +196,7 @@ export function applyProviderInstanceSettings(
       : entry.isDefault && legacyProvider
         ? (legacyProvider.enabled ?? entry.enabled)
         : false;
-    if (entry.driverKind !== "acpRegistry" || explicitInstance === undefined) {
-      return enabled === entry.enabled ? entry : { ...entry, enabled };
-    }
-    const config =
-      explicitInstance.config !== null && typeof explicitInstance.config === "object"
-        ? (explicitInstance.config as Readonly<Record<string, unknown>>)
-        : null;
-    const agentId = config?.agentId;
-    const iconUrl = config?.registryIconUrl;
-    return {
-      ...entry,
-      enabled,
-      ...(typeof agentId === "string" && agentId.trim()
-        ? { acpRegistryAgentId: agentId.trim() }
-        : {}),
-      ...(typeof iconUrl === "string" && iconUrl.trim()
-        ? { acpRegistryIconUrl: iconUrl.trim() }
-        : {}),
-    };
+    return enabled === entry.enabled ? entry : { ...entry, enabled };
   });
 }
 

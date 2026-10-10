@@ -866,6 +866,24 @@ describe("ServerSettings worktree defaults", () => {
 });
 
 describe("ServerSettings removed provider settings", () => {
+  it.each([true, false])(
+    "decodes old settings.json with cursorKeychainUsageEnabled=%s",
+    (enabled) => {
+      const decoded = decodeServerSettings(
+        JSON.parse(
+          JSON.stringify({
+            cursorKeychainUsageEnabled: enabled,
+            providers: { codex: { enabled: true }, cursor: { enabled: true } },
+            textGenerationModelSelection: { instanceId: "cursor", model: "legacy-model" },
+          }),
+        ),
+      );
+      expect(decoded).not.toHaveProperty("cursorKeychainUsageEnabled");
+      expect(decoded.providers.codex.enabled).toBe(true);
+      expect(decoded.textGenerationModelSelection?.instanceId).toBe("cursor");
+      expect(decodeServerSettingsPatch({ cursorKeychainUsageEnabled: enabled })).toEqual({});
+    },
+  );
   it("ignores settings files that still carry removed providers", () => {
     const decoded = decodeServerSettings({
       providers: { cursor: { enabled: true }, opencode: { serverUrl: "http://127.0.0.1:4096" } },

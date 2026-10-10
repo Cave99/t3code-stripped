@@ -65,12 +65,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const entries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
   );
-  const modelOptions = getCustomModelOptionsByInstance(
-    settings,
-    providers,
-    selection?.instanceId,
-    selection?.model,
-  );
+  const modelOptions = getCustomModelOptionsByInstance(settings, providers);
   const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   const mixedModel = useScopedSettingsMixed(["defaultModelSelection"]);
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);

@@ -30,8 +30,6 @@ import {
   parseClaudeRecord,
   parseCodexLine,
   parseCodexRecord,
-  parseGrokLine,
-  parseGrokRecord,
   type CodexScanState,
   type UsageRecord,
 } from "./usageTranscripts.ts";
@@ -91,7 +89,7 @@ type SelectedFields = { readonly [key: string]: true | SelectedFields };
 
 // Keep the fields consumed by usageTranscripts, including reducer state and
 // dedupe/cost metadata. A selected subtree (usage) keeps future token fields.
-const USAGE_FIELDS: Record<"claude" | "codex" | "grok", SelectedFields> = {
+const USAGE_FIELDS: Record<UsageProviderKind, SelectedFields> = {
   claude: {
     type: true,
     timestamp: true,
@@ -113,18 +111,10 @@ const USAGE_FIELDS: Record<"claude" | "codex" | "grok", SelectedFields> = {
       info: { last_token_usage: true },
     },
   },
-  grok: {
-    timestamp: true,
-    params: {
-      sessionId: true,
-      _meta: { agentTimestampMs: true },
-      update: { sessionUpdate: true, prompt_id: true, usage: true },
-    },
-  },
 };
 
 function selectUsageFields(provider: UsageProviderKind) {
-  const fields = USAGE_FIELDS[provider === "codex" || provider === "grok" ? provider : "claude"];
+  const fields = USAGE_FIELDS[provider];
   return (path: ReadonlyArray<string | number | null>): boolean => {
     let selected: true | SelectedFields = fields;
     for (const key of path) {
@@ -151,18 +141,12 @@ function fnv1a(buffer: Buffer): number {
  * Errors on individual entries are swallowed: session files rotate and get
  * removed while the walk is in flight, and a partial listing is far better than
  * failing the page.
- *
- * `fileName` restricts the walk to a single basename (Grok's `updates.jsonl`).
- * Grok sessions also ship multi-megabyte `chat_history` and `events` logs that
- * never carry usage, so the basename filter keeps a cold scan off those files.
  */
 export async function listTranscriptFiles(
   root: string,
   sinceMs: number,
-  options?: { readonly fileName?: string },
 ): Promise<readonly TranscriptFile[]> {
   const found: TranscriptFile[] = [];
-  const fileName = options?.fileName;
 
   const walk = async (dir: string): Promise<void> => {
     let entries;
@@ -177,9 +161,7 @@ export async function listTranscriptFiles(
         await walk(child);
         continue;
       }
-      if (fileName !== undefined) {
-        if (entry.name !== fileName) continue;
-      } else if (!entry.name.endsWith(".jsonl")) {
+      if (!entry.name.endsWith(".jsonl")) {
         continue;
       }
       try {
@@ -292,10 +274,6 @@ export async function readTranscriptRecords(
         return;
       }
       if (!mightCarryUsage(line, provider)) return;
-      if (provider === "grok") {
-        for (const grokRecord of parseGrokLine(line)) out.push(grokRecord);
-        return;
-      }
       const record = parseClaudeLine(line);
       if (record !== null) out.push(record);
     };
@@ -340,15 +318,9 @@ export async function readTranscriptRecords(
       if (streaming) {
         streaming.write(decoder!.end());
         const projected = streaming.finish();
-        if (provider === "grok") {
-          out.push(...parseGrokRecord(projected));
-        } else {
-          const record =
-            provider === "codex"
-              ? parseCodexRecord(projected, state)
-              : parseClaudeRecord(projected);
-          if (record !== null) out.push(record);
-        }
+        const record =
+          provider === "codex" ? parseCodexRecord(projected, state) : parseClaudeRecord(projected);
+        if (record !== null) out.push(record);
       } else if (pendingBytes > 0) {
         const line =
           pendingChunks.length === 1

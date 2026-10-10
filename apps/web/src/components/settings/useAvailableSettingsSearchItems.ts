@@ -27,16 +27,6 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
             hasServerConfig: environment.serverConfig !== null,
           }),
         ),
-        hasMacProviderSettingsEnvironment: environments.some(
-          (environment) =>
-            (scopeSearch.machine === undefined ||
-              environment.environmentId === scopeSearch.machine) &&
-            environment.serverConfig?.environment.platform.os === "darwin" &&
-            isProviderSettingsEnvironmentAvailable({
-              connectionPhase: environment.connection.phase,
-              hasServerConfig: true,
-            }),
-        ),
         canManageLocalBackend,
         isWslSettingsRowVisible: false,
         hasThreadAutoSettlement:

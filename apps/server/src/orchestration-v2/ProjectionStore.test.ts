@@ -1,6 +1,7 @@
 import { assert, it, vi } from "@effect/vitest";
 import {
   EnvironmentId,
+  OrchestrationV2DomainEventJson,
   EventId,
   CommandId,
   CheckpointId,
@@ -48,6 +49,9 @@ const modelSelection = {
 } satisfies ModelSelection;
 const driver = ProviderDriverKind.make("codex");
 const providerInstanceId = modelSelection.instanceId;
+const decodeStoredEvent = Schema.decodeUnknownSync(
+  Schema.fromJsonString(OrchestrationV2DomainEventJson),
+);
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate")(function* (
@@ -329,6 +333,68 @@ it.effect("memory recovery selection includes unfinished items from missing runs
 );
 
 it.layer(TestLayer)("ProjectionStoreV2", (it) => {
+  it.effect("loads stored events and SQLite thread rows for removed providers", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      for (const provider of [
+        "cursor",
+        "antigravity",
+        "opencode",
+        "grok",
+        "pi",
+        "muse",
+        "acpRegistry",
+        "gemini",
+      ]) {
+        const threadId = ThreadId.make(`thread:removed-provider:${provider}`);
+        const timestamp = "2026-10-01T00:00:00.000Z";
+        const event = decodeStoredEvent(
+          encodeUnknownJsonString({
+            id: `event:removed-provider:${provider}`,
+            type: "thread.created",
+            threadId,
+            occurredAt: timestamp,
+            payload: {
+              createdBy: "user",
+              creationSource: "web",
+              id: threadId,
+              projectId: "project:removed-provider",
+              title: "Historical thread",
+              providerInstanceId: provider,
+              modelSelection: { instanceId: provider, model: "historical-model" },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              activeProviderThreadId: null,
+              lineage: {
+                parentThreadId: null,
+                relationshipToParent: null,
+                rootThreadId: threadId,
+              },
+              forkedFrom: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              archivedAt: null,
+              settledOverride: null,
+              settledAt: null,
+              lastVisitedAt: null,
+              deletedAt: null,
+            },
+          }),
+        );
+        yield* store.apply(event);
+        const shell = yield* store.getThreadShell(threadId);
+        assert.equal(shell?.providerInstanceId, provider);
+        assert.deepEqual(shell?.modelSelection, {
+          instanceId: ProviderInstanceId.make(provider),
+          model: "historical-model",
+        });
+        const projection = yield* store.getThreadProjection(threadId);
+        assert.equal(projection.thread.providerInstanceId, provider);
+      }
+    }),
+  );
   it.effect(
     "keeps restart-cancelled work through a stale run.updated",
     () => restartCancelledWorkSurvivesStaleRunUpdate,
