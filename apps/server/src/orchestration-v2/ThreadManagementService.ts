@@ -34,7 +34,7 @@ import * as Schema from "effect/Schema";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 
-export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
+type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
 export interface ThreadManagementProvenance {
   readonly createdBy: OrchestrationV2Actor;
@@ -123,7 +123,7 @@ export interface ThreadManagementSendResult {
   readonly delivery: "started" | "queued" | "steered" | "restarted";
 }
 
-export interface ThreadManagementWaitInput {
+interface ThreadManagementWaitInput {
   readonly projectId: ProjectId;
   readonly threadId: ThreadId;
   readonly runId?: RunId;
@@ -131,13 +131,13 @@ export interface ThreadManagementWaitInput {
   readonly pollIntervalMs?: number;
 }
 
-export interface ThreadManagementWaitResult {
+interface ThreadManagementWaitResult {
   readonly threadId: ThreadId;
   readonly run: OrchestrationV2Run | null;
   readonly timedOut: boolean;
 }
 
-export interface ThreadManagementInterruptInput {
+interface ThreadManagementInterruptInput {
   readonly projectId: ProjectId;
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
@@ -145,7 +145,7 @@ export interface ThreadManagementInterruptInput {
   readonly reason?: string;
 }
 
-export type ThreadManagementInterruptResult =
+type ThreadManagementInterruptResult =
   | {
       readonly type: "interrupt_requested";
       readonly run: OrchestrationV2Run;

@@ -39,7 +39,6 @@ import {
   type ChatMessage,
   type ProposedPlan,
   type SessionPhase,
-  type TurnDiffSummary,
 } from "./types";
 import * as DateTime from "effect/DateTime";
 import * as Equal from "effect/Equal";
@@ -51,7 +50,7 @@ export {
   workEntryIndicatesToolFailure,
 } from "@t3tools/client-runtime/work-log/presentation";
 
-export type WorkLogToolLifecycleStatus =
+type WorkLogToolLifecycleStatus =
   | "idle"
   | "inProgress"
   | "completed"
@@ -111,7 +110,7 @@ export interface LatestProposedPlanState {
   readonly status: OrchestrationV2PlanArtifact["status"];
 }
 
-export type TimelineAttempt = Pick<
+type TimelineAttempt = Pick<
   OrchestrationV2RunAttempt,
   "id" | "runId" | "attemptOrdinal" | "rootNodeId" | "status"
 >;
@@ -1029,5 +1028,3 @@ export function deriveCanInterruptRunningThread(
     (derivePhase(runtime) === "running" || threadRuntimeHasInterruptibleRun(runtime))
   );
 }
-
-export type { TurnDiffSummary };

@@ -19,7 +19,7 @@ const MERGE_BACK_BLOCKING_RUN_STATUSES = new Set<Run["status"]>([
   "running",
 ]);
 
-export interface QueuedThreadRun {
+interface QueuedThreadRun {
   readonly run: Run;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;

@@ -129,7 +129,7 @@ export const ProjectionStoreV2Error = Schema.Union([
 ]);
 export type ProjectionStoreV2Error = typeof ProjectionStoreV2Error.Type;
 
-export type ProjectionRecoveryKind =
+type ProjectionRecoveryKind =
   | "queued-runs"
   | "runtime"
   | "subagent-results"
@@ -216,7 +216,7 @@ export type ProjectionCheckpointContext = typeof ProjectionCheckpointContext.Typ
 const decodeCheckpointContext = Schema.decodeUnknownEffect(ProjectionCheckpointContext);
 
 /** Durable capture targets, without transcript or checkpoint file payloads. */
-export interface ProjectionCheckpointCaptureContext {
+interface ProjectionCheckpointCaptureContext {
   readonly run: OrchestrationV2Run | undefined;
   readonly rootNode: OrchestrationV2ExecutionNode | undefined;
   readonly scope: OrchestrationV2CheckpointScope | undefined;
@@ -225,7 +225,7 @@ export interface ProjectionCheckpointCaptureContext {
 }
 
 /** Exact durable targets used by interrupt, restart, and steering effects. */
-export interface ProjectionProviderControlContext {
+interface ProjectionProviderControlContext {
   readonly providerThread: OrchestrationV2ThreadProjection["providerThreads"][number] | undefined;
   readonly providerTurn: OrchestrationV2ProviderTurn | undefined;
   readonly attempt: OrchestrationV2ThreadProjection["attempts"][number] | undefined;
@@ -233,7 +233,7 @@ export interface ProjectionProviderControlContext {
   readonly run: OrchestrationV2Run | undefined;
 }
 
-export interface ProjectionProviderControlTarget {
+interface ProjectionProviderControlTarget {
   readonly providerThreadId: ProviderThreadId;
   readonly providerTurnId: ProviderTurnId;
   readonly attemptId?: RunAttemptId;
@@ -255,16 +255,16 @@ export type ProjectionRuntimeRecoveryState = Pick<
   | "turnItems"
 >;
 
-export type ProjectionPendingUserInputs = Pick<
+type ProjectionPendingUserInputs = Pick<
   OrchestrationV2ThreadProjection,
   "runtimeRequests" | "nodes" | "turnItems"
 >;
 
-export type ProjectionThreadProviderContext = Pick<
+type ProjectionThreadProviderContext = Pick<
   OrchestrationV2ThreadProjection,
   "thread" | "providerSessions" | "providerThreads"
 >;
-export interface ProjectionRuntimeResponseContext {
+interface ProjectionRuntimeResponseContext {
   readonly request: OrchestrationV2ThreadProjection["runtimeRequests"][number] | undefined;
   readonly node: OrchestrationV2ThreadProjection["nodes"][number] | undefined;
   readonly item: OrchestrationV2ThreadProjection["turnItems"][number] | undefined;
@@ -800,7 +800,7 @@ export function applyToProjection(
  * makes in-memory replay match the normalized SQL projection without scanning every
  * thread for every session event.
  */
-export interface ProjectionReplayState {
+interface ProjectionReplayState {
   readonly projections: Map<ThreadId, OrchestrationV2ThreadProjection>;
   readonly providerSessionThreadIds: Map<ProviderSessionId, ReadonlySet<ThreadId>>;
 }

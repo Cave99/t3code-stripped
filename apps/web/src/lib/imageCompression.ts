@@ -40,7 +40,7 @@ const HEIC_IMAGE_EXTENSION = /\.(?:heic|heif)$/i;
 
 type ImageSize = { width: number; height: number };
 
-export interface CompressedStashImage {
+interface CompressedStashImage {
   imageSize?: ImageSize;
   dataUrl: string;
   mimeType: string;
@@ -53,7 +53,7 @@ export interface CompressedStashImage {
  * Why an image could not be compressed. Callers report these differently:
  * "too large" is a budget outcome, "unreadable" is a decode failure.
  */
-export type ImageCompressionFailureReason = "too-large" | "unreadable";
+type ImageCompressionFailureReason = "too-large" | "unreadable";
 
 export type CompressStashImageResult =
   | { ok: true; image: CompressedStashImage }

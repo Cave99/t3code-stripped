@@ -38,7 +38,7 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
 
 const BEARER_DESCRIPTOR_CACHE_TTL_MS = 10_000;
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const presentation = yield* ClientCapabilities.ClientPresentation;
   const httpClient = yield* HttpClient.HttpClient;
   const bearerDescriptors = yield* Ref.make<

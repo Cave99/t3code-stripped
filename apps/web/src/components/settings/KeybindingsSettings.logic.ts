@@ -45,7 +45,7 @@ function compareCommands(
   );
 }
 
-export type KeybindingSource = "Default" | "Custom" | "Project";
+type KeybindingSource = "Default" | "Custom" | "Project";
 
 export interface KeybindingRow {
   readonly id: string;

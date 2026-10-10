@@ -13,7 +13,7 @@ import {
  * while the editor stays open. Themes are referenced by id because the stored
  * definitions change underneath an open session (an edit, an import).
  */
-export type ThemeEditorSessionInput = {
+type ThemeEditorSessionInput = {
   /** Set when editing an installed theme; null creates a new one. */
   editingThemeId: string | null;
   /** Theme a new theme starts from: the active one, or a duplicate target. */

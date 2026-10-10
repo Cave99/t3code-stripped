@@ -36,11 +36,11 @@ export interface EnvironmentPullRequestStat extends PullRequestDiffStat {
   readonly environmentId: EnvironmentId;
 }
 
-export interface EnvironmentPullRequestError extends PullRequestListProjectError {
+interface EnvironmentPullRequestError extends PullRequestListProjectError {
   readonly environmentId: EnvironmentId;
 }
 
-export type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
+type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
   readonly key: PullRequestGroupKey;
@@ -435,7 +435,7 @@ export function pullRequestEntryKey(entry: ScopedEntry): string {
   return `${scope}${entry.host}:${entry.repository}#${entry.number}`;
 }
 
-export interface PullRequestStatsTarget {
+interface PullRequestStatsTarget {
   readonly environmentId: EnvironmentId;
   readonly input: {
     readonly refs: ReadonlyArray<{

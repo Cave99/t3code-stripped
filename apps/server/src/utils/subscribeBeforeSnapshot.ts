@@ -3,7 +3,7 @@ import * as PubSub from "effect/PubSub";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-export interface SnapshotSubscription<A> {
+interface SnapshotSubscription<A> {
   readonly latest: A;
   readonly changes: Stream.Stream<A>;
 }

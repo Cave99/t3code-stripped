@@ -91,7 +91,7 @@ export interface ProviderMaintenanceResolutionContext {
   readonly platform: NodeJS.Platform;
 }
 
-export type ProviderMaintenanceResolverServices =
+type ProviderMaintenanceResolverServices =
   | FileSystem.FileSystem
   | Path.Path
   | ChildProcessSpawner.ChildProcessSpawner;

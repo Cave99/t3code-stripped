@@ -33,7 +33,7 @@ export interface TelemetryCounters {
   readonly allT3: GroupCounters;
 }
 
-export interface ProcessDelta {
+interface ProcessDelta {
   readonly identityKey: string;
   readonly category: ResourceTelemetryProcessCategory;
   readonly cpuTimeMs: number;

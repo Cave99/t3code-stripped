@@ -9,7 +9,6 @@ import type {
   OrchestrationV2PlanArtifact,
   OrchestrationV2UserMessageInputIntent,
   PlanId,
-  ProjectScript as ContractProjectScript,
   ProviderInteractionMode,
   RunId,
   RuntimeMode,
@@ -19,8 +18,6 @@ import type {
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-  ThreadRunSummary,
-  ThreadRuntimeSummary,
 } from "@t3tools/client-runtime/state/shell";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { videoMimeType } from "@t3tools/shared/video";
@@ -34,7 +31,6 @@ export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "term-1";
 export const MAX_TERMINALS_PER_GROUP = 4;
-export type ProjectScript = ContractProjectScript;
 
 export interface ThreadTerminalGroup {
   id: string;
@@ -54,7 +50,7 @@ export interface ChatFileAttachment extends ContractChatFileAttachment {
 // Attachment types this build does not know pass through with the contract
 // shape. The UI renders them as inert rows so a newer server cannot crash an
 // older client.
-export type ChatUnknownAttachment = ContractChatUnknownAttachment;
+type ChatUnknownAttachment = ContractChatUnknownAttachment;
 
 export type ChatAttachment = ChatImageAttachment | ChatFileAttachment | ChatUnknownAttachment;
 
@@ -77,15 +73,6 @@ export function isFileAttachment(attachment: ChatAttachment): attachment is Chat
 
 export function isVideoAttachment(attachment: ChatFileAttachment): boolean {
   return videoMimeType(attachment) !== null;
-}
-
-export function isBrowserPreviewAttachment(attachment: ChatFileAttachment): boolean {
-  const mimeType = attachment.mimeType.split(";", 1)[0]?.trim().toLowerCase();
-  return (
-    /\.(?:html?|pdf)$/i.test(attachment.name) ||
-    mimeType === "application/pdf" ||
-    mimeType === "text/html"
-  );
 }
 
 export interface ChatMessage {
@@ -121,4 +108,3 @@ export type Thread = EnvironmentThreadShell;
 export type ThreadShell = EnvironmentThreadShell;
 
 export type SidebarThreadSummary = EnvironmentThreadShell;
-export type ThreadSession = ThreadRuntimeSummary;

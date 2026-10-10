@@ -9,7 +9,7 @@ interface KeyDefinition {
   readonly shiftedKey?: string;
 }
 
-export interface PreviewAutomationKeyEvent {
+interface PreviewAutomationKeyEvent {
   readonly [key: string]: unknown;
   readonly type: "keyDown" | "rawKeyDown" | "keyUp";
   readonly key: string;

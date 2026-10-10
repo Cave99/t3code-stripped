@@ -103,7 +103,7 @@ export class DesktopTelemetryStale extends Schema.TaggedError<DesktopTelemetrySt
   }
 }
 
-export type DesktopTelemetryReceiverError =
+type DesktopTelemetryReceiverError =
   | DesktopTelemetryDescriptorUnavailable
   | DesktopTelemetryProtocolMismatch
   | DesktopTelemetryDecodeFailed

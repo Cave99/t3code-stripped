@@ -1,7 +1,6 @@
 export * from "./catalog.ts";
 export * as Connectivity from "./connectivity.ts";
 export * as CredentialStore from "./credentialStore.ts";
-export { type ConnectionDriverProgress, type EnvironmentConnectionLease } from "./driver.ts";
 export * from "./errors.ts";
 export * from "./githubRoutingPermissions.ts";
 export * as Connection from "./layer.ts";
@@ -13,5 +12,3 @@ export * as EnvironmentRegistry from "./registry.ts";
 export { EnvironmentNotRegisteredError, PlatformEnvironmentRemovalError } from "./registry.ts";
 export * as EnvironmentSupervisor from "./supervisor.ts";
 export * as Wakeups from "./wakeups.ts";
-
-export { orchestrationProtocolCompatibilityError } from "./compatibility.ts";

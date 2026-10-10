@@ -23,9 +23,7 @@ import { isModelSelectionProviderEnabled } from "./serverSettings.ts";
  */
 export type ProjectSettingSource = "environment" | "project" | "t3.json";
 
-export type ProjectSettingSources = Readonly<
-  Record<ProjectScopedServerSettingKey, ProjectSettingSource>
->;
+type ProjectSettingSources = Readonly<Record<ProjectScopedServerSettingKey, ProjectSettingSource>>;
 
 export interface ResolvedProjectSettings<Settings extends ServerSettings = ServerSettings> {
   /** Environment settings with the project's overrides applied. */

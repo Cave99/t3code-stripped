@@ -144,7 +144,7 @@ export const validateAttachmentUploadToken = Effect.fn("AttachmentUpload.validat
   return claims;
 });
 
-export type StoreAttachmentUploadResult =
+type StoreAttachmentUploadResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number; readonly detail: string };
 

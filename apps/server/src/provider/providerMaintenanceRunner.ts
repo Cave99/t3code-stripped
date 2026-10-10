@@ -39,7 +39,7 @@ const isServerProviderUpdateError = Schema.is(ServerProviderUpdateError);
 const UPDATE_TIMEOUT_MS = 5 * 60_000;
 const UPDATE_OUTPUT_MAX_BYTES = 10_000;
 
-export interface ProviderMaintenanceCommandResult {
+interface ProviderMaintenanceCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;

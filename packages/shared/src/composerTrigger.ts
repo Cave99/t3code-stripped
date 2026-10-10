@@ -1,10 +1,4 @@
-export type ComposerTriggerKind =
-  | "path"
-  | "pull-request"
-  | "slash-command"
-  | "slash-model"
-  | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "slash-model" | "skill";
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -127,16 +121,4 @@ export function detectComposerTrigger(
     rangeStart: tokenStart,
     rangeEnd: cursor,
   };
-}
-
-export function replaceTextRange(
-  text: string,
-  rangeStart: number,
-  rangeEnd: number,
-  replacement: string,
-): { text: string; cursor: number } {
-  const safeStart = Math.max(0, Math.min(text.length, rangeStart));
-  const safeEnd = Math.max(safeStart, Math.min(text.length, rangeEnd));
-  const nextText = `${text.slice(0, safeStart)}${replacement}${text.slice(safeEnd)}`;
-  return { text: nextText, cursor: safeStart + replacement.length };
 }

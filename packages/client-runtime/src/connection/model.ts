@@ -29,8 +29,6 @@ export type ConnectionTarget = typeof ConnectionTarget.Type;
 export const PersistedConnectionTarget = Schema.Union([BearerConnectionTarget]);
 export type PersistedConnectionTarget = typeof PersistedConnectionTarget.Type;
 
-export type ConnectionTargetKind = ConnectionTarget["_tag"];
-
 export type NetworkStatus = "unknown" | "offline" | "online";
 
 export const ConnectionTransientReason = Schema.Literals([
@@ -92,7 +90,7 @@ export interface PreparedConnection {
   readonly target: ConnectionTarget;
 }
 
-export type SupervisorConnectionPhase =
+type SupervisorConnectionPhase =
   | "available"
   | "offline"
   | "connecting"

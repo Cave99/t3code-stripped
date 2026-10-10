@@ -272,7 +272,7 @@ export function buildDocJson(
   return { type: "doc", content: buildTiptapContent(value, skillLabelFor, options) };
 }
 
-export interface RichRun {
+interface RichRun {
   kind: "text" | "token" | "break" | "prefix";
   /** Flat document offset (atoms count 1, markers excluded). */
   flatStart: number;

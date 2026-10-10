@@ -17,7 +17,7 @@ import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import type { ProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 
-export type ProviderMaintenanceActionKind = "update";
+type ProviderMaintenanceActionKind = "update";
 
 export interface ProviderRegistryShape {
   /**

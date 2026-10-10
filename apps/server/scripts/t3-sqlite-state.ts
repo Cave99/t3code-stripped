@@ -111,7 +111,7 @@ const SqliteStateExecResult = Schema.Struct({
 const SqliteStateResult = Schema.Union([SqliteStateQueryResult, SqliteStateExecResult]);
 const encodeSqliteStateResult = Schema.encodeEffect(fromJsonStringPretty(SqliteStateResult));
 
-export type SqliteStateResult = typeof SqliteStateResult.Type;
+type SqliteStateResult = typeof SqliteStateResult.Type;
 
 type RawSqliteValue = null | string | number | bigint | Uint8Array;
 type RawSqliteRow = Readonly<Record<string, RawSqliteValue>>;

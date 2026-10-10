@@ -430,7 +430,7 @@ export interface ProviderAdapterV2RuntimeRequestResponseInput {
   readonly response?: unknown;
 }
 
-export interface ProviderAdapterV2ThreadSnapshot {
+interface ProviderAdapterV2ThreadSnapshot {
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly providerTurns: ReadonlyArray<OrchestrationV2ProviderTurn>;
   readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
@@ -438,7 +438,7 @@ export interface ProviderAdapterV2ThreadSnapshot {
   readonly providerPayload?: unknown;
 }
 
-export interface ProviderAdapterV2ReadThreadSnapshotInput {
+interface ProviderAdapterV2ReadThreadSnapshotInput {
   readonly providerThread: OrchestrationV2ProviderThread;
 }
 

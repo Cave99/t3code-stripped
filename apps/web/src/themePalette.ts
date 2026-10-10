@@ -21,7 +21,7 @@ import {
 } from "@t3tools/shared/themePalettes";
 
 export { EMBER_THEME, GROVE_THEME, IRIS_THEME, OCEAN_THEME, T3_CHAT_THEME, THEME_COLOR_ROLES };
-export type { ThemeAppearance, ThemeColorRole, ThemeColors, ThemeDefinition, ThemeVariants };
+export type { ThemeAppearance, ThemeColorRole, ThemeColors, ThemeDefinition };
 
 export const T3_CHAT_THEME_ID = "t3-chat" as const;
 const GROVE_THEME_ID = "grove" as const;
@@ -40,11 +40,11 @@ export const ThemePreference = Schema.String;
 export type ThemePreference = typeof ThemePreference.Type;
 
 const THEME_COLOR_ROLE_SET: ReadonlySet<string> = new Set(THEME_COLOR_ROLES);
-export type ThemeColorOverrides = Readonly<Partial<Record<ThemeColorRole, string>>>;
-export type ThemeVariantOverrides = Readonly<Partial<Record<ThemeAppearance, ThemeColorOverrides>>>;
+type ThemeColorOverrides = Readonly<Partial<Record<ThemeColorRole, string>>>;
+type ThemeVariantOverrides = Readonly<Partial<Record<ThemeAppearance, ThemeColorOverrides>>>;
 export type ThemePreferenceMode = ThemeAppearance | "system";
-export type ThemeCollection = Readonly<{ id: string; label: string }>;
-export type ThemeFile = Readonly<{
+type ThemeCollection = Readonly<{ id: string; label: string }>;
+type ThemeFile = Readonly<{
   version: typeof THEME_FILE_VERSION;
   id: string;
   name: string;

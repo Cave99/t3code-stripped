@@ -193,15 +193,6 @@ export function makeLayer(
   );
 }
 
-export function makeLayerEffect<R, E>(
-  adapters: Effect.Effect<ReadonlyArray<ProviderAdapter.ProviderAdapterV2Shape>, E, R>,
-): Layer.Layer<ProviderAdapterRegistryV2, E, R> {
-  return Layer.effect(
-    ProviderAdapterRegistryV2,
-    adapters.pipe(Effect.map((entries) => ProviderAdapterRegistryV2.of(makeRegistry(entries)))),
-  );
-}
-
 export function makeSingleLayer(
   adapter: ProviderAdapter.ProviderAdapterV2Shape,
 ): Layer.Layer<ProviderAdapterRegistryV2> {
@@ -349,21 +340,3 @@ export function makeDriverLayer<R>(input: {
     ),
   ) as Layer.Layer<ProviderAdapterRegistryV2, ProviderAdapterRegistryBuildError, R>;
 }
-
-const layerFromProviderAdapter: Layer.Layer<
-  ProviderAdapterRegistryV2,
-  never,
-  ProviderAdapter.ProviderAdapterV2
-> = Layer.effect(
-  ProviderAdapterRegistryV2,
-  Effect.gen(function* () {
-    const adapter = yield* ProviderAdapter.ProviderAdapterV2;
-    return ProviderAdapterRegistryV2.of({
-      get: (instanceId) =>
-        adapter.instanceId === instanceId
-          ? Effect.succeed(adapter)
-          : Effect.fail(new ProviderAdapterRegistryLookupError({ instanceId })),
-      list: () => Effect.succeed([adapter.instanceId]),
-    } satisfies ProviderAdapterRegistryV2Shape);
-  }),
-);

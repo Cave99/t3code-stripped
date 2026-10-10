@@ -14,8 +14,6 @@ export interface ProjectGroupingSettings {
   readonly sidebarProjectGroupingOverrides: Record<string, SidebarProjectGroupingMode>;
 }
 
-export type ProjectGroupingMode = SidebarProjectGroupingMode;
-
 export function selectProjectGroupingSettings(settings: ClientSettings): ProjectGroupingSettings {
   return {
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
@@ -74,7 +72,7 @@ export function derivePhysicalProjectKey(
   return derivePhysicalProjectKeyFromPath(project.environmentId, project.workspaceRoot);
 }
 
-export function deriveProjectGroupingOverrideKey(
+function deriveProjectGroupingOverrideKey(
   project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
 ): string {
   return derivePhysicalProjectKey(project);
@@ -152,7 +150,7 @@ export function deriveLogicalProjectKeyFromSettings(
   });
 }
 
-export function deriveProjectGroupLabel(input: {
+function deriveProjectGroupLabel(input: {
   readonly representative: Pick<EnvironmentProject, "title" | "repositoryIdentity">;
   readonly members: ReadonlyArray<Pick<EnvironmentProject, "title" | "repositoryIdentity">>;
 }): string {
@@ -183,7 +181,7 @@ export function deriveProjectGroupLabel(input: {
   return input.representative.title;
 }
 
-export interface ProjectGroupMember<TProject extends EnvironmentProject = EnvironmentProject> {
+interface ProjectGroupMember<TProject extends EnvironmentProject = EnvironmentProject> {
   readonly physicalProjectKey: string;
   readonly project: TProject;
 }

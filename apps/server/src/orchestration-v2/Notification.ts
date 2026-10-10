@@ -10,7 +10,7 @@ import type {
 type NotificationOutcome = OrchestrationV2Notification["outcome"];
 
 /** A piece of background work an adapter can name, by kind. */
-export type BackgroundWork = {
+type BackgroundWork = {
   /** Subagent title, command, or monitor description. */
   readonly label?: string | undefined;
 } & (

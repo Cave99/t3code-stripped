@@ -40,13 +40,13 @@ const textEncoder = new TextEncoder();
 
 export type TraceAttributes = Readonly<Record<string, unknown>>;
 
-export interface TraceRecordEvent {
+interface TraceRecordEvent {
   readonly name: string;
   readonly timeUnixNano: string;
   readonly attributes: Readonly<Record<string, unknown>>;
 }
 
-export interface TraceRecordLink {
+interface TraceRecordLink {
   readonly traceId: string;
   readonly spanId: string;
   readonly attributes: Readonly<Record<string, unknown>>;

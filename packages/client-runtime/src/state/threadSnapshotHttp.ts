@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
-import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import {
   executeAuthenticatedEnvironmentHttpRequest,
   withOrchestrationProtocolHeader,
@@ -19,7 +18,7 @@ import {
 const DEFAULT_THREAD_SNAPSHOT_TIMEOUT_MS = 20_000;
 
 /** Progressive history metadata returned by a bounded snapshot loader. */
-export type ThreadSnapshotHistoryMeta = {
+type ThreadSnapshotHistoryMeta = {
   readonly historyCursor: string | null;
   readonly hasMoreHistory: boolean;
   /** Max local turn ordinal from the full projection; optional on older servers. */
@@ -68,8 +67,6 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
       }),
   });
 });
-
-export type FetchEnvironmentThreadSnapshotError = RemoteEnvironmentRequestError;
 
 /**
  * Loads a thread's detail snapshot over HTTP.

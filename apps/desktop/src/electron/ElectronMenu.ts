@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 
 import * as Electron from "electron";
 
-export interface ElectronMenuPosition {
+interface ElectronMenuPosition {
   readonly x: number;
   readonly y: number;
 }

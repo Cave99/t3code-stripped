@@ -17,7 +17,7 @@ export interface SourceControlAuthProbeInput {
   readonly exitCode: VcsProcess.VcsProcessOutput["exitCode"];
 }
 
-export interface SourceControlUnknownRemoteRefinementInput {
+interface SourceControlUnknownRemoteRefinementInput {
   readonly cwd: string;
   readonly context: SourceControlProvider.SourceControlProviderContext;
   readonly auth: SourceControlAuthProbeInput;
@@ -42,12 +42,12 @@ export type SourceControlCliDiscoverySpec = SourceControlDiscoverySpecBase & {
   ) => SourceControlProviderInfo | null;
 };
 
-export type SourceControlApiDiscoverySpec = SourceControlDiscoverySpecBase & {
+type SourceControlApiDiscoverySpec = SourceControlDiscoverySpecBase & {
   readonly type: "api";
   readonly probeAuth: Effect.Effect<SourceControlProviderAuth, never>;
 };
 
-export type SourceControlManagedCliDiscoverySpec = SourceControlDiscoverySpecBase & {
+type SourceControlManagedCliDiscoverySpec = SourceControlDiscoverySpecBase & {
   readonly type: "managed-cli";
   readonly probe: (cwd: string) => Effect.Effect<SourceControlProviderDiscoveryItem>;
   readonly refineUnknownRemote: (input: {
@@ -154,21 +154,6 @@ function sanitizedAuthLines(text: string): ReadonlyArray<string> {
 
 export function firstSafeAuthLine(text: string): string | undefined {
   return sanitizedAuthLines(text)[0];
-}
-
-export function parseCliHost(text: string): string | undefined {
-  return sanitizedAuthLines(text)
-    .map((line) => line.replace(/^[^a-z0-9]+/iu, ""))
-    .find((line) => /^[a-z0-9][a-z0-9.-]*(?::\d+)?$/iu.test(line));
-}
-
-export function matchFirst(text: string, patterns: ReadonlyArray<RegExp>): string | undefined {
-  for (const pattern of patterns) {
-    const match = pattern.exec(text);
-    const value = match?.[1]?.trim();
-    if (value && value.length > 0) return value;
-  }
-  return undefined;
 }
 
 function isCliRemoteRefinementSpec(

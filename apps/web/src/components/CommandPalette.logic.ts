@@ -127,7 +127,7 @@ export interface CommandPaletteThreadContentMatch {
   readonly query: string;
 }
 
-export interface CommandPaletteItem {
+interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
   readonly value: string;
   readonly searchTerms: ReadonlyArray<string>;

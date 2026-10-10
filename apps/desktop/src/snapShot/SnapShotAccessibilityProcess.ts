@@ -11,7 +11,7 @@ import type {
 const START_TIMEOUT_MS = 1_000;
 const RESULT_TIMEOUT_MS = 4_000;
 
-export type AccessibilityRead = {
+type AccessibilityRead = {
   readonly started: Promise<void>;
   readonly result: Promise<CapturedWindowAccessibilityContext | undefined>;
 };

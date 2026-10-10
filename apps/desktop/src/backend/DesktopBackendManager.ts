@@ -49,7 +49,7 @@ type BackendProcessLayerServices = ChildProcessSpawner.ChildProcessSpawner | Htt
 
 type BackendProcessRunRequirements = BackendProcessLayerServices | Scope.Scope;
 
-export type BackendProcessOutputStream = "stdout" | "stderr";
+type BackendProcessOutputStream = "stdout" | "stderr";
 
 export interface BackendProcessContext {
   readonly executablePath: string;

@@ -1,7 +1,7 @@
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 
-export type MetricAttributeValue = string;
+type MetricAttributeValue = string;
 export type MetricAttributes = Readonly<Record<string, MetricAttributeValue>>;
 export type ObservabilityOutcome = "success" | "failure" | "interrupt";
 

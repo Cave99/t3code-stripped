@@ -8,7 +8,7 @@ import * as DateTime from "effect/DateTime";
 
 import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
 
-export type AgentAwarenessPhase =
+type AgentAwarenessPhase =
   | "starting"
   | "running"
   | "waiting_for_approval"

@@ -37,7 +37,7 @@ export class EnvironmentRpcRequestObserver extends Context.Reference<{
   }),
 }) {}
 
-export type EnvironmentRpcTag = keyof WsRpcProtocolClient & string;
+type EnvironmentRpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends EnvironmentRpcTag> = WsRpcProtocolClient[TTag];
 
 export type EnvironmentSubscriptionRpcTag =
@@ -64,9 +64,7 @@ export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.chatGptHandoffSubscribe
   | typeof WS_METHODS.gitRunStackedAction;
 
-export type EnvironmentStreamRpcTag =
-  | EnvironmentSubscriptionRpcTag
-  | EnvironmentStreamCommandRpcTag;
+type EnvironmentStreamRpcTag = EnvironmentSubscriptionRpcTag | EnvironmentStreamCommandRpcTag;
 
 export type EnvironmentUnaryRpcTag = Exclude<EnvironmentRpcTag, EnvironmentStreamRpcTag>;
 

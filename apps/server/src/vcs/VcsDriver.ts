@@ -14,18 +14,18 @@ import type {
 import { CheckpointRef } from "@t3tools/contracts";
 import * as VcsProcess from "./VcsProcess.ts";
 
-export interface VcsCaptureCheckpointInput {
+interface VcsCaptureCheckpointInput {
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
 }
 
-export interface VcsRestoreCheckpointInput {
+interface VcsRestoreCheckpointInput {
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
   readonly fallbackToHead?: boolean;
 }
 
-export interface VcsDiffCheckpointsInput {
+interface VcsDiffCheckpointsInput {
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;
@@ -34,7 +34,7 @@ export interface VcsDiffCheckpointsInput {
   readonly format?: "patch" | "numstat";
 }
 
-export interface VcsDeleteCheckpointRefsInput {
+interface VcsDeleteCheckpointRefsInput {
   readonly cwd: string;
   readonly checkpointRefs: ReadonlyArray<CheckpointRef>;
 }

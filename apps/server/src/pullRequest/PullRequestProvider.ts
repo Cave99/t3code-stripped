@@ -125,7 +125,7 @@ export interface ProviderChangeRequestSummary {
 }
 
 /** One layer of a host-native stack, bottom to top order is the array's. */
-export interface ProviderChangeRequestStackLayer {
+interface ProviderChangeRequestStackLayer {
   readonly title?: string;
   readonly isDraft?: boolean;
   readonly headSha?: string;
@@ -139,7 +139,7 @@ export interface ProviderChangeRequestStackLayer {
  * a unit. Only GitHub offers one today; the neutral shape lets the sync reactor and the UI stay
  * ignorant of which host said so.
  */
-export interface ProviderChangeRequestStack {
+interface ProviderChangeRequestStack {
   readonly id: string;
   readonly number: number;
   readonly url: string;
@@ -147,7 +147,7 @@ export interface ProviderChangeRequestStack {
   readonly layers: ReadonlyArray<ProviderChangeRequestStackLayer>;
 }
 
-export interface ProviderChangeRequestPage {
+interface ProviderChangeRequestPage {
   readonly items: ReadonlyArray<ProviderChangeRequest>;
   /** True when the host has more rows than the page size asked for. */
   readonly truncated: boolean;
@@ -187,7 +187,7 @@ export interface ProviderListCursor {
 }
 
 /** One repository's row inside an answer that spans several of them. */
-export interface ProviderBatchedChangeRequest extends ProviderChangeRequest {
+interface ProviderBatchedChangeRequest extends ProviderChangeRequest {
   /** Provider-native identity, exactly as it was asked for, so the caller can file the row. */
   readonly repository: string;
 }
@@ -198,14 +198,14 @@ export interface ProviderBatchedChangeRequest extends ProviderChangeRequest {
  * caller splits the rows by `repository` and works out where each of them carries on from the
  * oldest row in the slice, which every repository the slice covers is now read up to.
  */
-export interface ProviderBatchedChangeRequestPage {
+interface ProviderBatchedChangeRequestPage {
   readonly items: ReadonlyArray<ProviderBatchedChangeRequest>;
   /** True when the host has more rows than the slice asked for, for any of the repositories. */
   readonly truncated: boolean;
 }
 
 /** The line counts for one change request, which a listing may leave for a second read. */
-export interface ProviderChangeRequestStat {
+interface ProviderChangeRequestStat {
   readonly repository: string;
   readonly number: number;
   readonly additions: number;
@@ -252,7 +252,7 @@ export interface ProviderChangeRequestActivity {
   readonly reactions?: ReadonlyArray<PullRequestReaction>;
 }
 
-export interface ProviderDiffSlice {
+interface ProviderDiffSlice {
   readonly patch: string;
   /** Something in this slice could not be shown, as opposed to there being more slices. */
   readonly truncated: boolean;
@@ -261,12 +261,12 @@ export interface ProviderDiffSlice {
   readonly omittedFileStats?: ReadonlyArray<PullRequestOmittedFileStat>;
 }
 
-export interface ProviderDiffFileContents {
+interface ProviderDiffFileContents {
   readonly oldContents: string;
   readonly newContents: string;
 }
 
-export interface ProviderFilesViewed {
+interface ProviderFilesViewed {
   readonly files: ReadonlyArray<PullRequestFileViewed>;
   /** The host has more files than were read, so the ones missing here are not "unviewed". */
   readonly truncated: boolean;

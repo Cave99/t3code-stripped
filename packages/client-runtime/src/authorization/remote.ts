@@ -2,7 +2,7 @@ import type { AuthClientPresentationMetadata, ClientConnectionMethod } from "@t3
 import * as Effect from "effect/Effect";
 export type { RemoteEnvironmentRequestError as RemoteEnvironmentAuthError } from "../rpc/http.ts";
 
-export const appendClientConnectionParams = (
+const appendClientConnectionParams = (
   url: URL,
   clientMetadata: AuthClientPresentationMetadata | undefined,
   connectionMethod?: ClientConnectionMethod,

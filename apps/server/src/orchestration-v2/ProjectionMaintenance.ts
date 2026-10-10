@@ -10,7 +10,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
-export interface ProjectionVerificationV2 {
+interface ProjectionVerificationV2 {
   readonly valid: boolean;
   readonly schemaVersion: number;
   readonly expectedSequence: number;

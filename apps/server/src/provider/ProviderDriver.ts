@@ -43,7 +43,7 @@ import type { ServerProviderShape } from "./Services/ServerProvider.ts";
  * and (later) settings UI. Doesn't need to be Effect-typed because nothing
  * about it is dynamic — drivers are registered at startup.
  */
-export interface ProviderDriverMetadata {
+interface ProviderDriverMetadata {
   /** Human-readable name for the driver itself (e.g. "Codex"). */
   readonly displayName: string;
   /**

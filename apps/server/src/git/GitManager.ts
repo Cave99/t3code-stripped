@@ -230,7 +230,7 @@ interface BranchHeadContext {
   isCrossRepository: boolean;
 }
 
-export function pullRequestRepositoryKey(value: string): string | null {
+function pullRequestRepositoryKey(value: string): string | null {
   try {
     const url = new URL(value);
     const match =
@@ -287,7 +287,7 @@ function resolvePullRequestWorktreeLocalBranchName(
   return `t3code/pr-${pullRequest.number}/${suffix}`;
 }
 
-export function parseRepositoryNameWithOwnerFromRemoteUrl(
+function parseRepositoryNameWithOwnerFromRemoteUrl(
   url: string | null,
   providerKind?: ChangeRequest["provider"],
 ): string | null {

@@ -98,7 +98,7 @@ function Button({ className, variant, size, render, ...props }: ButtonProps) {
 
 // buttonVariants is exported for other components/ui modules only; app code
 // renders a Button (with `render` for other elements) instead.
-export { Button, buttonVariants, type ButtonSize, type ButtonVariant };
+export { Button, buttonVariants };
 
 const inlineButtonVariants = cva(
   "inline-flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap font-medium underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-64",

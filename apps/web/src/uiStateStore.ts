@@ -33,7 +33,7 @@ export interface PersistedUiState {
   pullRequestMergeMethod?: string;
 }
 
-export interface UiProjectState {
+interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   // Logical project key the sidebar list is scoped to, or null for "all
@@ -42,16 +42,16 @@ export interface UiProjectState {
   sidebarProjectScopeKey: string | null;
 }
 
-export interface UiThreadState {
+interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
-export interface UiEndpointState {
+interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
 
-export interface UiPullRequestState {
+interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 

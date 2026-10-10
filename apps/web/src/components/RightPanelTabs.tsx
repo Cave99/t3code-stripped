@@ -128,7 +128,7 @@ interface RightPanelTabsProps {
   children: ReactNode;
 }
 
-export interface PullRequestTabStatus {
+interface PullRequestTabStatus {
   projectId: string;
   repository: string;
   number: number;

@@ -19,13 +19,13 @@ export function dataTransferHasComposerMention(types: ReadonlyArray<string>): bo
   return types.includes(COMPOSER_MENTION_DRAG_TYPE);
 }
 
-export interface ComposerMentionDragTransfer {
+interface ComposerMentionDragTransfer {
   readonly types: ReadonlyArray<string>;
   getData(format: string): string;
   dropEffect: string;
 }
 
-export interface ComposerMentionDragEvent {
+interface ComposerMentionDragEvent {
   readonly dataTransfer: ComposerMentionDragTransfer;
   readonly nativeEvent: { stopPropagation(): void };
   preventDefault(): void;

@@ -4,7 +4,6 @@ export {
   DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
   getChangeRequestTerminology,
   resolveChangeRequestPresentation,
-  type ChangeRequestPresentation,
   type ChangeRequestTerminology,
 } from "@t3tools/shared/sourceControl";
 import {

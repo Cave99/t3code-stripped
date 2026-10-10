@@ -493,7 +493,7 @@ export type RunExecutionServiceV2Error = typeof RunExecutionServiceV2Error.Type;
 /**
  * SERVICE DEFINITION
  */
-export interface RunExecutionServiceV2StartRootRunInput {
+interface RunExecutionServiceV2StartRootRunInput {
   readonly commandId: CommandId;
   readonly appThread: OrchestrationV2AppThread;
   readonly providerSessionId: ProviderSessionId;

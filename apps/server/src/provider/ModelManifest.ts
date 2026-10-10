@@ -122,7 +122,7 @@ const ModelManifestSchema = ModelManifestEnvelopeSchema.pipe(
 );
 export type ModelManifestData = typeof ModelManifestSchema.Type;
 
-export interface ResolvedManifestModel {
+interface ResolvedManifestModel {
   readonly model: ServerProviderModel;
   readonly adapter: unknown;
   readonly profileAdapter: unknown;
@@ -246,7 +246,7 @@ export function applyModelManifest(
 }
 
 /** The manifest's chat default for `driverKind`, when it names one. */
-export function manifestDefaultModel(
+function manifestDefaultModel(
   manifest: ModelManifestData,
   driverKind: ProviderDriverKind,
 ): string | undefined {

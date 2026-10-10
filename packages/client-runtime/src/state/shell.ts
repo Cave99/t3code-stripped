@@ -314,7 +314,7 @@ function shellStateChanges(environmentId: EnvironmentId) {
   );
 }
 
-export interface EnvironmentShellSummary {
+interface EnvironmentShellSummary {
   readonly hasSnapshot: boolean;
   readonly hasSynchronizingShell: boolean;
   readonly hasCachedShell: boolean;

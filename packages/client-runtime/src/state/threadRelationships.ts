@@ -5,9 +5,9 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
+type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
 
-export interface ThreadRelationshipNode {
+interface ThreadRelationshipNode {
   readonly threadId: ThreadId;
   readonly thread: OrchestrationV2ThreadShell | null;
   readonly missing: boolean;

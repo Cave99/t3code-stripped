@@ -15,8 +15,7 @@ export type CodexArtifactTemplateKind = (typeof CODEX_ARTIFACT_TEMPLATE_KINDS)[n
 
 const CODEX_ARTIFACT_TEMPLATE_GALLERY_KINDS = ["imagegen", "product-design"] as const;
 
-export type CodexArtifactTemplateGalleryKind =
-  (typeof CODEX_ARTIFACT_TEMPLATE_GALLERY_KINDS)[number];
+type CodexArtifactTemplateGalleryKind = (typeof CODEX_ARTIFACT_TEMPLATE_GALLERY_KINDS)[number];
 
 export interface CodexArtifactTemplate {
   readonly artifactKind: CodexArtifactTemplateKind;

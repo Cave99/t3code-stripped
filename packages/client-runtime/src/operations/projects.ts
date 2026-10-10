@@ -28,7 +28,7 @@ export type AddProjectRemoteProviderKind = Extract<
   SourceControlProviderKind,
   "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
 >;
-export type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
+type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
 
 export function canCreateProjectInEnvironment(
   connectionPhase: EnvironmentConnectionPhase | null | undefined,
@@ -40,21 +40,6 @@ export type AddProjectRemoteSourceReadiness = Record<
   AddProjectRemoteSource,
   { readonly ready: boolean; readonly hint: string | null }
 >;
-
-export type AddProjectCloneFlow =
-  | {
-      readonly step: "repository";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-    }
-  | {
-      readonly step: "confirm";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-      readonly repositoryInput: string;
-      readonly repository: SourceControlRepositoryInfo | null;
-      readonly remoteUrl: string;
-    };
 
 const ADD_PROJECT_REMOTE_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "url",
@@ -73,7 +58,7 @@ const ADD_PROJECT_REMOTE_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProvide
   "azure-devops",
 ];
 
-export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): string {
+function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): string {
   switch (source) {
     case "github":
       return "GitHub";
@@ -90,23 +75,7 @@ export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): str
   }
 }
 
-export function addProjectRemoteSourcePathHint(source: AddProjectRemoteSource): string {
-  switch (source) {
-    case "forgejo":
-    case "github":
-      return "owner/repo";
-    case "gitlab":
-      return "group/project";
-    case "bitbucket":
-      return "workspace/repository";
-    case "azure-devops":
-      return "project/repository";
-    case "url":
-      return "URL";
-  }
-}
-
-export function addProjectRemoteSourceProvider(
+function addProjectRemoteSourceProvider(
   source: AddProjectRemoteSource,
 ): AddProjectRemoteProviderKind | null {
   return source === "url" ? null : source;

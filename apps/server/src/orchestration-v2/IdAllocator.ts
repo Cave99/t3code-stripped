@@ -67,7 +67,7 @@ export class IdAllocatorV2AllocationError extends Schema.TaggedError<IdAllocator
 export const IdAllocatorV2Error = Schema.Union([IdAllocatorV2AllocationError]);
 export type IdAllocatorV2Error = typeof IdAllocatorV2Error.Type;
 
-export interface IdAllocatorV2AllocateShape {
+interface IdAllocatorV2AllocateShape {
   readonly command: (input: {
     readonly fixtureName: string;
     readonly commandName: string;
@@ -126,7 +126,7 @@ export interface IdAllocatorV2AllocateShape {
   }) => Effect.Effect<PlanId, IdAllocatorV2Error>;
 }
 
-export interface IdAllocatorV2DeriveShape {
+interface IdAllocatorV2DeriveShape {
   readonly providerSession: (input: {
     readonly providerInstanceId: ProviderInstanceId;
   }) => ProviderSessionId;
@@ -194,7 +194,7 @@ const encodePart = (part: string | number): string => encodeURIComponent(String(
 const joinId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>
   [prefix, ...parts.map(encodePart)].join(":");
 
-export function deriveThreadFromProviderThread(input: {
+function deriveThreadFromProviderThread(input: {
   readonly driver: ProviderDriverKind;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly nativeThreadId: string;

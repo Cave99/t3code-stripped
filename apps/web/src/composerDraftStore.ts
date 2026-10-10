@@ -364,7 +364,7 @@ const PersistedComposerDraftStoreStorage = Schema.Struct({
  * thread (`ScopedThreadRef`). This is the editable payload shown in the composer.
  */
 /** Options for adding a context record and, independently, a reference to it. */
-export interface ComposerContextAddOptions {
+interface ComposerContextAddOptions {
   /** `false` when the caller already placed the chip (paste, caret insertion). */
   appendReference?: boolean;
   /** `true` when this action intentionally adds another reference to an existing record. */
@@ -379,7 +379,7 @@ export interface ComposerContextAddOptions {
  * reference to the prompt, which is where a draft with no composer open would show it.
  * Runtime-only: never persisted.
  */
-export type ComposerContextInsertionHandler = (
+type ComposerContextInsertionHandler = (
   references: ReadonlyArray<ComposerContextReference>,
 ) => boolean;
 const contextInsertionHandlers = new Map<string, ComposerContextInsertionHandler>();

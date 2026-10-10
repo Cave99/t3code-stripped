@@ -37,7 +37,7 @@ const DESKTOP_TRACE_BATCH_WINDOW_MS = 1_000;
 const DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_BYTES = 1024 * 1024;
 const DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_CHUNKS = 256;
 
-export interface RotatingLogFileWriter {
+interface RotatingLogFileWriter {
   readonly writeBytes: (chunk: Uint8Array) => Effect.Effect<void>;
   readonly writeText: (chunk: string) => Effect.Effect<void>;
 }
@@ -72,7 +72,7 @@ export class DesktopBackendOutputLogFactory extends Context.Service<
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export type DesktopLogAnnotations = Record<string, unknown>;
+type DesktopLogAnnotations = Record<string, unknown>;
 
 export interface DesktopComponentLogger {
   readonly annotate: <A, E, R>(

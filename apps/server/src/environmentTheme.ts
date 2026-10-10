@@ -55,7 +55,7 @@ const THEME_FILE_SUFFIX = ".json";
  */
 const MAX_THEME_FILES = 32;
 /** Exported so the publish path cannot accept a file the watcher will skip. */
-export const MAX_THEME_FILE_BYTES = 32 * 1024;
+const MAX_THEME_FILE_BYTES = 32 * 1024;
 /**
  * The set travels whole in a websocket event to every subscriber, so the sum
  * matters more than any single file. An exported theme runs a few KB, leaving
@@ -101,7 +101,7 @@ export class EnvironmentThemeService extends Context.Service<
  * leaves a window a swap could slip through, which the descriptor-bound
  * checks below then narrow to "a regular file at that path".
  */
-export const readThemeFileGuarded = (filePath: string, maxBytes: number): string | null => {
+const readThemeFileGuarded = (filePath: string, maxBytes: number): string | null => {
   let fd: number;
   try {
     if (NodeFS.constants.O_NOFOLLOW === undefined && NodeFS.lstatSync(filePath).isSymbolicLink()) {
@@ -140,7 +140,7 @@ export const readThemeFileGuarded = (filePath: string, maxBytes: number): string
  * the set is unaffected. The one place that decides what "published" means, so
  * a caller validating an id cannot disagree with the watcher serving it.
  */
-export const readPublishedThemes = Effect.fn(function* (themesDir: string) {
+const readPublishedThemes = Effect.fn(function* (themesDir: string) {
   const fs = yield* FileSystem.FileSystem;
   const entries = yield* fs
     .readDirectory(themesDir)

@@ -185,7 +185,7 @@ function countingWsRpcProtocolLayer(input: {
 }
 
 const makeCountingWsRpcClient = RpcClient.make(WsRpcGroup);
-export type CountingWsRpcClient = Effect.Success<typeof makeCountingWsRpcClient>;
+type CountingWsRpcClient = Effect.Success<typeof makeCountingWsRpcClient>;
 
 export interface MeasuredWsClient {
   readonly client: CountingWsRpcClient;

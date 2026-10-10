@@ -65,7 +65,7 @@ export const ProviderEventIngestorV2Error = Schema.Union([
 ]);
 export type ProviderEventIngestorV2Error = typeof ProviderEventIngestorV2Error.Type;
 
-export interface ProviderTurnAnalyticsContext {
+interface ProviderTurnAnalyticsContext {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
@@ -194,7 +194,7 @@ function withPlanStepDurations(
   };
 }
 
-export interface ProviderEventIngestInput {
+interface ProviderEventIngestInput {
   readonly providerSessionId: ProviderSessionId;
   readonly providerInstanceId: ProviderInstanceId;
   readonly commandId?: CommandId;

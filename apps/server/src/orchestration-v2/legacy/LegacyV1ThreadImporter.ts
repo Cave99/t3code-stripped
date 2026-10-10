@@ -85,7 +85,7 @@ interface LegacyImportRow {
   readonly transcript_imported_at: string | null;
 }
 
-export interface LegacyV1ImportSummary {
+interface LegacyV1ImportSummary {
   readonly importedThreadCount: number;
   readonly importedMessageCount: number;
 }

@@ -19,11 +19,11 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectService from "./ProjectService.ts";
 
-export interface ProjectSetupScriptRunnerResultNoScript {
+interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
 }
 
-export interface ProjectSetupScriptRunnerResultStarted {
+interface ProjectSetupScriptRunnerResultStarted {
   readonly status: "started";
   readonly scriptId: string;
   readonly scriptName: string;
@@ -41,13 +41,9 @@ export interface ProjectSetupScriptRunnerResultStarted {
   readonly completion?: Effect.Effect<ProjectSetupScriptCompletion>;
 }
 
-export interface ProjectSetupScriptCompletion {
+interface ProjectSetupScriptCompletion {
   readonly exitCode: number | null;
   readonly durationMs: number;
-}
-
-export interface ProjectSetupScriptOutputLine {
-  readonly line: string;
 }
 
 export type ProjectSetupScriptRunnerResult =

@@ -57,7 +57,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly startFromOrigin?: boolean | undefined;
     };
 
-export interface ThreadLaunchInitialMessage {
+interface ThreadLaunchInitialMessage {
   readonly messageId?: MessageId;
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly senderThreadId?: ThreadId;

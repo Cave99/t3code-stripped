@@ -2,7 +2,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
-export interface ReplayRecorderDeferredRegistry {
+interface ReplayRecorderDeferredRegistry {
   readonly getOrCreate: (key: string) => Effect.Effect<Deferred.Deferred<void>>;
   readonly succeed: (key: string) => Effect.Effect<void>;
 }

@@ -20,10 +20,7 @@ export interface ThreadPendingApproval {
   readonly responseCapability: "live" | "not_resumable";
 }
 
-export interface ThreadUserInputQuestion extends Omit<
-  OrchestrationV2UserInputQuestion,
-  "multiSelect"
-> {
+interface ThreadUserInputQuestion extends Omit<OrchestrationV2UserInputQuestion, "multiSelect"> {
   readonly multiSelect: boolean;
 }
 

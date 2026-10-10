@@ -120,7 +120,7 @@ export interface ExecuteGitProgress {
  * to stderr during checkout, and `Submodule path 'x': checked out` during
  * submodule init. The tracker uses these to drive the worktree setup card.
  */
-export interface CreateWorktreeProgress {
+interface CreateWorktreeProgress {
   /**
    * Fires once `git worktree add` has created and registered the directory,
    * before the (possibly long) submodule step. Git refuses an existing path,
@@ -155,7 +155,7 @@ export interface CreateWorktreeOptions {
   readonly submodules?: WorktreeSubmodules | null;
 }
 
-export interface GitCommitProgress {
+interface GitCommitProgress {
   readonly onOutputLine?: (input: {
     stream: "stdout" | "stderr";
     text: string;

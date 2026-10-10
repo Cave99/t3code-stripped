@@ -27,7 +27,7 @@ export type ProviderSettingsUpdateCandidate = ServerProvider & {
   };
 };
 
-export type ProviderUpdateToastType = "warning" | "loading" | "error" | "success";
+type ProviderUpdateToastType = "warning" | "loading" | "error" | "success";
 export type ProviderUpdateToastPhase = "initial" | "running" | "failed" | "unchanged" | "succeeded";
 
 export interface ProviderUpdateToastView {
@@ -49,7 +49,7 @@ export function isTerminalProviderUpdatePhase(phase: ProviderUpdateToastPhase): 
   return phase === "succeeded" || phase === "failed" || phase === "unchanged";
 }
 
-export type ProviderUpdateSidebarPillTone = "loading" | "warning" | "error" | "success";
+type ProviderUpdateSidebarPillTone = "loading" | "warning" | "error" | "success";
 
 export interface ProviderUpdateSidebarPillView {
   readonly key: string;
@@ -702,7 +702,7 @@ export function deriveEnvironmentDisplayLabel(input: {
 }
 
 /** Connection state of a local environment, normalized across primary/secondary sources. */
-export type EnvironmentUpdateConnectionState = "connecting" | "ready" | "disconnected" | "error";
+type EnvironmentUpdateConnectionState = "connecting" | "ready" | "disconnected" | "error";
 
 export interface LocalEnvironmentProvidersInput {
   readonly environmentId: EnvironmentId;
@@ -775,7 +775,7 @@ export function localEnvironmentUpdateNotificationKey(
   return parts.length > 0 ? parts.join("|") : null;
 }
 
-export type ProviderUpdateRowStatusKind = "idle" | "loading" | "success" | "failed" | "unchanged";
+type ProviderUpdateRowStatusKind = "idle" | "loading" | "success" | "failed" | "unchanged";
 
 export interface ProviderUpdateRowStatus {
   readonly kind: ProviderUpdateRowStatusKind;

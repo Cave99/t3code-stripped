@@ -16,7 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-export interface ThreadForkPlanV2 {
+interface ThreadForkPlanV2 {
   readonly targetThread: OrchestrationV2AppThread;
   readonly transfer: OrchestrationV2ContextTransfer;
 }

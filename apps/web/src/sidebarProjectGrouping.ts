@@ -2,7 +2,7 @@ import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 import { buildProjectGroups, type ProjectGroupingSettings } from "./logicalProject";
 import type { Project } from "./types";
 
-export type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
+type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
 
 export interface SidebarProjectGroupMember extends Project {
   physicalProjectKey: string;

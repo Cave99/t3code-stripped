@@ -17,21 +17,19 @@ import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
-export class RemoteEnvironmentAuthFetchError extends Data.TaggedError(
-  "RemoteEnvironmentAuthFetchError",
-)<{
+class RemoteEnvironmentAuthFetchError extends Data.TaggedError("RemoteEnvironmentAuthFetchError")<{
   readonly message: string;
   readonly cause: unknown;
 }> {}
 
-export class RemoteEnvironmentAuthInvalidJsonError extends Data.TaggedError(
+class RemoteEnvironmentAuthInvalidJsonError extends Data.TaggedError(
   "RemoteEnvironmentAuthInvalidJsonError",
 )<{
   readonly message: string;
   readonly cause: unknown;
 }> {}
 
-export class RemoteEnvironmentAuthUndeclaredStatusError extends Data.TaggedError(
+class RemoteEnvironmentAuthUndeclaredStatusError extends Data.TaggedError(
   "RemoteEnvironmentAuthUndeclaredStatusError",
 )<{
   readonly message: string;

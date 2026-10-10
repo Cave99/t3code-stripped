@@ -13,14 +13,14 @@ import { traceCommand } from "./cli/trace.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
-export const makeCli = () =>
+const makeCli = () =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription("Run the T3 Code server."),
     Command.withHandler((flags) => runServerCommand(flags)),
     Command.withSubcommands([claudeHistoryCommand, traceCommand]),
   );
 
-export const cli = makeCli();
+const cli = makeCli();
 
 export function runCli() {
   Command.run(cli, { version: packageJson.version }).pipe(

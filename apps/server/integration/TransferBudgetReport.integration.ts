@@ -13,7 +13,7 @@ import {
 } from "./fixtures/transferBudget.ts";
 
 /** Catch-up delivered to a resubscribing client, and which path the server chose. */
-export interface WebSocketCatchUpMeasurement extends WebSocketTransferTotals {
+interface WebSocketCatchUpMeasurement extends WebSocketTransferTotals {
   readonly mode: "replay" | "snapshot";
 }
 

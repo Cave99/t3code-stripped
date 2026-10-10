@@ -17,7 +17,7 @@ interface EnvironmentHttpTestScenario {
   readonly descriptor?: () => Effect.Effect<ExecutionEnvironmentDescriptor>;
 }
 
-export interface EnvironmentHttpTestCalls {
+interface EnvironmentHttpTestCalls {
   descriptor: number;
 }
 

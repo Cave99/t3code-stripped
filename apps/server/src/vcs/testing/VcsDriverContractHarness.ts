@@ -15,7 +15,7 @@ function normalizePathForComparison(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
-export interface VcsDriverFixture<R, E> {
+interface VcsDriverFixture<R, E> {
   readonly createRepo: (cwd: string) => Effect.Effect<void, E, R>;
   readonly writeFile: (
     cwd: string,

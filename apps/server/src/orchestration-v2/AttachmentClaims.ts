@@ -30,7 +30,7 @@ export const validateAttachmentLimits = Effect.fn("AttachmentClaims.validateAtta
   },
 );
 
-export interface ClaimedAttachments {
+interface ClaimedAttachments {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly claimedPaths: ReadonlyArray<string>;
 }

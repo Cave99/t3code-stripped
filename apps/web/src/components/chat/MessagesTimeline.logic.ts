@@ -45,7 +45,6 @@ import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
 import {
   resolveT3McpToolDefinition,
   resolveT3McpToolPresentation,
-  type T3McpToolPresentation,
 } from "@t3tools/shared/t3McpToolPresentation";
 import { compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
 import { computerUseToolTitle } from "@t3tools/shared/toolActivity";
@@ -615,8 +614,6 @@ export function computeMessageDurationStart(
 function workGroupId(timelineEntryId: string): string {
   return `work-group:${timelineEntryId}`;
 }
-
-export type TimelineToolPresentation = T3McpToolPresentation;
 export const resolveTimelineToolPresentation = resolveT3McpToolPresentation;
 
 function expandedWorkGroupRow(

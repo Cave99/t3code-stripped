@@ -152,7 +152,7 @@ export interface ComposerPromptEditorProps {
   editorRef: React.RefObject<ComposerPromptEditorHandle | null>;
 }
 
-export type ComposerCitationCommentRequest = {
+type ComposerCitationCommentRequest = {
   previousValue: string;
   value: string;
   citationStart: number;

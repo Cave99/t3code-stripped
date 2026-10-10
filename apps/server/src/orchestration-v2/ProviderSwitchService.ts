@@ -19,7 +19,7 @@ import {
   type ProviderSessionTransition,
 } from "./ProviderSessionTransitionPolicy.ts";
 
-export interface ProviderSwitchPlanV2 {
+interface ProviderSwitchPlanV2 {
   readonly instanceChanged: boolean;
   readonly modelChanged: boolean;
   readonly targetProviderThreadId: ProviderThreadId | null;

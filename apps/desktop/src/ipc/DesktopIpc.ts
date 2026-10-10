@@ -8,7 +8,7 @@ export interface DesktopIpcInvokeEvent {
   readonly sender: { readonly id: number };
 }
 
-export interface DesktopIpcSyncEvent {
+interface DesktopIpcSyncEvent {
   returnValue: unknown;
 }
 
@@ -17,7 +17,7 @@ export type DesktopIpcHandleListener = (
   raw: unknown,
 ) => unknown | Promise<unknown>;
 
-export type DesktopIpcSyncListener = (event: DesktopIpcSyncEvent) => void;
+type DesktopIpcSyncListener = (event: DesktopIpcSyncEvent) => void;
 
 export interface DesktopIpcMain {
   removeHandler(channel: string): void;

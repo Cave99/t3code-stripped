@@ -2,7 +2,7 @@ import type { ServerConfigStreamEvent } from "@t3tools/contracts";
 
 export const KEYBINDINGS_SUCCESS_TOAST_COOLDOWN_MS = 2_000;
 
-export type KeybindingsUpdateToastDecision =
+type KeybindingsUpdateToastDecision =
   | { readonly _tag: "Success" }
   | { readonly _tag: "InvalidConfiguration"; readonly message: string };
 

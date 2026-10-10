@@ -9,7 +9,7 @@ import { resolveFileDiffPath } from "~/lib/diffRendering";
  * only ever confirms what the source already said. Ordering by path alone buries the one file the
  * change is really about under whichever directory happens to sort first.
  */
-export type DiffFileTier = "source" | "test" | "generated";
+type DiffFileTier = "source" | "test" | "generated";
 
 const GENERATED_FILE_NAMES = new Set([
   "pnpm-lock.yaml",

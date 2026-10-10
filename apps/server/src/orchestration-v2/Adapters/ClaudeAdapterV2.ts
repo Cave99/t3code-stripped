@@ -269,8 +269,8 @@ const CLAUDE_CODE_PRESET_TOOLS = {
   preset: "claude_code",
 } satisfies NonNullable<ClaudeQueryOptions["tools"]>;
 
-export type ClaudeAgentSdkQueryToolList = ReadonlyArray<string>;
-export interface ClaudeAgentSdkQueryPresetTools {
+type ClaudeAgentSdkQueryToolList = ReadonlyArray<string>;
+interface ClaudeAgentSdkQueryPresetTools {
   readonly type: "preset";
   readonly preset: "claude_code";
 }
@@ -436,7 +436,7 @@ export interface ClaudeAgentSdkLoggedQueryOptions {
   readonly hasMcpServers?: true;
 }
 
-export type ClaudeAgentSdkProtocolLogEvent =
+type ClaudeAgentSdkProtocolLogEvent =
   | {
       readonly direction: "outgoing";
       readonly stage: "decoded";

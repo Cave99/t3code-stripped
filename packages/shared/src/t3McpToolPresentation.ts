@@ -1,4 +1,4 @@
-export type T3McpToolLogo = "t3-code";
+type T3McpToolLogo = "t3-code";
 
 export interface T3McpToolPresentation {
   readonly displayName: string;

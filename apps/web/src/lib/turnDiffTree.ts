@@ -5,7 +5,7 @@ export interface TurnDiffStat {
   deletions: number;
 }
 
-export interface TurnDiffTreeDirectoryNode {
+interface TurnDiffTreeDirectoryNode {
   kind: "directory";
   name: string;
   path: string;
@@ -13,7 +13,7 @@ export interface TurnDiffTreeDirectoryNode {
   children: TurnDiffTreeNode[];
 }
 
-export interface TurnDiffTreeFileNode {
+interface TurnDiffTreeFileNode {
   kind: "file";
   name: string;
   path: string;

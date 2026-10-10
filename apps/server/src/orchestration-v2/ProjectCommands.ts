@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema";
 import type { UnsequencedProjectEvent } from "../persistence/Services/OrchestrationEventStore.ts";
 import type { ProjectRow } from "./ProjectStore.ts";
 
-export interface ProjectCreateCommand {
+interface ProjectCreateCommand {
   readonly type: "project.create";
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
@@ -25,7 +25,7 @@ export interface ProjectCreateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
-export interface ProjectMetaUpdateCommand {
+interface ProjectMetaUpdateCommand {
   readonly type: "project.meta.update";
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
@@ -39,7 +39,7 @@ export interface ProjectMetaUpdateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
-export interface ProjectDeleteCommand {
+interface ProjectDeleteCommand {
   readonly type: "project.delete";
   readonly commandId: CommandId;
   readonly projectId: ProjectId;

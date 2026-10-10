@@ -267,7 +267,7 @@ const BACKGROUND_WORK_KINDS: Record<
   background_task: { order: 3, singular: "background task", plural: "background tasks" },
 };
 
-export interface PendingBackgroundWorkItem {
+interface PendingBackgroundWorkItem {
   readonly taskId: string;
   readonly kind: BackgroundWorkKind;
   /** The work's name, or its noun when the provider gave none. */

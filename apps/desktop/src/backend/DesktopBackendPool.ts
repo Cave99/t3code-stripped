@@ -12,9 +12,6 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 
 const { logWarning: logBackendPoolWarning } =
   DesktopObservability.makeComponentLogger("desktop-backend-pool");
-
-export type BackendInstanceId = DesktopBackendManager.BackendInstanceId;
-export const BackendInstanceId = DesktopBackendManager.BackendInstanceId;
 export type DesktopBackendInstance = DesktopBackendManager.DesktopBackendInstance;
 
 export class DesktopBackendPool extends Context.Service<

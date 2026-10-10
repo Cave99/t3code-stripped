@@ -2998,7 +2998,7 @@ const RawStackSchema = Schema.Struct({
 
 const decodeStacks = decodeJsonResult(Schema.Array(RawStackSchema));
 
-export interface GitHubPullRequestStackLayer {
+interface GitHubPullRequestStackLayer {
   readonly title?: string;
   readonly isDraft?: boolean;
   readonly headSha?: string;

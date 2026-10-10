@@ -18,7 +18,7 @@ import {
   projectionFor,
 } from "../shared.ts";
 
-export function assertPlanQuestionsOutputBase(
+function assertPlanQuestionsOutputBase(
   result: OrchestratorV2ScenarioResult,
   transcript: ProviderReplayTranscript,
 ) {
@@ -46,15 +46,6 @@ function assertPlanQuestionId(
   const requestItem = projection.turnItems.find((item) => item.type === "user_input_request");
   assert.isDefined(requestItem);
   assert.equal(requestItem?.questions[0]?.id, questionId);
-}
-
-/** Grok and the ACP registry replay the same recorded question id. */
-export function assertPlanQuestionsOutput(
-  result: OrchestratorV2ScenarioResult,
-  transcript: ProviderReplayTranscript,
-) {
-  assertPlanQuestionsOutputBase(result, transcript);
-  assertPlanQuestionId(result, transcript, "schema_vs_ui_flexibility");
 }
 
 /** Codex names the question itself; this is the id the recorded model chose. */
