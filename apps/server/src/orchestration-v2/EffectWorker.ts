@@ -169,6 +169,9 @@ export const executorLayer: Layer.Layer<
                 providerSessionId: effect.request.providerSessionId,
                 providerThreadId: effect.request.providerThreadId,
                 providerTurnId: effect.request.providerTurnId,
+                ...(effect.request.subagent === undefined
+                  ? {}
+                  : { subagent: effect.request.subagent }),
               })
               .pipe(
                 Effect.catch((cause) =>
@@ -185,13 +188,15 @@ export const executorLayer: Layer.Layer<
                 // One Stop can interrupt several provider threads, so the
                 // settle is keyed by effect, not by the Stop command.
                 Effect.andThen(
-                  threads.dispatch({
-                    type: "thread.background-work.settle",
-                    commandId: CommandId.make(`${effect.id}:background-work-settled`),
-                    threadId: effect.threadId,
-                    providerThreadId: effect.request.providerThreadId,
-                    providerTurnId: effect.request.providerTurnId,
-                  }),
+                  effect.request.subagent !== undefined
+                    ? Effect.void
+                    : threads.dispatch({
+                        type: "thread.background-work.settle",
+                        commandId: CommandId.make(`${effect.id}:background-work-settled`),
+                        threadId: effect.threadId,
+                        providerThreadId: effect.request.providerThreadId,
+                        providerTurnId: effect.request.providerTurnId,
+                      }),
                 ),
                 Effect.mapError(
                   (cause) =>
@@ -417,6 +422,23 @@ export const executorLayer: Layer.Layer<
                 threadId: effect.threadId,
                 runId: effect.request.runId,
                 scopeId: effect.request.scopeId,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationEffectExecutionError({
+                      effectId: effect.id,
+                      effectType: effect.request.type,
+                      cause,
+                    }),
+                ),
+              );
+          case "delegated-tasks.stop":
+            return threads
+              .stopDelegatedTasks({
+                threadId: effect.threadId,
+                commandId: effect.commandId,
+                reason: effect.request.reason,
               })
               .pipe(
                 Effect.mapError(

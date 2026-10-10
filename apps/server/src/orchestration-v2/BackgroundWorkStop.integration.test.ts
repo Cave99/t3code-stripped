@@ -44,13 +44,9 @@ const modelSelection = { instanceId, model: "test-model" };
 // including when it selects an older resumed run on the other provider thread.
 const stopEarlierBackgroundWork = ({
   failedStart = false,
-  stopWithQueue,
-  olderStart = false,
   stalledRun,
 }: {
   readonly failedStart?: boolean;
-  readonly stopWithQueue?: "thread.stop" | "run.interrupt";
-  readonly olderStart?: boolean;
   readonly stalledRun?:
     | "missing-session"
     | "missing-session-terminal"
@@ -669,12 +665,12 @@ const stopEarlierBackgroundWork = ({
   );
 
 it.effect("Stop reaches background work an earlier provider thread still runs", () =>
-  stopEarlierBackgroundWork(false),
+  stopEarlierBackgroundWork({}),
 );
 
 it.effect(
   "Stop reaches earlier background work after the newest run fails before provider start",
-  () => stopEarlierBackgroundWork(true),
+  () => stopEarlierBackgroundWork({ failedStart: true }),
 );
 
 it.effect.each([

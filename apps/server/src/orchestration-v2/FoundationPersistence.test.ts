@@ -1638,7 +1638,7 @@ it.layer(TestLayer)("orchestration V2 foundation persistence", (it) => {
       assert.equal(yield* Ref.get(providerStartCount), 0);
       const projection = yield* projectionStore.getThreadProjection(threadId);
       assert.equal(projection.runs[0]?.status, "cancelled");
-    }).pipe(Effect.provide(Layer.fresh(layerTest))),
+    }).pipe(Effect.provide(Layer.fresh(TestLayer))),
   );
 
   it.effect("guards post-terminal provider-thread writes by attempt and run ordinal", () =>

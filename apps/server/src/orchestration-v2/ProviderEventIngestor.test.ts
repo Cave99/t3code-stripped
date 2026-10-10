@@ -24,6 +24,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -41,6 +42,8 @@ import {
   routeProviderEvent,
   selectInheritedBackgroundTurnItems,
 } from "./RunExecutionService.ts";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const TestDatabaseLayer = SqlitePersistenceMemory;
 const TestStoresLayer = Layer.merge(EventStore.layer, ProjectionStore.layer).pipe(
@@ -1127,15 +1130,12 @@ layer("ProviderEventIngestorV2", (it) => {
       const storedEvents = yield* eventStore
         .read({ threadId: threadEvent.threadId, eventType: "turn-item.updated" })
         .pipe(Stream.runCollect);
-      const storedJson = JSON.stringify(Array.from(storedEvents, (stored) => stored.event));
-      const projectedRead = yield* projectionStore.getTurnItem({
-        threadId: threadEvent.threadId,
-        itemId: read.id,
-      });
-      const projectedScreenshot = yield* projectionStore.getTurnItem({
-        threadId: threadEvent.threadId,
-        itemId: screenshot.id,
-      });
+      const storedJson = yield* encodeJson(Array.from(storedEvents, (stored) => stored.event));
+      const projectedItems = (yield* projectionStore.getThreadRecords(threadEvent.threadId, [
+        "turnItems",
+      ])).turnItems;
+      const projectedRead = projectedItems.find((item) => item.id === read.id);
+      const projectedScreenshot = projectedItems.find((item) => item.id === screenshot.id);
 
       assert.equal(storedJson.includes(readBase64), false);
       assert.equal(storedJson.includes(screenshotBase64), true);

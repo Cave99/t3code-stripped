@@ -16,7 +16,7 @@ import {
   makeBrowserGitHubRoutingPermissions,
   makeCatalogBackend,
   makeCatalogStore,
-  layer as connectionStorageLayer,
+  connectionStorageLayer,
 } from "./storage";
 
 const emptyCatalog = {

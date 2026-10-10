@@ -102,7 +102,7 @@ it.effect("leaves Git imports out of large turn diffs", () => {
         : (input.filePaths ?? ["all"]).join("\n"),
     ),
   );
-  const layer = layerFor({
+  const layer = makeLayer({
     projection: Effect.succeed(makeProjection()),
     diffCheckpoints,
     authoredPaths: new Set(ownPaths),

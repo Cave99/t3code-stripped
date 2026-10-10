@@ -434,7 +434,9 @@ function makeLocalCommandHarness(input: {
               : Effect.die("A local command must not open a native session."),
   );
   const startRootRun = vi.fn<
-    (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
+    (
+      input: Parameters<RunExecutionService.RunExecutionServiceV2Shape["startRootRun"]>[0],
+    ) => Effect.Effect<void>
   >(() =>
     input.failReadsAfterRunning === true
       ? Effect.void

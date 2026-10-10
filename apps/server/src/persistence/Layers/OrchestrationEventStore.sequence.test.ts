@@ -325,7 +325,7 @@ it.effect("replays a command's events through the command index, not the sequenc
     );
   }).pipe(
     Effect.provide(
-      OrchestrationEventStore.layer.pipe(
+      OrchestrationEventStoreLive.pipe(
         Layer.provideMerge(NodeSqliteClient.layer({ filename: ":memory:" })),
       ),
     ),
