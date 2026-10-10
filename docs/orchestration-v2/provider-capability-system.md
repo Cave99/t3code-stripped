@@ -55,7 +55,7 @@ type ThreadCapabilities = {
 };
 ```
 
-Codex can expose strong thread ids and rollback snapshots. Claude may support native forking through its own model/session primitives. Other providers may only support synthetic app forks.
+Codex exposes native thread ids and rollback snapshots. Claude uses its own session primitives; adapter capabilities determine whether a fork uses native state or an app-owned handoff.
 
 ## Turn Capabilities
 
@@ -281,4 +281,4 @@ The UI should receive capability-informed affordances:
 - show plan/todo panels only when structured plan artifacts exist.
 - show rollback only when app checkpoint exists, and annotate provider rollback support.
 
-This keeps the product predictable across Codex, Claude, and future providers.
+This keeps the product predictable across Codex and Claude.

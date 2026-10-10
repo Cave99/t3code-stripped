@@ -8,16 +8,14 @@ so you can shorten them or split them into several messages.
 
 Pasting 32 KiB or more of text adds that fragment as a text-file attachment so
 the agent can inspect it without filling the model context. A smaller paste also
-becomes an attachment when inserting it would exceed the message limit. On a
-hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
+becomes an attachment when inserting it would exceed the message limit. Use `Cmd+Shift+V` on macOS or `Ctrl+Shift+V` on Windows and Linux
 to keep a large paste editable in the composer instead.
 
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
 80 MiB of images in one message. Other files, including videos, can be up to
-50 MiB each, subject to the environment's upload support and limit. The agent
-receives them on the environment's machine. Provider and model limits still
+50 MiB each. The agent receives them on this machine. Provider and model limits still
 apply, including images already in the conversation. A video attachment gives
 the agent a file path; it does not enable native video input.
 
@@ -117,21 +115,6 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
-## Voice input on iPhone
-
-On supported iPhones with iOS 26 or later, use the composer's microphone to record,
-then confirm to transcribe. Text is inserted where your selection was when
-recording started, ready for you to review and edit before sending.
-
-The first use may download Apple's speech model and needs a network connection.
-Later transcription works offline for that language. Recordings can be up to five
-minutes long. Canceling, leaving the screen, or an audio interruption discards the
-recording and preserves your existing draft. While recording, the screen stays
-awake; it can sleep normally once recording stops.
-
-Transcription runs on your device. T3 Code deletes the temporary audio after
-transcription or cancellation; only the message text is sent when you submit.
-
 ## Queued messages
 
 The composer shows **Interrupt** while the agent is working and the draft is
@@ -157,8 +140,7 @@ composer when it is empty, and is discarded otherwise.
 
 ## Commands and skills
 
-Type `/` for commands or `$` to add a skill from the selected environment and
-provider.
+Type `/` for commands or `$` to add a skill from the selected provider on this machine.
 
 The slash menu also includes skills unless you turn off **Settings → General →
 Show skills in slash menu**. Only skills enabled for the provider are listed.
@@ -229,7 +211,7 @@ on your system; save an unsupported video to open it in another app.
 
 Right-click media to save it or copy its path or URL.
 
-File links refer to the environment's machine.
+File links refer to this machine.
 Previews use the original file, even outside the workspace. Moving or deleting it
 can break the preview, so save a copy if you need to keep it.
 

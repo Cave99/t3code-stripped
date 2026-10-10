@@ -53,12 +53,6 @@ records instead carry OTLP resource, scope, and optional status fields.
 The `TraceRecord`, `EffectTraceRecord`, and `OtlpTraceRecord` schemas live in
 `packages/shared/src/observability.ts`.
 
-DPoP proof failures include the safe `environment.dpop.failure_code` span
-attribute. A `time_window` failure means that a signed proof was too old or too
-far in the future for the environment server's allowed window. It can point to
-a date or time problem on either device, but it can also result from a delayed
-request.
-
 #### Summarize the trace file
 
 `t3 trace summary` reads the trace file and its rotated backups directly, so it works while the
@@ -525,7 +519,7 @@ It provides:
 The desktop main process is a second producer, assembled in
 `apps/desktop/src/app/DesktopObservability.ts`. It reads the same `T3CODE_OTLP_*` names and the same
 Settings entries as the backend it supervises, and covers work the backend cannot see: app startup,
-window and menu handling, backend supervision, and updates. It reports as service
+window and menu handling and backend supervision. It reports as service
 `t3code-desktop`, so a collector shows it alongside the backend rather than mixed into it. It
 exports traces and logs only; the main process records no metrics, so the metrics endpoint applies
 to the backend alone.

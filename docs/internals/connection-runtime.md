@@ -1,9 +1,8 @@
 # Connection runtime
 
-The desktop renderer owns one connection per environment through `packages/client-runtime`.
-Only the local environment is reachable in this fork; the remote drivers in that package are
-dormant (see `STRIPPED.md`). Platform code supplies storage, credentials, network
-signals, and application lifecycle events. React views consume the runtime.
+The desktop renderer owns its local backend connection through `packages/client-runtime`.
+Relay, SSH, and remote environment drivers have been removed. Platform code supplies storage,
+the desktop launch credential, network signals, and application lifecycle events. React views consume the runtime.
 Keeping retries and session lifetime here prevents competing reconnect loops when
 several views need the same environment.
 
@@ -28,17 +27,9 @@ projections, and platform-owned state such as drafts.
 
 ## HTTP authorization
 
-RPC sessions authenticate at socket upgrade, while HTTP requests need current
-credentials from the
-[authorization service](../../packages/client-runtime/src/authorization/service.ts).
-Replacing a healthy socket for HTTP renewal would interrupt conversations and
-change the transport generation without a transport failure. Credential expiry
-does not close the socket, and refresh failure belongs to the HTTP operation.
-
-Session listings must retain unrevoked connected sessions after credential expiry
-so an open connection does not disappear from connection management. This does
-not extend the credential's lifetime. New HTTP requests and socket upgrades still
-require valid credentials.
+Socket upgrades and privileged HTTP requests use the same in-memory desktop launch secret.
+The renderer reads it from the singular local bootstrap; no session renewal or ticket exchange
+is needed. See [environment authentication](./environment-auth.md) for the trust boundary.
 
 ## Transport health and data freshness are separate
 
@@ -62,7 +53,7 @@ minutes so back navigation can resume without another snapshot download.
 
 The desktop app adds one consumer: a
 [keep-alive](../../apps/web/src/state/threads.ts) mounts every thread whose
-session is starting or running, in each enabled environment. Opening a running
+session is starting or running in the local environment. Opening a running
 thread then needs no replay. The shell and detail streams are independent, so
 the shell can report a stop before the detail loads or catches up. A stopped
 thread stays mounted until its own stream is live and shows the stop, and the

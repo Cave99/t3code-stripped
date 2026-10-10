@@ -1,7 +1,7 @@
 # Source control
 
 T3 Code integrates with GitHub to clone and publish repositories, create pull requests, and
-review changes. Other forges are not supported in this fork.
+review changes on GitHub.
 
 ## Connect an account
 

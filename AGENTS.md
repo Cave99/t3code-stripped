@@ -126,7 +126,7 @@ Full glossary with file links: `docs/internals/glossary.md`
 - `apps/web` - React/Vite UI, the Electron renderer. `apps/desktop` is the Electron shell.
 - `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
 - `packages/shared` - shared runtime utils, subpath exports, no barrel.
-- `packages/client-runtime` - client connection and state code used by the renderer. Its relay, SSH, and remote drivers are dormant (see STRIPPED.md).
+- `packages/client-runtime` - client connection and state code used by the renderer.
 - `packages/effect-codex-app-server` - Codex app-server protocol client.
 
 ## Taste

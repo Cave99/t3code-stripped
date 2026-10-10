@@ -16,7 +16,7 @@ Git-backed projects show branch and worktree controls below the composer while y
 The controls retreat as the composer docks after you send the first message.
 
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
-applies to the web and desktop clients.
+applies to the desktop app.
 
 ## Motion
 
@@ -27,7 +27,7 @@ without replaying its transitions.
 
 ## Custom themes
 
-On web and desktop, choose **Create theme** to adjust a palette, or import a T3 Code or VS Code
+Choose **Create theme** to adjust a palette, or import a T3 Code or VS Code
 theme. The theme editor's color picker lets you select an area of the app to find the color to
 change. Export your theme as JSON to share it.
 

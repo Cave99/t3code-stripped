@@ -1,26 +1,26 @@
 # Environment authentication
 
-The environment issues its own sessions and enforces their capabilities. In this fork the
-desktop app starts the server on loopback and authenticates its renderer with a local bearer
-credential; pairing links, relay credentials, and remote access are cut. The server's pairing,
-DPoP, and reusable-dev-credential code is still present but unreachable from the shipped app.
+Electron owns the local server's lifetime and credentials. It generates a 192-bit launch
+secret, passes it through private bootstrap FD 3, and exposes it to the renderer through
+preload IPC. The secret stays in memory and is reused for backend restarts within that
+app process; there is no persisted client session or token exchange.
 
-## Authority is checked per RPC
+The backend binds to loopback. [Local authentication](../../apps/server/src/auth/local.ts)
+checks the launch secret at WebSocket upgrade (`token` query parameter) and on privileged
+HTTP requests (`Authorization: Bearer`), using a constant-time comparison. A supplied
+Origin must be `t3code://app`, `t3code-dev://app`, or the configured development Vite
+origin. Requests without an Origin still require the secret. Authentication grants access
+to the local API; there are no per-RPC client scopes.
 
-A successful socket handshake grants no extra authority:
-[every RPC declares a required scope](../../apps/server/src/auth/RpcAuthorization.ts). Bearer
-clients obtain short-lived WebSocket tickets through authenticated HTTP so long-lived tokens stay
-out of socket URLs.
-
-Desktop restarts forget the previous local bearer token, so its reusable bootstrap grant replaces
-earlier sessions for the same subject and method. Revocation and insertion share a
-[database transaction](../../apps/server/src/persistence/AuthSessions.ts); a failed replacement
-must leave the old credential usable.
+Legacy auth tables and migrations remain for database compatibility. They do not authorize
+requests. [ServerSecretStore](../../apps/server/src/auth/ServerSecretStore.ts) still protects
+provider credentials and signs asset/upload grants; those grants are separate from the
+launch secret.
 
 ## The environment is the filesystem boundary
 
 Projects are organizational boundaries, not filesystem sandboxes.
-`orchestration:read` permits reading files the server account can read, including
+Authenticated clients can read files the server account can read, including
 absolute paths outside a project. This lets clients display artifacts that an
 agent writes in a temporary directory. Relative paths and writes still follow
 the [workspace path rules](../../apps/server/src/workspace/WorkspaceFileSystem.ts).

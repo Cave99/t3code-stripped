@@ -89,13 +89,12 @@ transcript renderer moves to records.
 [shared]: ../../packages/shared/src/composerContextReferences.ts
 [legacy]: ../../packages/shared/src/composerContextLegacy.ts
 
-## Editor model (web and desktop)
+## Editor model
 
-`ComposerContextReferenceNode` (`apps/web/src/components/ComposerContextReferenceNode.tsx`) is
-the one inline Lexical node for every context kind. It stores `kind`, `contextId`, `label`, and a
-per-occurrence `referenceId`, and its text content is the canonical link. The prompt string carries
-payload identity and position, so rebuilding the editor restores equivalent chips; it does not
-preserve the editor-local occurrence ids. Old drafts that used the U+FFFC ordinal placeholder
+The inline context node in [the Tiptap editor](../../apps/web/src/components/ComposerPromptEditorTiptap.tsx)
+keeps the context kind, record identity, label, and canonical source link. The draft's Markdown
+carries payload identity and position, so rebuilding the editor restores equivalent chips.
+Old drafts that used the U+FFFC ordinal placeholder
 migrate on hydration: placeholders bind to the terminal contexts in array order, then any context
 the prompt does not mention is prepended as a link.
 
@@ -170,7 +169,7 @@ remain only for files no chip references.
 Every copy path writes the canonical Markdown as `text/plain` and, when the selection holds
 chips, a structured fragment under `web application/x-t3-context-fragment+json`
 (`ComposerContextClipboardFragment`: version, source environment/thread/message, records; no
-bytes, no URLs). Composer copy and cut add it through a Lexical command listener; transcript
+bytes, no URLs). Composer copy and cut add it through capture handlers; transcript
 selection copy adds it from an `onCopyCapture` on the user message body while chips re-emit their
 links through `data-markdown-copy`; the whole-message button writes both through `ClipboardItem`
 and falls back to plain text.
@@ -183,8 +182,8 @@ that id. A pasted binary reads as an unresolved chip until its bytes arrive; a f
 another environment leaves binaries unresolved. Rendered chips and sent messages are never
 mutated by a paste.
 
-Pasting across threads, projects, or environments uses the same path: the client mints an asset
-URL from the source environment, downloads the bytes, and attaches them here. There is no
+Pasting across local threads or projects uses the same path: the client mints an asset
+URL from the local environment, downloads the bytes, and attaches them here. There is no
 server-side clone; if the source is unreachable or the attachment is gone, a toast says so and
 the chip stays unresolved.
 

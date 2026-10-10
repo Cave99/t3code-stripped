@@ -1,7 +1,6 @@
 # Install T3 Code
 
-This fork is a desktop app only. There is no hosted web app, mobile app, standalone `t3`
-command, or auto-updater. Build it from source and update it by pulling and rebuilding.
+Build the desktop app from source. To update it, pull the latest changes and rebuild.
 
 ## Requirements
 

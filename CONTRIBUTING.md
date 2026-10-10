@@ -7,6 +7,8 @@ no obligation to review or merge it.
 
 ## Developer setup
 
+Work on the Electron renderer and its local backend; standalone web deployment is outside this fork.
+
 See the [development runbook](docs/operations/development.md) for the initial checkout, commands,
 checks, and desktop packaging prerequisites.
 

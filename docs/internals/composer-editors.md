@@ -1,6 +1,6 @@
 # Composer coordinates and serialization
 
-The draft store owns Markdown, while Tiptap owns the editing document. The rich-text
+The draft store owns Markdown, while [Tiptap](../../apps/web/src/components/ComposerPromptEditorTiptap.tsx) owns the editing document. The rich-text
 setting changes the installed extensions, so toggling it remounts the editor from the
 stored draft. Plain mode must leave formatting markers literal. Rich mode preserves
 whitespace and chip sources, but canonicalizes supported delimiters (`__` to `**`,

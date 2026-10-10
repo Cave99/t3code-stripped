@@ -18,7 +18,7 @@ pnpm build:desktop    # production build
 ## What is different from upstream
 
 - Desktop only: no mobile app, marketing site, or hosted web app.
-- No remote access: no T3 Connect, pairing, Tailscale, SSH, or WSL. The backend binds to loopback.
+- One local backend, bound to loopback, authenticated with the desktop launch token.
 - Providers: Codex and Claude only.
 - Forges: GitHub only.
 - No device panel, scheduled tasks, browser cookie import, or auto-updater.

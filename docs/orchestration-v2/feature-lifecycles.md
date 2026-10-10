@@ -402,7 +402,7 @@ rollback.toRun(threadId, targetRunOrdinal)
   -> delete or mark stale later checkpoint refs
 ```
 
-Codex `thread/rollback` returns an authoritative provider thread snapshot. Other providers may require a synthetic provider thread restart from context.
+Codex `thread/rollback` returns an authoritative provider thread snapshot. Claude may require a provider thread restart from reconstructed context.
 
 Nested rollback:
 

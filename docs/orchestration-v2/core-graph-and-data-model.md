@@ -24,6 +24,9 @@ The central separation is:
 - `ContextTransfer`: a provider-neutral relationship/source-point record used by forks, provider switches, merge-back, and subagents.
 - `ContextHandoff`: a materialized portable context artifact used when native transfer is unavailable or insufficient.
 
+Provider IDs remain open strings so persisted history from removed providers stays decodable.
+Only Codex and Claude have runtime adapters; unknown historical providers use generic display labels.
+
 Provider-specific lifecycle is preserved in provider refs and diagnostic raw-provider logs. App behavior is driven by app-owned ids, V2-native orchestration events, and graph relationships.
 
 V2 events are durable because they are the app state transition log. Raw provider frames are not durable app state. They may be attached by optional correlation ids such as `rawEventId`, but the canonical durable row is the normalized V2 event.

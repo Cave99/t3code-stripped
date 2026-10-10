@@ -11,7 +11,7 @@ pnpm dev
 
 `pnpm dev` (the same as `pnpm dev:desktop`) starts the Vite renderer and Electron. Electron spawns
 the server straight from `apps/server/src/bin.ts` with the host `node`, so nothing is built first.
-`scripts/dev-electron.mjs` watches `apps/server/src`, `packages/contracts/src`, and
+`apps/desktop/scripts/dev-electron.mjs` watches `apps/server/src`, `packages/contracts/src`, and
 `packages/shared/src` and restarts on changes. `pnpm dev:server` and `pnpm dev:web` start those
 processes separately; the web app is only the Electron renderer and is not served on its own.
 
@@ -70,29 +70,29 @@ options.
 
 ### Linux AppImage prerequisites
 
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
-Rust, C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
+Build Linux artifacts on Linux. Install Rust, C/C++ build tools, and ImageMagick.
+Electron also needs a system keyring for protected secret storage.
 
 Ubuntu and Debian:
 
 ```sh
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential libsecret-1-dev pkg-config imagemagick
+sudo apt-get install cargo rustc build-essential libsecret-1-0 imagemagick
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install rust cargo gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick
+sudo dnf install rust cargo gcc gcc-c++ make libsecret ImageMagick
 ```
 
 Arch Linux:
 
 ```sh
-sudo pacman -S rust base-devel libsecret pkgconf imagemagick
+sudo pacman -S rust base-devel libsecret imagemagick
 ```
 
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
+The C toolchain is also needed for Linux desktop development.
 
 ### macOS DMG prerequisites
 

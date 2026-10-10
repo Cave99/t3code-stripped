@@ -128,8 +128,8 @@ call. A transcript should include the `query` prompt/options we sent and then re
 SDK output; it does not test the SDK's own subprocess or transport parser.
 
 Provider transcript recorders live with the server orchestration testkit, not with provider client
-packages. Use `bun run record:codex-replay -- --scenario <name>` for Codex app-server transcripts
-and `bun run record:claude-replay -- --scenario <name>` for Claude Agent SDK transcripts.
+packages. From `apps/server`, use `pnpm record:codex-replay --scenario <name>` for Codex app-server transcripts
+and `pnpm record:claude-replay --scenario <name>` for Claude Agent SDK transcripts.
 
 ## Contract Test Levels
 
@@ -201,7 +201,7 @@ Testing infrastructure should be built before production rewrites:
 2. Effect service definitions.
 3. provider runtime transport abstraction.
 4. generic replay runtime.
-5. Codex, Claude, Cursor, OpenCode, and ACP transcript loaders for app-owned provider replay fixtures.
+5. Codex and Claude transcript loaders for app-owned provider replay fixtures.
 6. projection reducer tests for core invariants.
 7. full command-to-projection integration tests.
 8. production layers.

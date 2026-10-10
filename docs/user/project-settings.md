@@ -40,8 +40,8 @@ generation. The same rows edit environment defaults or project overrides dependi
 project crumb.
 
 The Project category, shown while a project is selected, holds the project's name, icon, actions,
-checkouts and removal. Actions belong to a project: editing them creates the project's own list
-on each selected environment, and reset returns to the environment's shared list. A project's
+checkouts and removal. Actions belong to a project: editing them creates the project's own list,
+and reset returns to the environment's shared list. A project's
 `t3.json` actions can be imported there.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
@@ -58,12 +58,11 @@ applies when the project and environment are both on **Inherit**.
 
 ## Storage cleanup
 
-Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
-environments. Policies are off by default and run on the server at startup, when changed, and
-hourly. Offline machines keep their existing policies.
+Open **Settings → Storage** to enable automatic cleanup on this machine. Policies are off by
+default and run while T3 Code is running: at startup, when changed, and hourly.
 
 Select a project to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
-Inherit follows each machine's rules; Off keeps that project's worktrees until you remove them
+Inherit follows this machine's rules; Off keeps that project's worktrees until you remove them
 manually. Custom applies separate worktree rules to the selected project or checkout. Browser
 captures and log retention remain machine-wide.
 
@@ -90,7 +89,7 @@ T3 Code detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
-When no image is found, web and desktop show a two-character monogram with a color
+When no image is found, the app shows a two-character monogram with a color
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
