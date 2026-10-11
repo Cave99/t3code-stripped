@@ -9,7 +9,7 @@ import type * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   DEFAULT_SERVER_SETTINGS,
   StorageCleanupReport,
@@ -228,7 +228,15 @@ describe("merged pull request cleanup", () => {
 
 const cleanupFixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const config = yield* ServerConfig.ServerConfig;
+  const baseConfig = yield* ServerConfig.ServerConfig;
+  yield* fs.makeDirectory(baseConfig.browserArtifactsDir, { recursive: true });
+  yield* fs.makeDirectory(baseConfig.logsDir, { recursive: true });
+  // macOS temp directories use a /var symlink; cleanup deliberately skips linked roots.
+  const config = {
+    ...baseConfig,
+    browserArtifactsDir: yield* fs.realPath(baseConfig.browserArtifactsDir),
+    logsDir: yield* fs.realPath(baseConfig.logsDir),
+  };
   const git = yield* GitVcsDriver.GitVcsDriver;
   const repo = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-repo-" });
   const command = (cwd: string, args: string[]) =>
@@ -252,6 +260,7 @@ const cleanupFixture = Effect.gen(function* () {
   let openSessionCwd: string | null = null;
   let fullStatusCalls = 0;
   const context = yield* Layer.build(StorageCleanup.layer).pipe(
+    Effect.provideService(ServerConfig.ServerConfig, config),
     Effect.provideService(GitVcsDriver.GitVcsDriver, {
       ...git,
       execute: (input) =>
@@ -280,11 +289,11 @@ const cleanupFixture = Effect.gen(function* () {
       streamDomainEvents: Stream.empty,
     } as unknown as Orchestrator.OrchestratorV2["Service"]),
     Effect.provideService(SqlClient.SqlClient, ((strings: TemplateStringsArray) =>
-      Effect.sync(() =>
-        openSessionCwd !== null && strings.join("").includes("projection_provider_sessions")
+      Effect.gen(function* () {
+        return openSessionCwd !== null && strings.join("").includes("projection_provider_sessions")
           ? [
               {
-                payload_json: JSON.stringify({
+                payload_json: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
                   id: "session-1",
                   driver: "codex",
                   providerInstanceId: "codex",
@@ -298,8 +307,8 @@ const cleanupFixture = Effect.gen(function* () {
                 }),
               },
             ]
-          : [],
-      )) as unknown as SqlClient.SqlClient),
+          : [];
+      })) as unknown as SqlClient.SqlClient),
     Effect.provideService(GitManager.GitManager, {
       invalidateStatus: () => Effect.void,
     } as unknown as GitManager.GitManager["Service"]),

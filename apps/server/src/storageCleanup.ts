@@ -60,7 +60,7 @@ const isGitCommandError = Schema.is(GitCommandError);
 
 function cleanupFailureReason(error: { readonly message: string }) {
   return isGitCommandError(error)
-    ? `${error.command}: ${error.detail.split(/\r?\n/)[0]}${error.reason ? ` (${error.reason})` : ""}`
+    ? `${error.command}: ${error.detail.split(/\r?\n/)[0]}`
     : (error.message.split(/\r?\n/)[0] ?? error.message);
 }
 

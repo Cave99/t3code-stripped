@@ -98,6 +98,7 @@ export type LoadEarlierThreadHistoryInput = {
 };
 
 export type {
+  RetryWorkspacePreparationInput,
   ArchiveThreadInput,
   CancelQueuedRunInput,
   CreateThreadInput,

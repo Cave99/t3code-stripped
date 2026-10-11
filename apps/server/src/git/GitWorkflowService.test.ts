@@ -1,5 +1,5 @@
 import * as ServerSettings from "../serverSettings.ts";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/shared/serverSettings";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { assert, describe, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -238,7 +238,7 @@ describe("GitWorkflowService", () => {
     );
   });
 
-  it.effect("finds a name among the refs of every namespace", () =>
+  it.effect("finds refs across namespaces and creates worktrees in the selected location", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-ref-named-" });
@@ -258,10 +258,21 @@ describe("GitWorkflowService", () => {
         (refName) => workflow.hasRefNamed({ cwd, refName }),
       );
       assert.deepEqual(found, [true, true, true, true, false, false]);
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const parent = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-chosen-worktrees-" });
+      yield* settings.updateSettings({ worktreesDirectory: parent });
+      const created = yield* workflow.createWorktree({
+        cwd,
+        refName: "main",
+        newRefName: "t3/custom-location",
+        path: null,
+      });
+      assert.equal(created.worktree.path, `${parent}/${cwd.split("/").at(-1)}/t3-custom-location`);
     }).pipe(
       Effect.scoped,
       Effect.provide(
         GitWorkflowService.layer.pipe(
+          Layer.provideMerge(ServerSettings.layerTest()),
           Layer.provide(
             Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
               resolve: () => Effect.succeed({ kind: "git" } as VcsDriverRegistry.VcsDriverHandle),

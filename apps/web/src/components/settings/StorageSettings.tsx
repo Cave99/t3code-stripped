@@ -6,7 +6,7 @@ import type {
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
+import { Atom } from "effect/unstable/reactivity";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -253,9 +253,6 @@ function CleanupSection() {
             return [
               {
                 environmentId: environment.environmentId,
-                allowed: get(
-                  serverEnvironment.runStorageCleanup.permissionAtom(environment.environmentId),
-                ),
                 report: query._tag === "Success" ? query.value : null,
                 loading: query.waiting,
                 failed: query._tag === "Failure",
@@ -305,30 +302,24 @@ function CleanupSection() {
     setPending(true);
     try {
       await Promise.all(
-        supported
-          .filter((environment) =>
-            state.some(
-              (entry) => entry.environmentId === environment.environmentId && entry.allowed,
-            ),
-          )
-          .map(async (environment) => {
-            const result = await run({ environmentId: environment.environmentId, input: {} });
-            if (result._tag === "Success") {
-              const failures = result.value.entries.filter((entry) => entry.outcome === "failed");
-              if (failures.length > 0)
-                toastManager.add({
-                  type: "error",
-                  title: `Cleanup failed on ${environment.label}`,
-                  description: failures[0]!.reason,
-                });
-            } else if (!isAtomCommandInterrupted(result)) {
+        supported.map(async (environment) => {
+          const result = await run({ environmentId: environment.environmentId, input: {} });
+          if (result._tag === "Success") {
+            const failures = result.value.entries.filter((entry) => entry.outcome === "failed");
+            if (failures.length > 0)
               toastManager.add({
                 type: "error",
-                title: `Could not run cleanup on ${environment.label}`,
-                description: String(squashAtomCommandFailure(result)),
+                title: `Cleanup failed on ${environment.label}`,
+                description: failures[0]!.reason,
               });
-            }
-          }),
+          } else if (!isAtomCommandInterrupted(result)) {
+            toastManager.add({
+              type: "error",
+              title: `Could not run cleanup on ${environment.label}`,
+              description: String(squashAtomCommandFailure(result)),
+            });
+          }
+        }),
       );
     } finally {
       setPending(false);
@@ -355,7 +346,7 @@ function CleanupSection() {
             <Button
               variant="outline"
               size="sm"
-              disabled={pending || !hasRules || !state.some((entry) => entry.allowed)}
+              disabled={pending || !hasRules}
               onClick={() => void deleteNow()}
             >
               {pending ? "Deleting…" : "Delete now"}

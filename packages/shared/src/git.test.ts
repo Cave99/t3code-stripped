@@ -5,6 +5,7 @@ import {
   applyGitStatusStreamEvent,
   formatGeneratedBranchName,
   buildTemporaryWorktreeBranchName,
+  flattenTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,

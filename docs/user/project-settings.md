@@ -56,6 +56,12 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Retry workspace preparation
+
+If fetching, checking out a worktree, or a blocking setup action fails, fix the cause and choose
+**Retry** on the failed preparation in the thread. T3 Code retries the original preparation and
+starts the waiting agent when it succeeds. An already-created worktree is reused.
+
 ## Worktree location
 
 New worktrees go in the `worktrees` folder of the T3 home directory. To put them somewhere else,
