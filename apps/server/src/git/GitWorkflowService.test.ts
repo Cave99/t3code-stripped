@@ -1,3 +1,5 @@
+import * as ServerSettings from "../serverSettings.ts";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/shared/serverSettings";
 import { assert, describe, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -15,6 +17,11 @@ function makeLayer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
 }) {
   return GitWorkflowService.layer.pipe(
+    Layer.provide(
+      Layer.mock(ServerSettings.ServerSettingsService)({
+        getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      }),
+    ),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
         detect: input.detect,
@@ -118,6 +125,11 @@ describe("GitWorkflowService", () => {
     const status = vi.fn();
 
     const testLayer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        }),
+      ),
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
           detect: () => Effect.succeed(null),
