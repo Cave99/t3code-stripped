@@ -118,6 +118,11 @@ sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
 runs a command, such as a dev server, stays open.
 
+Press a thread's **Settle** button and drag up or down to
+settle every thread in that section between it and the one you release on.
+The **Un-settle** and **Wake** buttons work the same way in their sections.
+Press `Escape` while dragging to cancel.
+
 By default, T3 Code settles inactive threads after three days and settles
 threads whose pull request merged. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work

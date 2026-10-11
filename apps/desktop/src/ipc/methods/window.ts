@@ -8,7 +8,7 @@ import {
   type DesktopEnvironmentBootstrap,
   type PickedThemeFile,
 } from "@t3tools/contracts";
-import { WORKSPACE_IMAGE_PREVIEW_EXTENSIONS } from "@t3tools/shared/filePreview";
+import { PROJECT_FAVICON_EXTENSIONS } from "@t3tools/shared/projectFavicon";
 import * as NodeOS from "node:os";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -135,7 +135,7 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
       filters: [
         {
           name: "Images",
-          extensions: WORKSPACE_IMAGE_PREVIEW_EXTENSIONS.map((extension) => extension.slice(1)),
+          extensions: PROJECT_FAVICON_EXTENSIONS.map((extension) => extension.slice(1)),
         },
       ],
     });
