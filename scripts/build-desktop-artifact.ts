@@ -2,6 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
+import Plist from "plist";
 
 import {
   createPackageWithOptions,
@@ -71,9 +72,27 @@ const StageWorkspaceConfig = Schema.Struct({
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  packageExtensions: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        peerDependenciesMeta: Schema.Record(
+          Schema.String,
+          Schema.Struct({ optional: Schema.Boolean }),
+        ),
+      }),
+    ),
+  ),
   nodeLinker: Schema.optional(Schema.Literals(["hoisted"])),
 });
 type StageWorkspaceConfig = typeof StageWorkspaceConfig.Type;
+
+// electron-webauthn declares TypeScript as a peer only for its typings. pnpm
+// auto-installs missing peers, which would ship a compiler inside the app.
+const STAGE_PACKAGE_EXTENSIONS = {
+  "electron-webauthn": { peerDependenciesMeta: { typescript: { optional: true } } },
+  "@electron-webauthn/macos": { peerDependenciesMeta: { typescript: { optional: true } } },
+} as const;
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -787,6 +806,7 @@ interface StagePackageJson {
   readonly version: string;
   readonly buildVersion: string;
   readonly t3codeCommitHash: string;
+  readonly t3codeWebAuthn?: MacWebAuthnEntitlements;
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
@@ -990,6 +1010,7 @@ export function createStageWorkspaceConfig(input: {
       ? { patchedDependencies }
       : {}),
     ...(overrides && Object.keys(overrides).length > 0 ? { overrides } : {}),
+    packageExtensions: STAGE_PACKAGE_EXTENSIONS,
   };
 }
 
@@ -1942,12 +1963,147 @@ export function resolveDesktopProductName(): string {
   return desktopPackageJson.productName ?? "T3 Code";
 }
 
+interface MacPasskeySigningConfiguration {
+  readonly appId: string;
+  readonly teamId: string;
+  readonly provisioningProfilePath: string;
+}
+
+export class MacPasskeySigningConfigurationError extends Schema.TaggedError<MacPasskeySigningConfigurationError>()(
+  "MacPasskeySigningConfigurationError",
+  { message: Schema.String },
+) {}
+
+/** The fork has no Clerk domain association; only browser entitlements are needed. */
+const macPasskeySigningConfiguration = Effect.gen(function* () {
+  const profile = yield* Config.String("T3CODE_MACOS_PROVISIONING_PROFILE").pipe(
+    Config.withDefault(""),
+  );
+  if (profile.trim() === "") return undefined;
+  const teamId = yield* Config.String("T3CODE_APPLE_TEAM_ID");
+  if (!/^[A-Z0-9]{10}$/.test(teamId.trim().toUpperCase())) {
+    return yield* Effect.fail(
+      new MacPasskeySigningConfigurationError({
+        message: "T3CODE_APPLE_TEAM_ID must be a 10-character Apple team ID.",
+      }),
+    );
+  }
+  return {
+    appId: DESKTOP_APP_ID,
+    teamId: teamId.trim().toUpperCase(),
+    provisioningProfilePath: (yield* Path.Path).resolve(yield* RepoRoot, profile.trim()),
+  };
+});
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+/**
+ * Passkey entitlements for the in-app browser. Each is granted only when the
+ * provisioning profile authorizes it: macOS refuses to launch an app that
+ * claims a restricted entitlement its embedded profile does not carry.
+ */
+export interface MacWebAuthnEntitlements {
+  /** Keychain group for Electron's Touch ID passkeys. */
+  readonly touchIdKeychainAccessGroup: string | undefined;
+  /** Apple's managed browser entitlement, which allows passkeys for any site. */
+  readonly browserPasskeys: boolean;
+}
+
+const BROWSER_PASSKEYS_ENTITLEMENT = "com.apple.developer.web-browser.public-key-credential";
+
+const ProvisioningProfilePlist = Schema.Struct({
+  Entitlements: Schema.Struct({
+    "keychain-access-groups": Schema.optional(Schema.Array(Schema.String)),
+    [BROWSER_PASSKEYS_ENTITLEMENT]: Schema.optional(Schema.Boolean),
+  }),
+});
+const isProvisioningProfilePlist = Schema.is(ProvisioningProfilePlist);
+
+/**
+ * Reads the Entitlements dict of the XML plist a provisioning profile wraps in
+ * its CMS envelope. Anything unreadable grants nothing.
+ */
+const readProfileEntitlements = (provisioningProfile: string) => {
+  const start = provisioningProfile.indexOf("<?xml");
+  const end = provisioningProfile.indexOf("</plist>", start);
+  if (start === -1 || end === -1) return undefined;
+  try {
+    const profile: unknown = Plist.parse(provisioningProfile.slice(start, end + "</plist>".length));
+    return isProvisioningProfilePlist(profile) ? profile.Entitlements : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export function resolveMacWebAuthnEntitlements(
+  provisioningProfile: string,
+  configuration: Pick<MacPasskeySigningConfiguration, "appId" | "teamId">,
+): MacWebAuthnEntitlements {
+  const entitlements = readProfileEntitlements(provisioningProfile);
+  const keychainAccessGroup = `${configuration.teamId}.${configuration.appId}.webauthn`;
+  const keychainGroupAuthorized = (entitlements?.["keychain-access-groups"] ?? []).some((group) =>
+    group.endsWith("*")
+      ? keychainAccessGroup.startsWith(group.slice(0, -1))
+      : group === keychainAccessGroup,
+  );
+  return {
+    touchIdKeychainAccessGroup: keychainGroupAuthorized ? keychainAccessGroup : undefined,
+    browserPasskeys: entitlements?.[BROWSER_PASSKEYS_ENTITLEMENT] === true,
+  };
+}
+
+export function renderMacPasskeyEntitlements(
+  configuration: MacPasskeySigningConfiguration,
+  webAuthn: MacWebAuthnEntitlements,
+): string {
+  const keychainAccessGroups = webAuthn.touchIdKeychainAccessGroup
+    ? `
+    <key>keychain-access-groups</key>
+    <array>
+      <string>${escapeXml(webAuthn.touchIdKeychainAccessGroup)}</string>
+    </array>`
+    : "";
+  const browserPasskeys = webAuthn.browserPasskeys
+    ? `
+    <key>${BROWSER_PASSKEYS_ENTITLEMENT}</key>
+    <true/>`
+    : "";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.application-identifier</key>
+    <string>${escapeXml(`${configuration.teamId}.${configuration.appId}`)}</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>${escapeXml(configuration.teamId)}</string>
+${keychainAccessGroups}${browserPasskeys}
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
+`;
+}
+
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
   version: string,
   signed: boolean,
   arch?: typeof BuildArch.Type,
+  macPasskeySigning?: MacPasskeySigningConfiguration,
+  macEntitlementsPath?: string,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -1987,14 +2143,37 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       extendInfo: {
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
+        // macOS lists an app under Default web browser only when it opens web
+        // pages as documents as well as http and https links (see protocols).
+        CFBundleDocumentTypes: [
+          {
+            CFBundleTypeName: "Web page",
+            CFBundleTypeRole: "Viewer",
+            LSHandlerRank: "Alternate",
+            LSItemContentTypes: ["public.html", "public.xhtml"],
+          },
+        ],
       },
       protocols: [
         {
           name: "T3 Code",
           schemes: ["t3code", "t3code-dev"],
         },
+        // Lets people choose T3 Code as their default web browser, which opens
+        // each link in a new thread's browser panel.
+        {
+          name: "Web site URL",
+          schemes: ["http", "https"],
+          role: "Viewer",
+        },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(macPasskeySigning && macEntitlementsPath
+        ? {
+            provisioningProfile: macPasskeySigning.provisioningProfilePath,
+            entitlements: macEntitlementsPath,
+          }
+        : {}),
     };
   }
 
@@ -2756,11 +2935,33 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform === "win"
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
+  const macPasskeySigning =
+    options.platform === "mac" && options.signed
+      ? yield* macPasskeySigningConfiguration
+      : undefined;
+  const macEntitlementsPath = macPasskeySigning
+    ? path.join(stageAppDir, "entitlements.mac.plist")
+    : undefined;
+  let macWebAuthn: MacWebAuthnEntitlements | undefined;
+  if (macPasskeySigning && macEntitlementsPath) {
+    macWebAuthn = resolveMacWebAuthnEntitlements(
+      yield* fs.readFileString(macPasskeySigning.provisioningProfilePath),
+      macPasskeySigning,
+    );
+    yield* Effect.log(
+      `[desktop-artifact] In-app browser passkeys: Touch ID ${macWebAuthn.touchIdKeychainAccessGroup ? "enabled" : "disabled"}, browser passkeys ${macWebAuthn.browserPasskeys ? "enabled" : "disabled"}.`,
+    );
+    yield* fs.writeFileString(
+      macEntitlementsPath,
+      renderMacPasskeyEntitlements(macPasskeySigning, macWebAuthn),
+    );
+  }
   const stagePackageJson: StagePackageJson = {
     name: "t3code",
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,
+    ...(macWebAuthn ? { t3codeWebAuthn: macWebAuthn } : {}),
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "T3 Code desktop build",
@@ -2774,6 +2975,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       appVersion,
       options.signed,
       options.arch,
+      macPasskeySigning,
+      macEntitlementsPath,
     ),
     dependencies: stageDependencies,
     devDependencies: {

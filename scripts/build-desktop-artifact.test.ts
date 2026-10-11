@@ -14,6 +14,8 @@ import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  resolveMacWebAuthnEntitlements,
+  renderMacPasskeyEntitlements,
   BundleNotSelfContainedError,
   BuildCommandFailedError,
   DesktopDmgBackgroundSourceMissingError,
@@ -62,6 +64,11 @@ import {
 } from "./build-desktop-artifact.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
+
+const stagePackageExtensions = {
+  "electron-webauthn": { peerDependenciesMeta: { typescript: { optional: true } } },
+  "@electron-webauthn/macos": { peerDependenciesMeta: { typescript: { optional: true } } },
+};
 
 function mockProcess(exitCode: number, stdout = "") {
   const encodedStdout = new TextEncoder().encode(stdout);
@@ -150,6 +157,104 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
 });
 
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
+  it("grants in-app browser passkey entitlements only when the provisioning profile does", () => {
+    const configuration = { appId: "com.t3tools.t3code", teamId: "ABC1234567" };
+    // Profiles are CMS envelopes around a plain XML plist.
+    const profile = (entitlements: string, outside = "") =>
+      `0\x82\x1f\x9a\x06\t*\x86H<?xml version="1.0"?><plist version="1.0"><dict>${outside}<key>Entitlements</key><dict>${entitlements}</dict></dict></plist>\x00\x01`;
+    const teamWildcardGroups = `<key>keychain-access-groups</key>
+      <array>
+        <string>ABC1234567.*</string>
+        <string>com.apple.token</string>
+      </array>`;
+
+    assert.deepStrictEqual(resolveMacWebAuthnEntitlements(profile(""), configuration), {
+      touchIdKeychainAccessGroup: undefined,
+      browserPasskeys: false,
+    });
+    assert.deepStrictEqual(
+      resolveMacWebAuthnEntitlements(
+        profile("<key>keychain-access-groups</key><array><string>OTHERTEAM1.*</string></array>"),
+        configuration,
+      ),
+      { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
+    );
+    // Only real values inside the Entitlements dict count: not comments, not
+    // explicit false, not keys elsewhere in the profile.
+    assert.deepStrictEqual(
+      resolveMacWebAuthnEntitlements(
+        profile(
+          `<!-- ${teamWildcardGroups}
+          <key>com.apple.developer.web-browser.public-key-credential</key><true/> -->
+          <key>com.apple.developer.web-browser.public-key-credential</key><false/>`,
+          teamWildcardGroups,
+        ),
+        configuration,
+      ),
+      { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
+    );
+    assert.deepStrictEqual(
+      resolveMacWebAuthnEntitlements(
+        profile(
+          `${teamWildcardGroups}
+          <key>com.apple.developer.web-browser.public-key-credential</key>
+          <true/>`,
+        ),
+        configuration,
+      ),
+      {
+        touchIdKeychainAccessGroup: "ABC1234567.com.t3tools.t3code.webauthn",
+        browserPasskeys: true,
+      },
+    );
+
+    const entitlements = renderMacPasskeyEntitlements(
+      { ...configuration, provisioningProfilePath: "" },
+      resolveMacWebAuthnEntitlements(
+        profile(
+          `${teamWildcardGroups}<key>com.apple.developer.web-browser.public-key-credential</key><true/>`,
+        ),
+        configuration,
+      ),
+    );
+    assert.match(
+      entitlements,
+      /<key>keychain-access-groups<\/key>\s*<array>\s*<string>ABC1234567\.com\.t3tools\.t3code\.webauthn<\/string>\s*<\/array>/u,
+    );
+    assert.match(
+      entitlements,
+      /<key>com\.apple\.developer\.web-browser\.public-key-credential<\/key>\s*<true\/>/u,
+    );
+  });
+
+  it.effect("embeds the passkey profile and main-app entitlements in signed macOS builds", () =>
+    Effect.gen(function* () {
+      const configuration = {
+        appId: "com.t3tools.t3code",
+        teamId: "ABC1234567",
+        provisioningProfilePath: "/signing/browser.provisionprofile",
+      };
+      const build = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.0.0",
+        true,
+        "arm64",
+        configuration,
+        "/stage/entitlements.mac.plist",
+      );
+      const mac = build.mac as Record<string, unknown>;
+      assert.strictEqual(mac.provisioningProfile, configuration.provisioningProfilePath);
+      assert.strictEqual(mac.entitlements, "/stage/entitlements.mac.plist");
+      // Helpers keep electron-builder's own entitlements, not the main app's restricted grants.
+      assert.isUndefined(mac.entitlementsInherit);
+
+      const unsigned = yield* createBuildConfig("mac", "dmg", "1.0.0", false, "arm64");
+      assert.isUndefined((unsigned.mac as Record<string, unknown>).provisioningProfile);
+      assert.isUndefined((unsigned.mac as Record<string, unknown>).entitlements);
+    }),
+  );
+
   it("stages only the desktop main-process externals", () => {
     assert.deepStrictEqual(
       resolveDesktopRuntimeDependencies(
@@ -218,6 +323,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         os: ["darwin"],
         cpu: ["x64"],
       },
+      packageExtensions: stagePackageExtensions,
     });
     assert.deepStrictEqual(createStageWorkspaceConfig({ platform: "linux", arch: "x64" }), {
       supportedArchitectures: {
@@ -225,6 +331,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         cpu: ["x64"],
         libc: ["glibc"],
       },
+      packageExtensions: stagePackageExtensions,
     });
     // Windows stages only win32 natives; WSL runs the separately built Linux
     // CLI archive rather than anything installed here.
@@ -233,18 +340,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         os: ["win32"],
         cpu: ["x64"],
       },
+      packageExtensions: stagePackageExtensions,
     });
     assert.deepStrictEqual(createStageWorkspaceConfig({ platform: "win", arch: "arm64" }), {
       supportedArchitectures: {
         os: ["win32"],
         cpu: ["arm64"],
       },
+      packageExtensions: stagePackageExtensions,
     });
     assert.deepStrictEqual(createStageWorkspaceConfig({ platform: "mac", arch: "universal" }), {
       supportedArchitectures: {
         os: ["darwin"],
         cpu: ["arm64", "x64"],
       },
+      packageExtensions: stagePackageExtensions,
     });
   });
 
@@ -271,6 +381,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           cpu: ["x64"],
           libc: ["glibc"],
         },
+        packageExtensions: stagePackageExtensions,
         allowBuilds: {
           electron: true,
           "node-pty": true,
@@ -301,6 +412,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           os: ["darwin"],
           cpu: ["arm64"],
         },
+        packageExtensions: stagePackageExtensions,
       },
     );
   });
@@ -375,6 +487,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+      ]);
+      // macOS also offers itself as a web browser, so it can be chosen as the default.
+      assert.deepStrictEqual((mac.mac as Record<string, unknown>).protocols, [
+        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "Web site URL", schemes: ["http", "https"], role: "Viewer" },
+      ]);
+      // macOS lists a default browser only when it also opens web pages as documents.
+      const macInfo = (mac.mac as { extendInfo: Record<string, unknown> }).extendInfo;
+      assert.deepStrictEqual(macInfo.CFBundleDocumentTypes, [
+        {
+          CFBundleTypeName: "Web page",
+          CFBundleTypeRole: "Viewer",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["public.html", "public.xhtml"],
+        },
       ]);
       assert.deepStrictEqual(mac.files, [...DESKTOP_FILE_EXCLUSIONS, ...MAC_FILE_EXCLUSIONS]);
       assert.deepStrictEqual(linux.files, [...DESKTOP_FILE_EXCLUSIONS, ...LINUX_FILE_EXCLUSIONS]);

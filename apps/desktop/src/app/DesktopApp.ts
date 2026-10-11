@@ -1,3 +1,4 @@
+import * as NodeURL from "node:url";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -12,6 +13,8 @@ import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
+import * as DesktopWebLinks from "./DesktopWebLinks.ts";
+import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
@@ -262,6 +265,23 @@ const startup = Effect.gen(function* () {
 
   yield* appIdentity.configure;
   yield* lifecycle.register;
+  if (environment.platform === "darwin") {
+    const webLinks = yield* DesktopWebLinks.DesktopWebLinks;
+    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
+    yield* electronApp.on("open-url", (event: { preventDefault: () => void }, url: string) => {
+      if (!DesktopWebLinks.isWebLink(url)) return;
+      event.preventDefault();
+      void runPromise(webLinks.receive(url));
+    });
+    yield* electronApp.on(
+      "open-file",
+      (event: { preventDefault: () => void }, filePath: string) => {
+        if (!DesktopWebLinks.isWebPageFile(filePath)) return;
+        event.preventDefault();
+        void runPromise(webLinks.receive(NodeURL.pathToFileURL(filePath).href));
+      },
+    );
+  }
 
   yield* electronApp.whenReady.pipe(
     Effect.withSpan("desktop.electron.whenReady"),
@@ -275,6 +295,7 @@ const startup = Effect.gen(function* () {
     });
   }
   yield* appIdentity.configure;
+  yield* (yield* PreviewPasskeys.PreviewPasskeys).configure;
   yield* applicationMenu.configure;
   yield* linuxUrlHandler.register;
   yield* bootstrap.pipe(Effect.catchCause((cause) => fatalStartupCause("bootstrap", cause)));

@@ -14,6 +14,7 @@
 export const DESKTOP_RUNTIME_EXTERNAL_PREFIXES = [
   // Native addons and the wrappers that dlopen them by real path.
   "@crowecawcaw/xa11y",
+  "electron-webauthn",
   "ffi-rs",
   "@yuuang/",
   // Reads its own bundle from disk by resolving `playwright-core/package.json`

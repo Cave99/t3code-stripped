@@ -44,6 +44,18 @@ if (clientPlatform === "darwin") {
 }
 
 contextBridge.exposeInMainWorld("desktopBridge", {
+  webLinks: {
+    setReady: (ready) => ipcRenderer.invoke(IpcChannels.WEB_LINK_READY_CHANNEL, ready),
+    onOpen: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, url: unknown) => {
+        if (typeof url === "string") listener(url);
+      };
+      ipcRenderer.on(IpcChannels.WEB_LINK_OPEN_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.WEB_LINK_OPEN_CHANNEL, wrappedListener);
+      };
+    },
+  },
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {
