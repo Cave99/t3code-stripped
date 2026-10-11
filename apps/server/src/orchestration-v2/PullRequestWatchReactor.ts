@@ -2,6 +2,10 @@ import {
   CommandId,
   MessageId,
   type OrchestrationV2Notification,
+  type PullRequestComment,
+  type PullRequestRef,
+  type PullRequestActivity,
+  type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
 } from "@t3tools/contracts";
@@ -18,7 +22,6 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
@@ -27,6 +30,7 @@ import {
   PullRequestProviderError,
 } from "../pullRequest/PullRequestProvider.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
+import * as Scheduler from "../scheduling/Scheduler.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -232,6 +236,7 @@ export const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
+  const scheduler = yield* Scheduler.Scheduler;
   const bootedAt = yield* Clock.currentTimeMillis;
   const lives = new Map<string, WatchLife>();
 
@@ -637,10 +642,17 @@ export const make = Effect.gen(function* () {
     Effect.withSpan("PullRequestWatchReactor.sweep"),
   );
 
+  // Share the internal scheduler's clock with usage-limit recovery. Its source permit keeps
+  // slow sweeps from overlapping and skips missed ticks instead of building a backlog.
+  let nextSweepAt = 0;
+  const due = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    if (now < nextSweepAt) return;
+    nextSweepAt = now + SWEEP_MINUTES * 60_000;
+    yield* sweep;
+  });
   const start: PullRequestWatchReactor["Service"]["start"] = () =>
-    forkParked(
-      sweep.pipe(Effect.repeat(Schedule.spaced(`${SWEEP_MINUTES} minutes`)), Effect.asVoid),
-    );
+    forkParked(scheduler.register("pull-request-watch", due));
 
   return { start, sweep } satisfies PullRequestWatchReactor["Service"];
 });

@@ -1444,3 +1444,16 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+/** Rows between the origin and current pointer, retaining only eligible actions. */
+export function resolveSidebarSweepKeys(
+  orderedKeys: readonly string[],
+  originKey: string,
+  targetKey: string,
+  canApply: (key: string) => boolean,
+): string[] {
+  const origin = orderedKeys.indexOf(originKey);
+  const target = orderedKeys.indexOf(targetKey);
+  if (origin === -1 || target === -1) return [];
+  return orderedKeys.slice(Math.min(origin, target), Math.max(origin, target) + 1).filter(canApply);
+}

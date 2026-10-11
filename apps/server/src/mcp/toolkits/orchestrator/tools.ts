@@ -171,7 +171,7 @@ const ThreadWaitTool = Tool.make("t3_thread_wait", {
 
 const ThreadInterruptTool = Tool.make("t3_thread_interrupt", {
   description:
-    "Request interruption of a running turn in a T3 thread in the calling project. Without runId, the newest interruptible run is selected. Terminal runs and threads without an active turn return without another side effect. clientRequestId makes retries idempotent.",
+    "Stop work in a T3 thread in the calling project: interrupt its active turn, hold its queue, and end its pull request watches. Without runId, the newest interruptible run is selected; an idle thread still stops its watches. An explicitly targeted terminal run returns without another side effect. clientRequestId makes retries idempotent.",
   parameters: OrchestratorMcpThreadInterruptInput,
   success: OrchestratorMcpThreadInterruptResult,
   failure: OrchestratorMcpFailure,

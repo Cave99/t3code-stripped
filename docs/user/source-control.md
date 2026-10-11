@@ -117,7 +117,6 @@ A watched thread counts as working between wakes, so it stays in the **Working**
 not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
 returns to your inbox.
 
-
 ## GitHub stacks
 
 The Pull Requests page shows each PR's position in its GitHub stack. Open the stack badge in a

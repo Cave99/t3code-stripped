@@ -3816,6 +3816,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
       expect(callAt(1).args).toContain("cursor=Y3Vyc29yOjE");
       expect(conversation.comments.map((comment) => comment.id)).toEqual(["c1", "c2"]);
       assert.isFalse(conversation.truncated);
+      assert.isFalse(conversation.threadsTruncated);
     }),
   );
 
@@ -3836,6 +3837,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       assert.strictEqual(mockedExecute.mock.calls.length, 10);
       assert.isTrue(conversation.truncated);
+      assert.isTrue(conversation.threadsTruncated);
     }),
   );
 
@@ -3867,6 +3869,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
         nextCommentsCursor: "Y3Vyc29yOjI",
       });
       assert.isTrue(conversation.truncated);
+      assert.isFalse(conversation.threadsTruncated);
     }),
   );
 

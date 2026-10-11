@@ -5,7 +5,7 @@ import type {
 } from "./ProjectionStore.ts";
 import {
   type ChatAttachment,
-  type CommandId,
+  CommandId,
   MessageId,
   type ModelSelection,
   type OrchestrationV2Actor,
@@ -685,6 +685,21 @@ const make = Effect.gen(function* () {
       const interruptibleRun = latestActiveRun(target);
       if (interruptibleRun === undefined) {
         if (input.runId === undefined) {
+          // PR watches belong to the thread and can outlive its last run.
+          for (const link of target.thread.pullRequests ?? []) {
+            if (link.watch === undefined) continue;
+            yield* orchestrator.dispatch({
+              type: "thread.pull-request.watch",
+              commandId: CommandId.make(
+                `${input.commandId}:unwatch:${link.host}:${link.repository}:${link.number}`,
+              ),
+              threadId: input.threadId,
+              host: link.host,
+              repository: link.repository,
+              number: link.number,
+              watching: false,
+            });
+          }
           return { type: "no_active_run" } as const;
         }
         return yield* new ThreadManagementThreadNotInterruptibleError({
@@ -703,6 +718,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         threadId: input.threadId,
         runId: interruptibleRun.id,
+        holdQueue: true,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
       });
       return { type: "interrupt_requested", run: interruptibleRun, dispatch } as const;

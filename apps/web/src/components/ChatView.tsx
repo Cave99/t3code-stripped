@@ -4221,6 +4221,7 @@ export default function ChatView(props: ChatViewProps) {
   const canInterruptRunningThread = deriveCanInterruptRunningThread(
     activeThread !== undefined,
     activeRuntime,
+    pendingBackgroundTasks.some((task) => task.taskId.startsWith("pull-request-watch:")),
   );
   const onInterrupt = useCallback(async () => {
     if (!activeThread) return;

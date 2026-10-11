@@ -107,6 +107,9 @@ describe("V2 session presentation", () => {
 
     // No runtime at all: nothing to interrupt.
     expect(deriveCanInterruptRunningThread(true, null)).toBe(false);
+    expect(deriveCanInterruptRunningThread(true, runtimeWithStatus("idle"), true)).toBe(true);
+    expect(deriveCanInterruptRunningThread(true, null, true)).toBe(true);
+    expect(deriveCanInterruptRunningThread(false, null, true)).toBe(false);
   });
 
   it("labels provider retry progress, delay, recovery, and exhaustion", () => {

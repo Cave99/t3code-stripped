@@ -2560,54 +2560,54 @@ export function PullRequestDetailPanel({
                 )}
               >
                 {showsApproveWorkflows ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="inline-flex shrink-0">
-                        <Button
-                          size="xs"
-                          variant="warning-outline"
-                          disabled={actionPending}
-                          {...inlineConfirm.props(
-                            "approve-workflows",
-                            () => void perform("approve-workflows"),
-                          )}
-                          aria-label={
-                            pendingAction === "approve-workflows"
-                              ? "Approving..."
-                              : inlineConfirm.isArmed("approve-workflows")
-                                ? "Confirm approve?"
-                                : "Approve workflows to run"
-                          }
-                        >
-                          <PlayIcon aria-hidden className="size-3.5" />
-                          <span className="inline-grid">
-                            <span aria-hidden className="invisible col-start-1 row-start-1">
-                              Approve workflows to run
-                            </span>
-                            <span aria-hidden className="invisible col-start-1 row-start-1">
-                              Confirm approve?
-                            </span>
-                            <span className="col-start-1 row-start-1">
-                              {pendingAction === "approve-workflows"
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className="inline-flex shrink-0">
+                          <Button
+                            size="xs"
+                            variant="warning-outline"
+                            disabled={actionPending}
+                            {...inlineConfirm.props(
+                              "approve-workflows",
+                              () => void perform("approve-workflows"),
+                            )}
+                            aria-label={
+                              pendingAction === "approve-workflows"
                                 ? "Approving..."
                                 : inlineConfirm.isArmed("approve-workflows")
                                   ? "Confirm approve?"
-                                  : "Approve workflows to run"}
+                                  : "Approve workflows to run"
+                            }
+                          >
+                            <PlayIcon aria-hidden className="size-3.5" />
+                            <span className="inline-grid">
+                              <span aria-hidden className="invisible col-start-1 row-start-1">
+                                Approve workflows to run
+                              </span>
+                              <span aria-hidden className="invisible col-start-1 row-start-1">
+                                Confirm approve?
+                              </span>
+                              <span className="col-start-1 row-start-1">
+                                {pendingAction === "approve-workflows"
+                                  ? "Approving..."
+                                  : inlineConfirm.isArmed("approve-workflows")
+                                    ? "Confirm approve?"
+                                    : "Approve workflows to run"}
+                              </span>
                             </span>
-                          </span>
-                        </Button>
-                      </span>
-                    }
-                  />
-                  <TooltipPopup side="top">
-                    {pendingAction === "approve-workflows"
-                      ? "Approving..."
-                      : inlineConfirm.isArmed("approve-workflows")
-                        ? "Confirm approve?"
-                        : "Approve workflows to run"}
-                  </TooltipPopup>
-                </Tooltip>
+                          </Button>
+                        </span>
+                      }
+                    />
+                    <TooltipPopup side="top">
+                      {pendingAction === "approve-workflows"
+                        ? "Approving..."
+                        : inlineConfirm.isArmed("approve-workflows")
+                          ? "Confirm approve?"
+                          : "Approve workflows to run"}
+                    </TooltipPopup>
+                  </Tooltip>
                 ) : (
                   <span
                     className="flex h-4 min-w-0 flex-wrap content-start items-center justify-end gap-x-1.5 overflow-hidden text-xs text-muted-foreground"

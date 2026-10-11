@@ -2338,6 +2338,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
+    // A tool call already in flight when Stop landed must not restart its watch.
+    if (
+      command.type === "thread.pull-request.watch" &&
+      command.watching &&
+      command.link?.source === "agent"
+    ) {
+      const { runs } = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs"])
+        .pipe(mapDispatchError(command));
+      const latest = latestExecutedRun(runs);
+      if (latest !== null) {
+        const { turnItems } = yield* projectionStore
+          .getThreadRecords(command.threadId, ["turnItems"], {
+            turnItemTypes: ["run_interrupt_request"],
+            turnItemRunIds: [latest.id],
+          })
+          .pipe(mapDispatchError(command));
+        if (turnItems.length > 0)
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} was stopped.`,
+          });
+      }
+    }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -7939,21 +7964,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
 
       const emitEvent = emit(events, command);
-      const holdQueuedRuns = Effect.forEach(
-        projection.runs.filter(
-          (candidate) => candidate.status === "queued" && !candidate.queueHeld,
-        ),
-        (queuedRun) =>
-          emitEvent({
-            type: "run.updated",
+      const holdQueuedRuns = Effect.gen(function* () {
+        const pullRequests = projection.thread.pullRequests ?? [];
+        if (pullRequests.some((link) => link.watch !== undefined)) {
+          yield* emitEvent({
+            type: "thread.pull-request-synced",
             threadId: command.threadId,
-            runId: queuedRun.id,
-            providerInstanceId: queuedRun.providerInstanceId,
+            providerInstanceId: projection.thread.providerInstanceId,
             occurredAt: now,
-            payload: { ...queuedRun, queueHeld: true },
-          }),
-        { discard: true },
-      );
+            payload: {
+              ...projection.thread,
+              pullRequests: pullRequests.map((link) => withPullRequestWatch(link, undefined)),
+            },
+          });
+        }
+        yield* Effect.forEach(
+          projection.runs.filter(
+            (candidate) => candidate.status === "queued" && !candidate.queueHeld,
+          ),
+          (queuedRun) =>
+            emitEvent({
+              type: "run.updated",
+              threadId: command.threadId,
+              runId: queuedRun.id,
+              providerInstanceId: queuedRun.providerInstanceId,
+              occurredAt: now,
+              payload: { ...queuedRun, queueHeld: true },
+            }),
+          { discard: true },
+        );
+      });
       const interruptRequestItem: OrchestrationV2TurnItem = {
         id: idAllocator.derive.runSignalTurnItem({
           runId: run.id,
