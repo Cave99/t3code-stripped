@@ -1,8 +1,7 @@
 import type { Root } from "mdast";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+import { CHAT_MARKDOWN_REHYPE_PLUGINS } from "@t3tools/shared/markdownPipeline";
 import remarkGfm from "remark-gfm";
 import type { Plugin } from "unified";
 import { describe, expect, it } from "vite-plus/test";
@@ -37,7 +36,7 @@ function render(source: string, incremental?: Plugin<[], Root>, parsedSources?: 
         remarkCodexDirectives,
         ...(incremental ? [incremental] : []),
       ]}
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      rehypePlugins={CHAT_MARKDOWN_REHYPE_PLUGINS}
     >
       {source}
     </ReactMarkdown>,

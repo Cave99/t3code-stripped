@@ -7,7 +7,11 @@ import {
   type UncontrolledCodeViewProps,
 } from "@pierre/diffs/react";
 /* oxlint-enable eslint/no-restricted-imports */
-import type { Ref } from "react";
+import { useImperativeHandle, useLayoutEffect, useState, type Ref } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { primaryServerKeybindingsAtom } from "~/state/server";
+import { resolveShortcutCommand } from "~/keybindings";
+import { registerDiffFind } from "./diffFindActionBus";
 
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
@@ -270,6 +274,9 @@ type StyledDiffCodeViewProps<LAnnotation> = (
   | Omit<UncontrolledCodeViewProps<LAnnotation>, "options">
 ) & {
   readonly options?: StyledDiffCodeViewOptions<LAnnotation>;
+  readonly onRevealSearchMatch?: NonNullable<
+    CodeViewProps<LAnnotation>["options"]
+  >["onRevealSearchMatch"];
   readonly viewerRef?: Ref<CodeViewHandle<LAnnotation>>;
   /**
    * Appended to the shared stylesheet inside the viewer's shadow root, for a surface that has
@@ -284,13 +291,48 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
   viewerRef,
   className,
   unsafeCSSExtra,
+  containerRef,
+  onRevealSearchMatch,
   ...props
 }: StyledDiffCodeViewProps<LAnnotation>) {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const [handle, setHandle] = useState<CodeViewHandle<LAnnotation> | null>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  useImperativeHandle<CodeViewHandle<LAnnotation> | null, CodeViewHandle<LAnnotation> | null>(
+    viewerRef,
+    () => handle,
+    [handle],
+  );
+  useImperativeHandle<HTMLDivElement | null, HTMLDivElement | null>(containerRef, () => container, [
+    container,
+  ]);
+  useLayoutEffect(() => {
+    if (!container) return;
+    const open = () => handle?.getInstance()?.openSearch();
+    const unregister = registerDiffFind(container, open);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      if (!(event.target instanceof Node) || !container.contains(event.target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: { diffFocus: true, terminalFocus: false, previewFocus: false },
+      });
+      if (command !== "diff.find") return;
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      unregister();
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [container, handle, keybindings]);
   return (
     <DiffWorkerPoolProvider>
       <CodeView<LAnnotation>
         {...props}
-        {...(viewerRef ? { ref: viewerRef } : {})}
+        ref={setHandle}
+        containerRef={setContainer}
         // The custom element itself is focusable for keyboard scrolling. Its native outline sits
         // outside the panel clipping boundary; actual controls inside retain their own indicators.
         className={
@@ -300,6 +342,7 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
         }
         options={{
           ...options,
+          ...(onRevealSearchMatch ? { onRevealSearchMatch } : {}),
           unsafeCSS: unsafeCSSExtra
             ? `${DIFF_VIEW_UNSAFE_CSS}\n${unsafeCSSExtra}`
             : DIFF_VIEW_UNSAFE_CSS,
