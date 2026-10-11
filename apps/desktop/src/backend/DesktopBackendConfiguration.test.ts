@@ -185,6 +185,7 @@ it.effect(
           );
           assert.equal(first.bootstrap.host, "127.0.0.1");
           assert.match(first.bootstrap.desktopBootstrapToken ?? "", /^[a-f0-9]{48}$/);
+          assert.equal(first.bootstrap.shellEnvironmentPrepared, true);
           assert.equal(
             first.bootstrap.desktopBootstrapToken,
             restarted.bootstrap.desktopBootstrapToken,

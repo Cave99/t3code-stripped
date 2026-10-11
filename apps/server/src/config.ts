@@ -80,6 +80,7 @@ export class ServerConfig extends Context.Service<
     readonly baseDir: string;
     readonly devUrl: URL | undefined;
     readonly desktopBootstrapToken: string | undefined;
+    readonly shellEnvironmentPrepared?: boolean | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
