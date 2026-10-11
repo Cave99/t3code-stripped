@@ -24,7 +24,6 @@ import {
   normalizeCommandPath,
   npmGlobalPrefixFromCommandPath,
   parseHomebrewLatestVersion,
-  ProviderVersionCache,
   resolveLatestProviderVersion,
   resolvePackageManagedProviderMaintenance,
   resolveProviderMaintenanceCapabilitiesEffect,
@@ -122,56 +121,21 @@ function stdoutSpawner(onSpawn: (command: string, args: ReadonlyArray<string>) =
 }
 
 it.layer(NodeServices.layer)("providerMaintenance", (it) => {
-  it.effect("reads cached versions through the injectable cache reference", () =>
-    resolveLatestProviderVersion(manualPackageTool).pipe(
-      Effect.provideService(
-        ProviderVersionCache,
-        new Map([
-          [
-            "@example/package-tool",
-            {
-              expiresAt: Number.MAX_SAFE_INTEGER,
-              version: "9.9.9",
-            },
-          ],
-        ]),
-      ),
-      Effect.provideService(
-        HttpClient.HttpClient,
-        HttpClient.make(() =>
-          Effect.die("cached provider version should not make an HTTP request"),
-        ),
-      ),
-      Effect.map((version) => {
-        expect(version).toBe("9.9.9");
-      }),
-    ),
-  );
+  it("takes the latest version only from the installer that owns the executable", () => {
+    expect(resolveLatestProviderVersion({ ...manualPackageTool, latestVersion: "1.2.0" })).toBe(
+      "1.2.0",
+    );
+    expect(resolveLatestProviderVersion(manualPackageTool)).toBeNull();
+  });
 
-  it.effect("prefers the installer's own latest version over the npm registry", () =>
-    resolveLatestProviderVersion({ ...manualPackageTool, latestVersion: "1.2.0" }).pipe(
-      Effect.provideService(ProviderVersionCache, new Map()),
-      Effect.provideService(
-        HttpClient.HttpClient,
-        HttpClient.make(() =>
-          Effect.die("installer-reported latest should not make an HTTP request"),
-        ),
-      ),
-      Effect.map((version) => {
-        expect(version).toBe("1.2.0");
-      }),
-    ),
-  );
-
-  it.effect("does not fetch latest provider versions when update checks are disabled", () =>
+  it.effect("never queries a package registry for latest versions", () =>
     enrichProviderSnapshotWithVersionAdvisory(installedPackageToolProvider, manualPackageTool, {
-      enableProviderUpdateChecks: false,
+      enableProviderUpdateChecks: true,
     }).pipe(
-      Effect.provideService(ProviderVersionCache, new Map()),
       Effect.provideService(
         HttpClient.HttpClient,
         HttpClient.make(() =>
-          Effect.die("disabled provider update checks should not make an HTTP request"),
+          Effect.die("provider version checks should not make an HTTP request"),
         ),
       ),
       Effect.map((provider) => {
@@ -179,7 +143,6 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
           status: "unknown",
           currentVersion: "1.0.0",
           latestVersion: null,
-          checkedAt: "2026-04-10T00:00:00.000Z",
         });
       }),
     ),

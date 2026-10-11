@@ -45,10 +45,9 @@ T3 Code warns when a provider version has known compatibility problems with your
 **Settings → Providers** for the recommended version or range. An unlisted version is
 unverified.
 
-When a provider CLI is behind its latest release, its provider card shows the available
-version. **Update now** appears only when T3 Code can tell which installer owns the CLI
-(Homebrew or a global npm, pnpm, bun, or Vite+ install) and runs that installer. Otherwise
-update the CLI the same way you installed it.
+When Homebrew has a newer version of a provider CLI, its provider card shows it with
+**Update now**, which runs `brew upgrade`. T3 Code does not query npm or other package
+registries, so update other installs the same way you installed them.
 
 Add another provider instance for a separate account or configuration. Each instance can have
 its own environment variables, such as API keys or a custom base URL. Mark secret values as

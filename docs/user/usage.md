@@ -32,24 +32,22 @@ If saving fails, reconnect and choose **Retry failed saves**.
 ## Track subscription limits
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
-or Claude accounts configured locally or reported by a hub you read one number per window rather than a
-list. Each window card shows how much of the pool is left and a bar with one segment per account,
+or Claude accounts configured locally you read one number per window rather than a list. Each window card shows how much of the pool is left and a bar with one segment per account,
 kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
 first, or by the first available window when no account reports a 5-hour limit. A gap means the
 account does not report that window. When the provider reports reset times, the card also says
 when the next reset lands and how much it hands back. The hatched
 part of a segment is what that reset restores. Select a segment or account row for the account's plan,
-where it is signed in, and its reset time. Codex and Claude accounts
+where it is signed in, and its reset time. Codex accounts
 with banked reset credits show a ticket count and the **Use reset** action in the account details.
-Claude resets are not available when the server runs on macOS, where Claude keeps its login in the
-Keychain. On narrow screens, numbered rows below
+On narrow screens, numbered rows below
 the bar show each account's quota, countdown, and credits. Select a row to open its details.
 
-The same account reported by multiple local instances or by a hub counts once.
+The same account reported by multiple local instances counts once.
 
 Opening Limits checks subscription usage automatically. The app waits at least five minutes
 between automatic checks, including after a failed check.
-If a window still looks stale, refresh Limits to re-check every provider and hub.
+If a window still looks stale, refresh Limits to re-check every provider.
 
 Pick `/usage-limits` from the composer's command menu, or send it as a message, to check the
 current model's limits without leaving the conversation. The result opens above the composer and
@@ -58,17 +56,6 @@ anything. The command is offered only for providers that appear under **Usage �
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
-
-## Connect a CLIProxyAPI hub
-
-To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Enter its URL and management key. The local backend connects to the hub.
-
-The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
-account and choose **Use reset** to redeem one. No hub plugin is required.
-
-This connection supplies usage information; configure
-the provider separately to send agent requests through the hub. Remove the hub from the same
-settings section when you no longer need it.
 
 ## Keyboard shortcuts
 

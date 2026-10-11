@@ -892,6 +892,20 @@ describe("ServerSettings removed provider settings", () => {
     expect(Object.keys(decoded.providers).toSorted()).toEqual(["claudeAgent", "codex"]);
     expect(decoded).not.toHaveProperty("enableAgentDeviceAccess");
   });
+  it("ignores Bitbucket credentials saved by older builds", () => {
+    const decoded = decodeServerSettings({
+      bitbucket: { email: "me@example.com", accessToken: "\u2022\u2022" },
+    });
+    expect(decoded).not.toHaveProperty("bitbucket");
+  });
+  it("ignores usage-limit hubs saved by older builds", () => {
+    const decoded = decodeServerSettings({
+      usageLimitSources: {
+        hub: { kind: "cliproxy", url: "http://127.0.0.1:8317", managementKey: "\u2022\u2022" },
+      },
+    });
+    expect(decoded).not.toHaveProperty("usageLimitSources");
+  });
 });
 
 describe("ServerSettings.sourceControlWritingStyle", () => {

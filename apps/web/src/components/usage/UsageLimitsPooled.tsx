@@ -63,10 +63,7 @@ function AccountChip({ email }: { readonly email: string }) {
   );
 }
 
-/**
- * The same mark the model picker uses for a native instance (provider glyph,
- * initials badge, accent); hub accounts have no instance, so they get the chip.
- */
+/** The same mark the model picker uses for an instance (provider glyph, initials badge, accent). */
 function AccountAvatar({
   account,
   className,
@@ -74,22 +71,19 @@ function AccountAvatar({
   readonly account: LimitAccount;
   readonly className?: string;
 }) {
-  if (account.redeem) {
-    return (
-      <ProviderInstanceIcon
-        driverKind={account.driver}
-        displayName={
-          account.displayName ?? getDriverOption(account.driver)?.label ?? String(account.driver)
-        }
-        accentColor={account.accentColor}
-        showBadge={Boolean(account.displayName)}
-        indicatorBackground="var(--popover)"
-        className={cn("size-5", className)}
-        iconClassName="size-4 text-foreground/80"
-      />
-    );
-  }
-  return account.email ? <AccountChip email={account.email} /> : null;
+  return (
+    <ProviderInstanceIcon
+      driverKind={account.driver}
+      displayName={
+        account.displayName ?? getDriverOption(account.driver)?.label ?? String(account.driver)
+      }
+      accentColor={account.accentColor}
+      showBadge={Boolean(account.displayName)}
+      indicatorBackground="var(--popover)"
+      className={cn("size-5", className)}
+      iconClassName="size-4 text-foreground/80"
+    />
+  );
 }
 
 /**
@@ -152,10 +146,7 @@ function SegmentPopover({
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const remaining = remainingPercent(window);
   const resetsIn = formatResetsIn(window, now);
-  const where =
-    account.environments.length > 0
-      ? account.environments.map((environment) => environment.label).join(", ")
-      : account.sourceLabel;
+  const where = account.environments.map((environment) => environment.label).join(", ");
   const credits =
     redeem && account.limits.resetCredits?.availableCount ? account.limits.resetCredits : null;
   return (
@@ -179,9 +170,7 @@ function SegmentPopover({
       </div>
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
         {account.plan ? <Row label="Plan">{account.plan}</Row> : null}
-        {where ? (
-          <Row label={account.environments.length > 0 ? "Signed in" : "Via"}>{where}</Row>
-        ) : null}
+        {where ? <Row label="Signed in">{where}</Row> : null}
       </div>
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
         <Row label="Left">{remaining}%</Row>

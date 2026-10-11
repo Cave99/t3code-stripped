@@ -24,16 +24,11 @@ import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   CommandId,
   AuthSessionId,
-  ClientConnectionMethod,
-  ClientDeviceType,
-  ClientOs,
   ClientSurface,
-  ClientWebDeployment,
   type DiscoveredLocalServerList,
   type EditorId,
   type FileManagerRevealKind,
   type OrchestrationClientOrigin,
-  type OrchestrationV2Command,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   type MessageId,
@@ -141,7 +136,6 @@ import {
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
-import * as ProviderMaintenance from "./provider/providerMaintenance.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ProviderAuthService from "./provider/Services/ProviderAuthService.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
@@ -181,7 +175,6 @@ import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -196,13 +189,9 @@ import * as SourceControlProviderRegistry from "./sourceControl/SourceControlPro
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
-import {
-  sameUsageLimitCommandCoverage,
-  withUsageLimitsCommands,
-} from "@t3tools/shared/usageLimits";
+import { withUsageLimitsCommands } from "@t3tools/shared/usageLimits";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
-import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -420,13 +409,7 @@ const SHELL_RESUME_MAX_GAP = 1_000;
 const ORCHESTRATION_REPLAY_PAYLOAD_BUDGET_BYTES = 8 * 1024 * 1024;
 
 const isClientSurface = Schema.is(ClientSurface);
-const isClientConnectionMethod = Schema.is(ClientConnectionMethod);
-const isClientDeviceType = Schema.is(ClientDeviceType);
-const isClientOs = Schema.is(ClientOs);
-const isClientWebDeployment = Schema.is(ClientWebDeployment);
 const MAX_CLIENT_APP_VERSION_LENGTH = 64;
-const MAX_CLIENT_BROWSER_LENGTH = 64;
-const MAX_CLIENT_DEVICE_MODEL_LENGTH = 80;
 
 export function hasCompatibleOrchestrationProtocol(url: URL): boolean {
   return (
@@ -458,52 +441,6 @@ function readClientConnectionOrigin(
     ...(appVersion !== "" && appVersion.length <= MAX_CLIENT_APP_VERSION_LENGTH
       ? { appVersion }
       : {}),
-  };
-}
-
-// Client telemetry stays in this socket's RPC layer. It must not become a
-// server-global "current client" because several client types can connect at once.
-function readClientAnalyticsProps(request: HttpServerRequest.HttpServerRequest) {
-  const url = HttpServerRequest.toURL(request);
-  if (Option.isNone(url)) {
-    return {};
-  }
-
-  const surface = url.value.searchParams.get("clientSurface");
-  const appVersion = url.value.searchParams.get("clientAppVersion")?.trim() ?? "";
-  const deviceType = url.value.searchParams.get("clientDeviceType");
-  const os = url.value.searchParams.get("clientOs");
-  const webDeployment = url.value.searchParams.get("clientWebDeployment");
-  const browser = url.value.searchParams.get("clientBrowser")?.trim() ?? "";
-  const connectionMethod = url.value.searchParams.get("connectionMethod");
-  const rawOsMajorVersion = url.value.searchParams.get("clientOsMajorVersion") ?? "";
-  const osMajorVersion = Number(rawOsMajorVersion);
-  const deviceModel = url.value.searchParams.get("clientDeviceModel")?.trim() ?? "";
-  const isMobile = surface === "mobile";
-  const hasOsMajorVersion =
-    isMobile && rawOsMajorVersion !== "" && Number.isInteger(osMajorVersion) && osMajorVersion > 0;
-  const hasDeviceModel =
-    isMobile && deviceModel !== "" && deviceModel.length <= MAX_CLIENT_DEVICE_MODEL_LENGTH;
-
-  return {
-    ...(isClientSurface(surface) ? { surface } : {}),
-    ...(appVersion !== "" && appVersion.length <= MAX_CLIENT_APP_VERSION_LENGTH
-      ? { appVersion, clientAppVersion: appVersion }
-      : {}),
-    ...(isClientOs(os)
-      ? {
-          clientOs: os,
-          ...(isMobile && (os === "iOS" || os === "Android") ? { os } : {}),
-        }
-      : {}),
-    ...(isClientDeviceType(deviceType) ? { clientDeviceType: deviceType } : {}),
-    ...(surface === "web" && isClientWebDeployment(webDeployment) ? { webDeployment } : {}),
-    ...(surface === "web" && browser !== "" && browser.length <= MAX_CLIENT_BROWSER_LENGTH
-      ? { clientBrowser: browser }
-      : {}),
-    ...(hasOsMajorVersion ? { osMajorVersion, clientOsMajorVersion: osMajorVersion } : {}),
-    ...(hasDeviceModel ? { deviceModel, clientDeviceModel: deviceModel } : {}),
-    ...(isClientConnectionMethod(connectionMethod) ? { connectionMethod } : {}),
   };
 }
 
@@ -1007,7 +944,6 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 const makeWsRpcLayer = (
   currentSessionId: AuthSessionId,
   clientOrigin: OrchestrationClientOrigin,
-  clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
 ) =>
   ServerWsRpcGroup.toLayer(
@@ -1027,19 +963,6 @@ const makeWsRpcLayer = (
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
-      const analytics = yield* AnalyticsService.AnalyticsService;
-      // Client-origin attribution (#7774): every thread/turn the connecting
-      // client starts is credited to its surface + app version. Best-effort:
-      // attribution must never fail the user's command.
-      const originProps = clientAnalyticsProps;
-      const recordClientCommandAnalytics = (command: OrchestrationV2Command) => {
-        switch (command.type) {
-          case "message.dispatch":
-            return analytics.record("client.turn.requested", originProps).pipe(Effect.ignore);
-          default:
-            return Effect.void;
-        }
-      };
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -1061,7 +984,6 @@ const makeWsRpcLayer = (
               Effect.orElseSucceed(() => null),
             );
       const usage = yield* UsageService.UsageService;
-      const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
@@ -1082,7 +1004,6 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const modelManifest = yield* ModelManifest.ModelManifest;
-      const providerVersionCache = yield* ProviderMaintenance.ProviderVersionCache;
       const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService.ProviderAuthService;
@@ -1152,7 +1073,7 @@ const makeWsRpcLayer = (
           const keybindingsConfig = yield* keybindings.loadConfigState;
           const currentProviders = yield* providerRegistry.getProviders;
           const providers = options.usageLimitsCommand
-            ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
+            ? withUsageLimitsCommands(currentProviders)
             : currentProviders;
           const settings = ServerSettings.redactServerSettingsForClient(
             yield* serverSettings.getSettings,
@@ -1297,7 +1218,6 @@ const makeWsRpcLayer = (
                 ).pipe(Effect.provide(intakeContext)),
               )
               .pipe(
-                Effect.tap(() => recordClientCommandAnalytics(command)),
                 Effect.map((result) => ({ sequence: result.sequence })),
                 Effect.mapError((cause) => {
                   const detail = userFacingDispatchErrorMessage(cause);
@@ -1454,18 +1374,6 @@ const makeWsRpcLayer = (
                 }).pipe(Effect.provide(intakeContext)),
               )
               .pipe(
-                Effect.tap(() =>
-                  analytics
-                    .record("client.thread.started", originProps)
-                    .pipe(
-                      Effect.andThen(
-                        input.initialMessage === undefined
-                          ? Effect.void
-                          : analytics.record("client.turn.requested", originProps),
-                      ),
-                      Effect.ignore,
-                    ),
-                ),
                 Effect.map((result) => ({
                   ...result,
                   projection: projectThreadProjectionForWire(result.projection),
@@ -1552,21 +1460,10 @@ const makeWsRpcLayer = (
                   (instance) =>
                     Effect.gen(function* () {
                       yield* instance.invalidateCaches ?? Effect.void;
-                      const maintenance = yield* instance.snapshot.resolveMaintenance({
-                        fresh: true,
-                      });
-                      if (maintenance.packageName)
-                        providerVersionCache.delete(maintenance.packageName);
+                      yield* instance.snapshot.resolveMaintenance({ fresh: true });
                     }),
                   { concurrency: "unbounded", discard: true },
                 );
-              }
-              // An untargeted refresh is "re-read everything's status", which
-              // includes quota from configured usage-limit sources. Awaited,
-              // not forked: the RPC scope closes on return and would
-              // interrupt a fork before the hub answered.
-              if (input.instanceId === undefined) {
-                yield* usageLimitSources.refresh;
               }
               let providers = yield* input.cwd !== undefined && input.instanceId !== undefined
                 ? providerRegistry.refreshWorkspaceSnapshot({
@@ -1673,7 +1570,6 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.providerConsumeResetCredit,
             Effect.gen(function* () {
-              if ("sourceId" in input) return yield* usageLimitSources.consumeResetCredit(input);
               const instance = yield* providerInstances.getInstance(input.instanceId);
               // A disabled instance must not spend anything on its account.
               if (instance === undefined || !instance.enabled) {
@@ -2760,28 +2656,19 @@ const makeWsRpcLayer = (
                   },
                 })),
               );
-              const providerStatuses = Stream.zipLatestWith(
+              const providerStatuses = Stream.concat(
                 // The registry stream carries changes only. Seed it with the current
-                // providers so a source refresh that lands before any provider change
-                // still pairs up and reaches the client.
-                Stream.concat(
-                  Stream.fromEffect(providerRegistry.getProviders),
-                  providerRegistry.streamChanges,
-                ),
-                usageLimitSources.streamChanges.pipe(
-                  // Quota updates already have their own stream. Republish the model
-                  // catalog only when the set of providers offered the command changes.
-                  Stream.changesWith(
-                    usageLimitsCommand ? sameUsageLimitCommandCoverage : () => true,
-                  ),
-                ),
-                (providers, sources) =>
-                  usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
+                // providers so a refresh that landed after the snapshot still goes out.
+                Stream.fromEffect(providerRegistry.getProviders),
+                providerRegistry.streamChanges,
               ).pipe(
-                // Both sides replay their current value, so the first pairing normally
-                // repeats the snapshot the client already holds. Compare against that
-                // snapshot rather than dropping blindly: a refresh that landed between
-                // the snapshot and the subscription still goes out.
+                Stream.map((providers) =>
+                  usageLimitsCommand ? withUsageLimitsCommands(providers) : providers,
+                ),
+                // The seed normally repeats the snapshot the client already holds.
+                // Compare against that snapshot rather than dropping blindly: a
+                // refresh that landed between the snapshot and the subscription
+                // still goes out.
                 (updates) => Stream.concat(rpcInitialItems([config.providers]), updates),
                 Stream.changesWith(
                   (previous, next) => JSON.stringify(previous) === JSON.stringify(next),
@@ -2811,16 +2698,6 @@ const makeWsRpcLayer = (
                       })),
                     )
                   : Stream.empty;
-              const usageLimitSourceUpdates =
-                input.usageLimitSources === true
-                  ? usageLimitSources.streamChanges.pipe(
-                      Stream.map((sources) => ({
-                        version: 1 as const,
-                        type: "usageLimitSourcesUpdated" as const,
-                        payload: { sources },
-                      })),
-                    )
-                  : Stream.empty;
               const settingsUpdates = serverSettings.streamChanges.pipe(
                 Stream.map((settings) => ServerSettings.redactServerSettingsForClient(settings)),
                 Stream.map((settings) => ({
@@ -2834,10 +2711,7 @@ const makeWsRpcLayer = (
                 keybindingsUpdates,
                 Stream.merge(
                   providerStatuses,
-                  Stream.merge(
-                    settingsUpdates,
-                    Stream.merge(environmentThemeUpdates, usageLimitSourceUpdates),
-                  ),
+                  Stream.merge(settingsUpdates, environmentThemeUpdates),
                 ),
               );
 
@@ -2916,12 +2790,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             { status: 426 },
           );
         }
-        const analytics = yield* AnalyticsService.AnalyticsService;
         yield* authenticateLocalRequest(request, "websocket");
         const connectionId = AuthSessionId.make(NodeCrypto.randomUUID());
         const clientOrigin = readClientConnectionOrigin(request);
-        const clientAnalyticsProps = readClientAnalyticsProps(request);
-        yield* analytics.record("client.connected", clientAnalyticsProps);
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
           yield* RpcServer.make(ServerWsRpcGroup, { disableTracing: true }).pipe(
@@ -2932,12 +2803,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(
-              connectionId,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-            ).pipe(
+            makeWsRpcLayer(connectionId, clientOrigin, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),

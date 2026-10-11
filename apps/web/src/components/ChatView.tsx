@@ -27,7 +27,6 @@ import {
   latestExecutedRun,
   latestRootProviderFailure,
 } from "@t3tools/shared/orchestrationV2ThreadError";
-import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
@@ -564,7 +563,6 @@ import {
 
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
-const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 
 const TIMELINE_SCROLL_CANCEL_SENTINEL = Object.freeze({});
@@ -3282,7 +3280,6 @@ export default function ChatView(props: ChatViewProps) {
   ) {
     setUsageLimitsPanel(null);
   }
-  const usageLimitSources = serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES;
   const usageLimitsReport = useMemo(
     () =>
       usageLimitsPanel !== null &&
@@ -3292,17 +3289,10 @@ export default function ChatView(props: ChatViewProps) {
         ? collectProviderUsageLimits(
             activeProviderInstanceId,
             providerStatuses,
-            usageLimitSources,
             usageLimitsPanel.now,
           )
         : null,
-    [
-      activeProviderInstanceId,
-      providerStatuses,
-      usageLimitSources,
-      usageLimitsKey,
-      usageLimitsPanel,
-    ],
+    [activeProviderInstanceId, providerStatuses, usageLimitsKey, usageLimitsPanel],
   );
   const usageLimitsBanner = useMemo(
     () =>
@@ -3321,18 +3311,13 @@ export default function ChatView(props: ChatViewProps) {
   // elsewhere the name stays the provider's own and is sent through untouched.
   const usageLimitsOffered =
     activeProviderStatus !== null &&
-    hasProviderUsageLimits(activeProviderStatus.driver, providerStatuses, usageLimitSources);
+    hasProviderUsageLimits(activeProviderStatus.driver, providerStatuses);
   // Answered locally from the last Limits snapshot; the agent never sees it.
   const openUsageLimits = useCallback(() => {
     const now = Date.now();
     const report =
       activeProviderInstanceId !== null && usageLimitsKey !== null
-        ? collectProviderUsageLimits(
-            activeProviderInstanceId,
-            providerStatuses,
-            usageLimitSources,
-            now,
-          )
+        ? collectProviderUsageLimits(activeProviderInstanceId, providerStatuses, now)
         : null;
     if (report && usageLimitsKey !== null) {
       setUsageLimitsPanel({ key: usageLimitsKey, threadKey: routeThreadKey, now });
@@ -3341,13 +3326,7 @@ export default function ChatView(props: ChatViewProps) {
     setUsageLimitsPanel(null);
     toastManager.add({ type: "info", title: "Usage limits are unavailable for this provider" });
     return false;
-  }, [
-    activeProviderInstanceId,
-    providerStatuses,
-    routeThreadKey,
-    usageLimitSources,
-    usageLimitsKey,
-  ]);
+  }, [activeProviderInstanceId, providerStatuses, routeThreadKey, usageLimitsKey]);
   // Responses can resolve after navigating away; only the originating thread's panel clears.
   const clearUsageLimitsFor = useCallback(
     (threadKey: string) =>

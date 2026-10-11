@@ -400,7 +400,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",
-    searchTerms: ["installed cli versions newer available codex claude"],
+    searchTerms: ["installed cli versions newer available homebrew model list codex claude"],
     scope: "environment-defaults",
   },
   {
@@ -559,15 +559,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
-    id: "usage-providers",
-    title: "Usage providers",
-    to: "/settings/providers",
-    searchTerms: [
-      "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
-    ],
-    providerSettingsOnly: true,
-  },
-  {
     id: "provider-health-check-interval",
     title: "Health check interval",
     to: "/settings/providers",
@@ -707,14 +698,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["static semantic prefix custom prompt instructions feat fix refactor chore"],
     environmentOnly: true,
     scope: "project-defaults",
-  },
-  {
-    id: "bitbucket-credentials",
-    title: "Bitbucket credentials",
-    to: "/settings/source-control",
-    searchTerms: ["bitbucket atlassian access token api token email credentials sign in"],
-    environmentOnly: true,
-    scope: "environment-defaults",
   },
   {
     id: "source-control-writing-style",

@@ -10,7 +10,6 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
-import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -694,34 +693,6 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
-/**
- * A read-only quota source outside this environment's provider CLIs. The
- * only kind today is a CLIProxyAPI hub, whose management API reports the
- * windows of every pooled account. The key travels in settings for now, like
- * provider environment secrets; it is redacted before reaching a client.
- */
-export const UsageLimitSourceConfig = Schema.Struct({
-  kind: Schema.Literal("cliproxy"),
-  label: Schema.optional(TrimmedNonEmptyString),
-  url: TrimmedNonEmptyString,
-  managementKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-});
-export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
-
-/**
- * Bitbucket API credentials for this environment, used before the
- * `T3CODE_BITBUCKET_*` environment variables. The tokens live in the server's
- * secret store; settings and clients only see a redaction marker when one is
- * set. The access token wins when both kinds are configured.
- */
-export const BitbucketSettings = Schema.Struct({
-  email: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  accessToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  apiToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-});
-export type BitbucketSettings = typeof BitbucketSettings.Type;
-
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -1092,12 +1063,6 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  bitbucket: BitbucketSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  // Keyed by a user-chosen id so a source keeps its rows across edits. Entries
-  // this build cannot decode round-trip untouched, as provider instances do.
-  usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
   /** Exact model IDs, applied to past and future usage on this environment. */
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1323,14 +1288,6 @@ export const ServerSettingsPatch = Schema.Struct({
       otlpLogsUrl: Schema.optionalKey(TrimmedString),
     }),
   ),
-  /** An empty token clears it; an omitted one keeps what the server has. */
-  bitbucket: Schema.optionalKey(
-    Schema.Struct({
-      email: Schema.optionalKey(TrimmedString),
-      accessToken: Schema.optionalKey(TrimmedString),
-      apiToken: Schema.optionalKey(TrimmedString),
-    }),
-  ),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
@@ -1342,12 +1299,6 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
-  // Per-entry, unlike `providerInstances`: a client only ever adds or removes
-  // one source, and sending the whole map races another edit that has not
-  // echoed back yet. `null` removes; the server merges into its current map.
-  usageLimitSources: Schema.optionalKey(
-    Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
-  ),
   /** Each entry replaces one model's rates; `null` restores automatic pricing. */
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),

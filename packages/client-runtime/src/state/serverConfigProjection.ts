@@ -9,15 +9,14 @@ export interface ServerConfigProjection {
 
 /**
  * Cached config keeps the provider and model catalog available across reconnects.
- * Published themes and usage-limit sources are current machine state, so a
- * cache could restore a set the machine no longer reports. Replay sends both
- * as separate events.
+ * Published themes are current machine state, so a cache could restore a set
+ * the machine no longer reports. Replay sends them as a separate event.
  */
 export function withoutEnvironmentThemes(config: ServerConfig): ServerConfig {
-  if (config.environmentThemes === undefined && config.usageLimitSources === undefined) {
+  if (config.environmentThemes === undefined) {
     return config;
   }
-  const { environmentThemes: _themes, usageLimitSources: _sources, ...rest } = config;
+  const { environmentThemes: _themes, ...rest } = config;
   return rest;
 }
 
@@ -35,15 +34,10 @@ export function applyServerConfigProjection(
         capabilities.environmentThemes === true && Option.isSome(current)
           ? current.value.config.environmentThemes
           : undefined;
-      const carriedSources =
-        capabilities.usageLimitSources === true && Option.isSome(current)
-          ? current.value.config.usageLimitSources
-          : undefined;
       return Option.some({
         config: {
           ...event.config,
           ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
-          ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),
         },
         latestEvent: event,
         source: "live" as const,
@@ -82,15 +76,6 @@ export function applyServerConfigProjection(
         config: {
           ...projection.config,
           environmentThemes: event.payload.themes.length > 0 ? event.payload.themes : undefined,
-        },
-        latestEvent: event,
-        source: "live",
-      }));
-    case "usageLimitSourcesUpdated":
-      return Option.map(current, (projection) => ({
-        config: {
-          ...projection.config,
-          usageLimitSources: event.payload.sources.length > 0 ? event.payload.sources : undefined,
         },
         latestEvent: event,
         source: "live",

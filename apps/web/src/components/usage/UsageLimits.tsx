@@ -218,7 +218,7 @@ export function useResetCredit(
     const result = await consume({ environmentId, input });
     setBusy(false);
     if (result._tag === "Success") {
-      setStatus(result.value.warning ?? OUTCOME_TEXT[result.value.outcome]);
+      setStatus(OUTCOME_TEXT[result.value.outcome]);
       return;
     }
     setStatus(
@@ -315,7 +315,7 @@ export function ResetCredits({
 }
 
 /**
- * Subscription quota across every connected environment's providers and hubs,
+ * Subscription quota across every connected environment's providers,
  * pooled per provider. The page advances `now` on explicit refresh rather than
  * ticking: a live clock would repaint the page for no decision-changing gain.
  */

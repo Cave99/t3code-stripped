@@ -18,7 +18,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ModelManifest from "./ModelManifest.ts";
@@ -30,7 +29,6 @@ import {
   makeTargetedProviderUpdateAction,
   resolveLatestProviderVersion,
   type ProviderMaintenanceCommandAction,
-  ProviderVersionCache,
 } from "./providerMaintenance.ts";
 import type { ProviderMaintenanceCapabilities } from "./providerMaintenance.ts";
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
@@ -221,8 +219,6 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const manifestService = yield* ModelManifest.ModelManifest;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const httpClient = yield* HttpClient.HttpClient;
-  const versionCache = yield* ProviderVersionCache;
   const runMaintenanceCommand = (update: ProviderMaintenanceCommandAction) =>
     runProviderMaintenanceCommandWithSpawner({
       spawner,
@@ -278,13 +274,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
         return Effect.forEach(
           refreshedProviders,
           (refreshedProvider) =>
-            enrichProviderSnapshotWithVersionAdvisory(
-              refreshedProvider,
-              maintenanceCapabilities,
-            ).pipe(
-              Effect.provideService(HttpClient.HttpClient, httpClient),
-              Effect.provideService(ProviderVersionCache, versionCache),
-            ),
+            enrichProviderSnapshotWithVersionAdvisory(refreshedProvider, maintenanceCapabilities),
           {
             concurrency: "unbounded",
           },
@@ -384,12 +374,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             }
 
             const manifest = yield* manifestService.current;
-            const candidateVersion =
-              targetVersion ??
-              (yield* resolveLatestProviderVersion(fresh).pipe(
-                Effect.provideService(HttpClient.HttpClient, httpClient),
-                Effect.provideService(ProviderVersionCache, versionCache),
-              ));
+            const candidateVersion = targetVersion ?? resolveLatestProviderVersion(fresh);
             const advisory =
               resolveProviderCompatibility(manifest.compatibility, provider, candidateVersion) ??
               resolveProviderCompatibility(

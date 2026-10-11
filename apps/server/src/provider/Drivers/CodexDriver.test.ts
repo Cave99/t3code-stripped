@@ -30,7 +30,6 @@ import * as ProviderEventLoggers from "../Layers/ProviderEventLoggers.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import {
   createProviderVersionAdvisory,
-  ProviderVersionCache,
   resolveLatestProviderVersion,
 } from "../providerMaintenance.ts";
 import { CodexDriver } from "./CodexDriver.ts";
@@ -554,21 +553,14 @@ it.layer(testLayer)("CodexDriver", (it) => {
           },
         }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, metadataSpawner));
         const capabilities = yield* instance.snapshot.resolveMaintenance();
-        const latestVersion = yield* resolveLatestProviderVersion(capabilities).pipe(
-          Effect.provideService(
-            ProviderVersionCache,
-            new Map([
-              ["@openai/codex", { expiresAt: Number.MAX_SAFE_INTEGER, version: "0.153.4" }],
-            ]),
-          ),
-        );
         expect(probes).toEqual([]);
-        expect(latestVersion).toBe("0.153.4");
+        // Homebrew owns mise, not Codex, so no installer reports a latest version.
+        expect(resolveLatestProviderVersion(capabilities)).toBeNull();
         expect(
           createProviderVersionAdvisory({
             driver: CodexDriver.driverKind,
             currentVersion: fixture.version,
-            latestVersion,
+            latestVersion: "0.153.4",
             maintenanceCapabilities: capabilities,
           }),
         ).toMatchObject({

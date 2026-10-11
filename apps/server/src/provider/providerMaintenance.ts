@@ -8,7 +8,6 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
-import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -17,13 +16,10 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 
-const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
-const LATEST_VERSION_TIMEOUT_MS = 4_000;
 const HOMEBREW_INFO_TIMEOUT_MS = 10_000;
 const HOMEBREW_INFO_MAX_BYTES = 256 * 1_024;
 const PROVIDER_UPDATE_ACTION_TOAST_MESSAGE = "Install the update now or review provider settings.";
@@ -31,7 +27,7 @@ const PROVIDER_UPDATE_ACTION_TOAST_MESSAGE = "Install the update now or review p
 /**
  * Ownership is re-derived from the executable this often. Installs do not
  * move on their own, so this mostly bounds how stale a Homebrew "latest" can
- * get; the npm registry check keeps its own cache.
+ * get.
  */
 const MAINTENANCE_CAPABILITIES_CACHE_TTL = Duration.hours(1);
 
@@ -60,9 +56,8 @@ export interface ProviderMaintenanceCapabilities {
   readonly update: ProviderMaintenanceCommandAction | null;
   /**
    * Latest version reported by the installer that owns the executable.
-   * `undefined` means the installer has no channel of its own and the npm
-   * registry entry for `packageName` is authoritative; `null` means the
-   * installer was asked and did not know.
+   * `undefined` means the installer has no channel of its own; `null` means
+   * the installer was asked and did not know.
    */
   readonly latestVersion?: string | null;
 }
@@ -112,21 +107,6 @@ export interface PackageManagedProviderMaintenanceDefinition {
     readonly env?: NodeJS.ProcessEnv;
   } | null;
 }
-
-export interface ProviderVersionCacheEntry {
-  readonly expiresAt: number;
-  readonly version: string | null;
-}
-
-export const ProviderVersionCache = Context.Reference<Map<string, ProviderVersionCacheEntry>>(
-  "@t3tools/server/providerMaintenance/ProviderVersionCache",
-  {
-    defaultValue: () => new Map(),
-  },
-);
-const NpmLatestVersionResponse = Schema.Struct({
-  version: Schema.optional(Schema.String),
-});
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -660,54 +640,15 @@ export function createProviderVersionAdvisory(input: {
   };
 }
 
-const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (packageName: string) {
-  const client = yield* HttpClient.HttpClient;
-  const request = HttpClientRequest.get(
-    `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,
-  ).pipe(HttpClientRequest.setHeader("accept", "application/json"));
-  const response = yield* client.execute(request).pipe(
-    Effect.timeoutOption(LATEST_VERSION_TIMEOUT_MS),
-    Effect.orElseSucceed(() => Option.none()),
-  );
-  if (Option.isNone(response)) {
-    return null;
-  }
-  const httpResponse = response.value;
-  if (httpResponse.status < 200 || httpResponse.status >= 300) {
-    return null;
-  }
-  const payload = yield* httpResponse.json.pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(NpmLatestVersionResponse)),
-    Effect.orElseSucceed(() => null),
-  );
-  return payload ? nonEmptyString(payload.version) : null;
-});
-
-export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
+/**
+ * The newest version the owning installer reports (Homebrew today). T3 Code
+ * does not query package registries itself, so other installs report none.
+ */
+export function resolveLatestProviderVersion(
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
-) {
-  if (maintenanceCapabilities.latestVersion !== undefined) {
-    return maintenanceCapabilities.latestVersion;
-  }
-  const packageName = maintenanceCapabilities.packageName;
-  if (!packageName) {
-    return null;
-  }
-
-  const latestVersionCache = yield* ProviderVersionCache;
-  const cached = latestVersionCache.get(packageName);
-  const now = DateTime.toEpochMillis(yield* DateTime.now);
-  if (cached && cached.expiresAt > now) {
-    return cached.version;
-  }
-
-  const version = yield* fetchNpmLatestVersion(packageName);
-  latestVersionCache.set(packageName, {
-    expiresAt: now + LATEST_VERSION_CACHE_TTL_MS,
-    version,
-  });
-  return version;
-});
+): string | null {
+  return maintenanceCapabilities.latestVersion ?? null;
+}
 
 export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
   "enrichProviderSnapshotWithVersionAdvisory",
@@ -737,7 +678,7 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
     };
   }
 
-  const latestVersion = yield* resolveLatestProviderVersion(capabilities);
+  const latestVersion = resolveLatestProviderVersion(capabilities);
   return {
     ...snapshot,
     versionAdvisory: createProviderVersionAdvisory({

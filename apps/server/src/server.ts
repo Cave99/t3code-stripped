@@ -36,8 +36,6 @@ import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
-import * as ProviderEventIngestor from "./orchestration-v2/ProviderEventIngestor.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as ResetCreditCoordinator from "./provider/Layers/resetCreditCoordinator.ts";
 import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts";
@@ -66,7 +64,6 @@ import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceR
 import * as ProviderAdapterRegistry from "./orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import { ProviderUsageLimitsIngestionLive } from "./provider/Layers/ProviderUsageLimitsIngestion.ts";
-import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -323,7 +320,6 @@ const ServerEnvironmentLayerLive = ServerEnvironment.layer.pipe(
 );
 
 const OrchestrationV2RuntimeLayerLive = OrchestrationV2ProductionLayerLive.pipe(
-  Layer.provide(ProviderEventIngestor.analyticsLive),
   Layer.provide(CheckpointStoreLayerLive),
   Layer.provide(GitWorkflowLayerLive),
   Layer.provide(ResourceCleanupService.live),
@@ -413,9 +409,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   Layer.provideMerge(PersistenceLayerLive),
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
-  Layer.provideMerge(
-    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
-  ),
+  Layer.provideMerge(Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer)),
   Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
@@ -453,7 +447,6 @@ const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(ResourceDiagnosticsLayerLive),
   Layer.provideMerge(UsageLayerLive),
   Layer.provideMerge(TraceDiagnostics.layer),
-  Layer.provideMerge(AnalyticsService.layer),
   Layer.provideMerge(ExternalLauncher.layer),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   Layer.provide(NetService.layer),

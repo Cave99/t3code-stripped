@@ -2563,7 +2563,7 @@ export function GeneralSettingsPanel() {
           serverScoped
           settingKeys={["enableProviderUpdateChecks"]}
           {...searchableSetting("provider-update-checks")}
-          description="Check installed provider CLIs for newer available versions."
+          description="Check Homebrew for newer provider CLIs and download model list updates."
           resetAction={
             settings.enableProviderUpdateChecks !==
             DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (

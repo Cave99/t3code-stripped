@@ -241,7 +241,6 @@ import {
   ResourceTelemetrySnapshot,
 } from "./resourceTelemetry.ts";
 import {
-  UsageLimitSourceError,
   ProviderConsumeResetCreditInput,
   ProviderConsumeResetCreditResult,
 } from "./providerUsageLimits.ts";
@@ -484,7 +483,7 @@ const ProviderSetupRpcError = ProviderSetupError;
 const WsProviderConsumeResetCreditRpc = Rpc.make(WS_METHODS.providerConsumeResetCredit, {
   payload: ProviderConsumeResetCreditInput,
   success: ProviderConsumeResetCreditResult,
-  error: Schema.Union([ProviderSetupError, UsageLimitSourceError]),
+  error: ProviderSetupError,
 });
 
 const WsProviderAuthStartRpc = Rpc.make(WS_METHODS.providerAuthStart, {
@@ -1306,8 +1305,6 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
      * dropped by old servers.
      */
     environmentThemes: Schema.optional(Schema.Boolean),
-    /** Whether this client understands `usageLimitSourcesUpdated` events. */
-    usageLimitSources: Schema.optional(Schema.Boolean),
     /**
      * Whether this client answers `/usage-limits` itself. The server injects
      * that command into provider catalogs only for such clients; an older
