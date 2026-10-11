@@ -1022,9 +1022,12 @@ export function derivePhase(runtime: ThreadRuntimeSummary | null): SessionPhase 
 export function deriveCanInterruptRunningThread(
   hasActiveThread: boolean,
   runtime: ThreadRuntimeSummary | null,
+  hasPullRequestWatch = false,
 ): boolean {
   return (
     hasActiveThread &&
-    (derivePhase(runtime) === "running" || threadRuntimeHasInterruptibleRun(runtime))
+    (hasPullRequestWatch ||
+      derivePhase(runtime) === "running" ||
+      threadRuntimeHasInterruptibleRun(runtime))
   );
 }

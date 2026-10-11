@@ -93,6 +93,8 @@ const RawCheckSchema = Schema.Struct({
   workflowName: Schema.optional(Schema.NullOr(Schema.String)),
   startedAt: Schema.optional(Schema.NullOr(Schema.String)),
   completedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Branch protection requires this check; read by the detail query on github.com only. */
+  isRequired: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
 
 const RawListItemSchema = Schema.Struct({
@@ -706,8 +708,15 @@ export const PULL_REQUEST_LIST_JSON_FIELDS =
 
 export const PULL_REQUEST_DETAIL_JSON_FIELDS = `${PULL_REQUEST_LIST_JSON_FIELDS},body,changedFiles,closedAt,isCrossRepository,headRepositoryOwner,headRefOid,autoMergeRequest`;
 
-/** Pull refs let the comparison share the detail read without first resolving a fork branch. */
-export const PULL_REQUEST_CORE_GRAPHQL_QUERY = `query($owner: String!, $name: String!, $number: Int!, $headRef: String!) {
+/**
+ * Pull refs let the comparison share the detail read without first resolving a fork branch.
+ * `isRequired` is asked for on github.com only: an older Enterprise server may not know it, and
+ * an unknown field fails the whole read.
+ */
+export const pullRequestCoreGraphQlQuery = (host: string) => {
+  const required =
+    host.toLowerCase() === "github.com" ? " isRequired(pullRequestNumber: $number)" : "";
+  return `query($owner: String!, $name: String!, $number: Int!, $headRef: String!) {
   repository(owner: $owner, name: $name) {
     mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed viewerPermission
     pullRequest(number: $number) {
@@ -727,9 +736,9 @@ export const PULL_REQUEST_CORE_GRAPHQL_QUERY = `query($owner: String!, $name: St
         nodes { commit { statusCheckRollup { contexts(first: 100) {
           nodes {
             __typename
-            ... on StatusContext { context state targetUrl createdAt description }
+            ... on StatusContext { context state targetUrl createdAt description${required} }
             ... on CheckRun {
-              name status conclusion startedAt completedAt detailsUrl
+              name status conclusion startedAt completedAt detailsUrl${required}
               checkSuite { workflowRun { workflow { name } } }
             }
           }
@@ -739,6 +748,7 @@ export const PULL_REQUEST_CORE_GRAPHQL_QUERY = `query($owner: String!, $name: St
     }
   }
 }`;
+};
 
 export const PULL_REQUEST_PREVIEW_GRAPHQL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -1468,6 +1478,7 @@ function toCheckEntries(
           status: toCheckStatus(check),
           description: trimmed(check.description),
           url: trimmed(check.detailsUrl) ?? trimmed(check.targetUrl),
+          ...(typeof check.isRequired === "boolean" ? { required: check.isRequired } : {}),
         },
         workflowName: trimmed(check.workflowName),
         at: realTimestamp(check.completedAt) ?? realTimestamp(check.startedAt),
@@ -1976,6 +1987,139 @@ export function decodePullRequestSummariesJson(
   return Result.succeed(summaries);
 }
 
+const WATCH_FINGERPRINT_EDITS = "totalCount nodes { lastEditedAt }";
+const WATCH_FINGERPRINT_CHECK_COUNTS =
+  "checkRunCountsByState { state count } statusContextCountsByState { state count }";
+
+/**
+ * What a pull request watch needs to notice, priced by GitHub at one point for twenty-five pull
+ * requests, where the detail and activity reads it gates cost sixteen for one. Counts and the
+ * newest edit cover new comments, reviews (a reply in a review thread is a review), threads, and
+ * a bot rewriting its summary; check counts by state move whenever a check starts or finishes.
+ * Comments come most recently updated first, since an edit moves `updatedAt`, so an edit to an
+ * old comment on a long pull request is still in the page. Reviews have no such order: an edit
+ * to a review older than the last hundred waits for the watch's periodic full read, as do edits
+ * to comments inside review threads, which cost a point per pull request to ask for.
+ */
+const PULL_REQUEST_WATCH_FINGERPRINT_SELECTION =
+  "state mergeable headRefOid " +
+  `comments(first: 100, orderBy: { field: UPDATED_AT, direction: DESC }) { ${WATCH_FINGERPRINT_EDITS} } ` +
+  `reviews(last: 100) { ${WATCH_FINGERPRINT_EDITS} } ` +
+  "reviewThreads { totalCount } " +
+  `commits(last: 1) { nodes { commit { statusCheckRollup { contexts { ${WATCH_FINGERPRINT_CHECK_COUNTS} } } } } }`;
+
+/** Watch fingerprints for pull requests on one host, one aliased lookup each; null when unsafe. */
+export function buildPullRequestWatchFingerprintsGraphQlQuery(
+  changeRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }>,
+): string | null {
+  if (changeRequests.length === 0) return null;
+  const selections: string[] = [];
+  for (const [index, changeRequest] of changeRequests.entries()) {
+    const [owner, name, ...rest] = changeRequest.repository.trim().split("/");
+    if (rest.length > 0 || owner === undefined || name === undefined) return null;
+    if (!REPOSITORY_PART.test(owner) || !REPOSITORY_PART.test(name)) return null;
+    if (!Number.isSafeInteger(changeRequest.number) || changeRequest.number <= 0) return null;
+    selections.push(
+      `  w${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${changeRequest.number}) { ${PULL_REQUEST_WATCH_FINGERPRINT_SELECTION} } }`,
+    );
+  }
+  return `query PullRequestWatchFingerprints {\n${selections.join("\n")}\n}`;
+}
+
+/**
+ * Two parts, so a watch reads only what moved: `status` (state, mergeability, head, and checks)
+ * needs the detail read, and `remarks` also needs the far costlier activity read.
+ */
+export interface GitHubPullRequestWatchFingerprint {
+  readonly status: string;
+  readonly remarks: string;
+}
+
+const RawEditedSchema = Schema.Struct({
+  totalCount: Schema.Int,
+  nodes: Schema.Array(Schema.NullOr(Schema.Struct({ lastEditedAt: Schema.NullOr(Schema.String) }))),
+});
+const RawStateCountsSchema = Schema.NullOr(
+  Schema.Array(Schema.Struct({ state: Schema.String, count: Schema.Int })),
+);
+const decodeWatchFingerprintEntry = Schema.decodeUnknownExit(
+  Schema.Struct({
+    state: Schema.String,
+    mergeable: Schema.NullOr(Schema.String),
+    headRefOid: Schema.String,
+    comments: RawEditedSchema,
+    reviews: RawEditedSchema,
+    reviewThreads: Schema.Struct({ totalCount: Schema.Int }),
+    commits: Schema.Struct({
+      nodes: Schema.Array(
+        Schema.NullOr(
+          Schema.Struct({
+            commit: Schema.Struct({
+              statusCheckRollup: Schema.NullOr(
+                Schema.Struct({
+                  contexts: Schema.Struct({
+                    checkRunCountsByState: RawStateCountsSchema,
+                    statusContextCountsByState: RawStateCountsSchema,
+                  }),
+                }),
+              ),
+            }),
+          }),
+        ),
+      ),
+    }),
+  }),
+);
+
+// An edit only ever moves `lastEditedAt` forward, so the newest one stands for them all.
+const newestEdit = (connection: typeof RawEditedSchema.Type) =>
+  connection.nodes.reduce(
+    (newest, node) =>
+      node?.lastEditedAt != null && node.lastEditedAt > newest ? node.lastEditedAt : newest,
+    "",
+  );
+
+const stateCounts = (counts: typeof RawStateCountsSchema.Type) =>
+  (counts ?? [])
+    .filter(({ count }) => count > 0)
+    .map(({ state, count }) => `${state}:${count}`)
+    .toSorted()
+    .join(",");
+
+/** Fingerprints by alias index; a pull request GitHub returned nothing for is left out. */
+export function decodePullRequestWatchFingerprintsJson(
+  raw: string,
+): Result.Result<ReadonlyMap<number, GitHubPullRequestWatchFingerprint>, DecodeFailure> {
+  const decoded = decodeSummaries(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  const fingerprints = new Map<number, GitHubPullRequestWatchFingerprint>();
+  for (const [alias, value] of Object.entries(decoded.success.data ?? {})) {
+    const index = /^w(\d+)$/.exec(alias)?.[1];
+    if (index === undefined || value?.pullRequest == null) continue;
+    const entry = decodeWatchFingerprintEntry(value.pullRequest);
+    if (!Exit.isSuccess(entry)) continue;
+    const pr = entry.value;
+    const contexts = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts;
+    fingerprints.set(Number(index), {
+      status: [
+        pr.state,
+        pr.mergeable ?? "",
+        pr.headRefOid,
+        stateCounts(contexts?.checkRunCountsByState ?? null),
+        stateCounts(contexts?.statusContextCountsByState ?? null),
+      ].join(" "),
+      remarks: [
+        pr.comments.totalCount,
+        newestEdit(pr.comments),
+        pr.reviews.totalCount,
+        newestEdit(pr.reviews),
+        pr.reviewThreads.totalCount,
+      ].join(" "),
+    });
+  }
+  return Result.succeed(fingerprints);
+}
+
 export interface GitHubPullRequestCore extends GitHubPullRequestDetail {
   readonly viewerAccess: GitHubViewerAccess & GitHubRepositoryAccess;
   readonly comparison: GitHubBaseComparison | null;
@@ -2082,6 +2226,7 @@ export interface GitHubReviewThreadComments {
   /** The host's own count of the conversation, which a bounded read can fall short of. */
   readonly commentCount: number;
   readonly truncated: boolean;
+  readonly threadsTruncated?: boolean;
   /** The pull request's own reactions, which sit on its description. */
   readonly reactions: ReadonlyArray<PullRequestReaction>;
   /** Reactions by node id, for the comments and reviews the `gh` JSON read carries no reaction on. */
