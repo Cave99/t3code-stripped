@@ -4049,9 +4049,17 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
 
         yield* orchestrator.resumeQueuedRuns;
         const after = yield* orchestrator.getThreadProjection(threadId);
-        assert.isUndefined(after.thread.pullRequests?.[0]?.watch);
         assert.equal(after.runs.find((run) => run.id === activeRun.id)?.status, "interrupted");
+        if (entryPoint === "mcp") {
+          // A plain MCP interrupt is not a Stop: the queue is not held and
+          // watches stay, so the queued run proceeds on resume.
+          assert.isFalse(after.runs.find((run) => run.id === queuedRun.id)?.queueHeld ?? false);
+          assert.isDefined(after.thread.pullRequests?.[0]?.watch);
+          assert.equal(after.runs.find((run) => run.id === queuedRun.id)?.status, "starting");
+          return;
+        }
         assert.equal(after.runs.find((run) => run.id === queuedRun.id)?.status, "queued");
+        assert.isUndefined(after.thread.pullRequests?.[0]?.watch);
         assert.isTrue(after.runs.find((run) => run.id === queuedRun.id)?.queueHeld);
         assert.isFalse(after.turnItems.some((item) => item.runId === queuedRun.id));
         const refused = yield* orchestrator
