@@ -67,6 +67,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import * as PreviewPasskeys from "./Passkeys.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -640,6 +641,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const fileSystem = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcessPlatform;
   const path = yield* Path.Path;
+  const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const parentScope = yield* Scope.Scope;
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
@@ -1753,6 +1755,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   ) {
     const scope = yield* Scope.fork(parentScope, "sequential");
     const attachmentId = Symbol();
+    let detachPasskeys = () => {};
     let documentId = 0;
     let nextRequestId = 0;
     let activeCapture: {
@@ -2065,6 +2068,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
+        detachPasskeys();
       }).pipe(Effect.ignore),
     );
     const install = Effect.fn("PreviewManager.installWebContentsListeners")(function* () {
@@ -2085,6 +2089,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.ipc.on(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.on(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.on(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
+        detachPasskeys = passkeys.attachGuest(wc);
         wc.setWindowOpenHandler((details) => {
           if (previewWindowOpenAction(details) === "popup") {
             return { action: "allow", overrideBrowserWindowOptions: POPUP_WINDOW_OPTIONS };
@@ -5152,6 +5157,7 @@ export class PreviewManager extends Context.Service<
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;
+  const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const operations = yield* makeNativeOperations(
     environment.browserArtifactsDir,
     environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
@@ -5169,6 +5175,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
             ),
           );
         operations.installDownloadHandler(session);
+        passkeys.installSessionHandlers(session);
         return session;
       },
     ),

@@ -266,7 +266,17 @@ const fileSystemLayer = FileSystem.layerNoop({
     }),
 });
 
+import * as PreviewPasskeys from "./Passkeys.ts";
+
 const layer = PreviewManager.layer.pipe(
+  Layer.provide(
+    Layer.mock(PreviewPasskeys.PreviewPasskeys)({
+      bridgeEnabled: false,
+      configure: Effect.void,
+      installSessionHandlers: () => {},
+      attachGuest: () => () => {},
+    }),
+  ),
   Layer.provideMerge(browserSessionLayer),
   Layer.provideMerge(environmentLayer),
   Layer.provideMerge(fileSystemLayer),

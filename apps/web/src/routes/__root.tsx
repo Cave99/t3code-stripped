@@ -21,6 +21,7 @@ import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
+import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
@@ -182,6 +183,7 @@ function RootRouteView() {
         <FirstRunGate enabled={localEnvironmentEnabled} hostedStatic={!localEnvironmentEnabled}>
           {localEnvironmentEnabled ? <AuthenticatedTracingBootstrap /> : null}
           {isElectron ? <RunningThreadKeepAlive /> : null}
+          <DesktopWebLinkCoordinator />
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
           <ConfirmDialogHost />

@@ -28,6 +28,7 @@ import * as ElectronShell from "./electron/ElectronShell.ts";
 import * as ElectronTheme from "./electron/ElectronTheme.ts";
 import * as ElectronWindow from "./electron/ElectronWindow.ts";
 import * as DesktopApp from "./app/DesktopApp.ts";
+import * as DesktopWebLinks from "./app/DesktopWebLinks.ts";
 import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
 import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogStore.ts";
 import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
@@ -49,6 +50,7 @@ import * as DesktopShellEnvironment from "./shell/DesktopShellEnvironment.ts";
 import * as DesktopState from "./app/DesktopState.ts";
 import * as DesktopTelemetryPublisher from "./telemetry/DesktopTelemetryPublisher.ts";
 import * as BrowserSession from "./preview/BrowserSession.ts";
+import * as PreviewPasskeys from "./preview/Passkeys.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
 
@@ -99,6 +101,7 @@ const desktopServerExposureLayer = DesktopServerExposure.layer.pipe(
 
 const desktopPreviewLayer = PreviewManager.layer.pipe(
   Layer.provideMerge(BrowserSession.layer),
+  Layer.provideMerge(PreviewPasskeys.layer),
   Layer.provideMerge(desktopFoundationLayer),
 );
 
@@ -122,6 +125,7 @@ const desktopBackendLayer = DesktopBackendPool.layer.pipe(
 
 const desktopApplicationLayer = Layer.mergeAll(
   DesktopLifecycle.layer,
+  DesktopWebLinks.layer,
   DesktopApplicationMenu.layer,
   DesktopLinuxUrlHandler.layer,
   DesktopShellEnvironment.layer,

@@ -17,11 +17,19 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   node-pty: true
+  # Ships N-API prebuilds; its install script only rebuilds from source.
+  objc-js: false
   sharp: true
   utf-8-validate: false
   workerd: false
 
 catalog:
+  "@electron-webauthn/macos": 1.3.1
+  "@types/plist": 3.0.5
+  electron-webauthn: 1.3.1
+  objc-js: 1.5.0
+  plist: 3.1.1
+  tldts: 7.4.2
   "@effect/atom-react": 4.0.0-rc.115
   "@effect/openapi-generator": 4.0.0-rc.115
   "@effect/platform-node": 4.0.0-rc.115
@@ -57,6 +65,8 @@ minimumReleaseAgeExclude:
   - "@shadcn/lint@0.1.5"
 
 overrides:
+  "electron-webauthn>@electron-webauthn/macos": "catalog:"
+  "@electron-webauthn/macos>objc-js": "catalog:"
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the

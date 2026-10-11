@@ -1033,6 +1033,11 @@ export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
 export interface DesktopBridge {
+  /** OS web links queue until the renderer is listening. */
+  webLinks?: {
+    setReady: (ready: boolean) => Promise<void>;
+    onOpen: (listener: (url: string) => void) => () => void;
+  };
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
   getPathForFile?: (file: File) => string;
