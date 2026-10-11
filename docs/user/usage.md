@@ -6,8 +6,9 @@ Open **Usage** from the sidebar or the command palette, or press `mod+u` when th
 ## Understand your usage
 
 **Usage** combines Codex and Claude Code history on this machine. It shows token use,
-cache savings, model breakdowns, and estimated API-equivalent cost. These estimates are not your
-subscription bill.
+cache savings, model breakdowns, and estimated API-equivalent cost by token type and speed. These estimates are not your
+subscription bill. **Premium** is the extra cost of Fast and Ultrafast requests.
+Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
 the account's home setting or its `CODEX_HOME` or `CLAUDE_CONFIG_DIR` environment
