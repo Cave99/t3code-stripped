@@ -83,6 +83,8 @@ export const GUARD_LENGTH = 64;
 // readers; it never discards a record because of its size.
 const STREAMING_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const NEWLINE = 0x0a;
+/** `stat` calls one transcript walk keeps in flight. The libuv pool has 4 threads. */
+const STAT_CONCURRENCY = 32;
 const CARRIAGE_RETURN = 0x0d;
 
 type SelectedFields = { readonly [key: string]: true | SelectedFields };
@@ -142,13 +144,17 @@ function fnv1a(buffer: Buffer): number {
  * Errors on individual entries are swallowed: session files rotate and get
  * removed while the walk is in flight, and a partial listing is far better than
  * failing the page.
+ *
+ * Directories are listed depth-first, one at a time, then the candidates are
+ * stat'd by a fixed pool of workers: a warm scan stats thousands of files, and
+ * one at a time each waits its own trip through the thread pool. Results keep
+ * `readdir` order, which the aggregator's first-seen dedupe relies on.
  */
 export async function listTranscriptFiles(
   root: string,
   sinceMs: number,
 ): Promise<readonly TranscriptFile[]> {
-  const found: TranscriptFile[] = [];
-
+  const candidates: string[] = [];
   const walk = async (dir: string): Promise<void> => {
     let entries;
     try {
@@ -158,26 +164,33 @@ export async function listTranscriptFiles(
     }
     for (const entry of entries) {
       const child = NodePath.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(child);
-        continue;
+      if (entry.isDirectory()) await walk(child);
+      else if (entry.name.endsWith(".jsonl")) {
+        candidates.push(child);
       }
-      if (!entry.name.endsWith(".jsonl")) {
-        continue;
-      }
+    }
+  };
+  await walk(root);
+
+  const found: Array<TranscriptFile | undefined> = Array.from({ length: candidates.length });
+  // Each worker pulls the next candidate from one shared iterator.
+  const queue = candidates.entries();
+  const statQueued = async (): Promise<void> => {
+    for (const [index, path] of queue) {
       try {
-        const stats = await NodeFSP.stat(child);
+        const stats = await NodeFSP.stat(path);
         if (stats.mtimeMs >= sinceMs) {
-          found.push({ path: child, size: stats.size, mtimeMs: stats.mtimeMs });
+          found[index] = { path, size: stats.size, mtimeMs: stats.mtimeMs };
         }
       } catch {
         // Vanished between readdir and stat.
       }
     }
   };
-
-  await walk(root);
-  return found;
+  await Promise.all(
+    Array.from({ length: Math.min(STAT_CONCURRENCY, candidates.length) }, statQueued),
+  );
+  return found.filter((file) => file !== undefined);
 }
 
 /**
