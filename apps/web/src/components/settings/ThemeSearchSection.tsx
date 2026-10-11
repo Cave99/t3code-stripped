@@ -14,7 +14,7 @@ import {
   replaceCustomThemeCollection,
   type ThemeDefinition,
 } from "../../themePalette";
-import { GitHubIcon, GitLabIcon } from "../Icons";
+import { GitHubIcon } from "../Icons";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -48,8 +48,6 @@ function SourceLinkIcon({ url }: { url: string }) {
     const host = new URL(url).hostname.toLowerCase();
     if (host === "github.com" || host.endsWith(".github.com"))
       return <GitHubIcon className="size-3.5" />;
-    if (host === "gitlab.com" || host.endsWith(".gitlab.com"))
-      return <GitLabIcon className="size-3.5" monochrome />;
   } catch {
     // Fall through to the generic external-link icon.
   }

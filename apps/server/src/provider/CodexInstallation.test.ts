@@ -60,9 +60,6 @@ const makeHarness = Effect.fn("test.makeCodexInstallation")(function* (
   }).pipe(
     Effect.provideService(ModelManifest.ModelManifest, {
       current: input.manifestCurrent ?? Effect.succeed(ModelManifest.BUNDLED_MODEL_MANIFEST),
-      refresh: Effect.succeed(ModelManifest.BUNDLED_MODEL_MANIFEST),
-      forceRefresh: Effect.succeed(ModelManifest.BUNDLED_MODEL_MANIFEST),
-      refreshInBackground: Effect.void,
     }),
     Effect.provideService(HostProcessPlatform, "darwin"),
     Effect.provideService(HostProcessArchitecture, "arm64"),
@@ -204,7 +201,7 @@ it.effect("rechecks a cached local executable when the shared manifest policy ch
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("uses bundled Codex compatibility when the remote manifest omits its policy", () =>
+it.effect("uses bundled Codex compatibility when the manifest omits its policy", () =>
   Effect.gen(function* () {
     const h = yield* makeHarness({
       local: { version: "0.156.0" },

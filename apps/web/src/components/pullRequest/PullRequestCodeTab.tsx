@@ -681,7 +681,6 @@ function PullRequestCodeTab({
   // Newest first: the last commit is the one a reader coming back to a change is looking for.
   const orderedCommits = useMemo(
     () =>
-      // By instant, not by the text: GitLab keeps a commit's own UTC offset, so two commits
       // from different zones would sort by how they were written rather than when they landed.
       detail.commits.toSorted(
         (left, right) => Date.parse(right.committedDate) - Date.parse(left.committedDate),

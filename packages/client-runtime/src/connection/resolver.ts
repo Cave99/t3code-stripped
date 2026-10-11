@@ -61,7 +61,6 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
       httpBaseUrl: target.httpBaseUrl,
       wsBaseUrl: target.wsBaseUrl,
       bearerToken: bearerToken.value,
-      connectionMethod: "direct",
     });
     return {
       ...authorized,
@@ -109,7 +108,6 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       httpBaseUrl: profile.httpBaseUrl,
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
-      connectionMethod: "direct",
     });
     return {
       environmentId: authorized.environmentId,

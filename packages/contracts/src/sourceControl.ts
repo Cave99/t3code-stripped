@@ -2,14 +2,8 @@ import * as Schema from "effect/Schema";
 import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
-export const SourceControlProviderKind = Schema.Literals([
-  "github",
-  "gitlab",
-  "forgejo",
-  "azure-devops",
-  "bitbucket",
-  "unknown",
-]);
+// Open IDs preserve persisted records from removed forges; only GitHub has a runtime adapter.
+export const SourceControlProviderKind = TrimmedNonEmptyString;
 export type SourceControlProviderKind = typeof SourceControlProviderKind.Type;
 
 export const SourceControlProviderInfo = Schema.Struct({
@@ -65,14 +59,14 @@ export const SourceControlRepositoryInfo = Schema.Struct({
 export type SourceControlRepositoryInfo = typeof SourceControlRepositoryInfo.Type;
 
 export const SourceControlRepositoryLookupInput = Schema.Struct({
-  provider: SourceControlProviderKind,
+  provider: Schema.Literal("github"),
   repository: TrimmedNonEmptyString,
   cwd: Schema.optional(TrimmedNonEmptyString),
 });
 export type SourceControlRepositoryLookupInput = typeof SourceControlRepositoryLookupInput.Type;
 
 export const SourceControlCloneRepositoryInput = Schema.Struct({
-  provider: Schema.optional(SourceControlProviderKind),
+  provider: Schema.optional(Schema.Literal("github")),
   repository: Schema.optional(TrimmedNonEmptyString),
   remoteUrl: Schema.optional(TrimmedNonEmptyString),
   destinationPath: TrimmedNonEmptyString,
@@ -89,7 +83,7 @@ export type SourceControlCloneRepositoryResult = typeof SourceControlCloneReposi
 
 export const SourceControlPublishRepositoryInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  provider: SourceControlProviderKind,
+  provider: Schema.Literal("github"),
   repository: TrimmedNonEmptyString,
   visibility: SourceControlRepositoryVisibility,
   remoteName: Schema.optional(TrimmedNonEmptyString),

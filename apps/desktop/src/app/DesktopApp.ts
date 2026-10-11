@@ -129,7 +129,7 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
   const wasQuitting = yield* Ref.getAndSet(state.quitting, true);
   if (!wasQuitting) {
     yield* electronDialog.showErrorBox(
-      "T3 Code failed to start",
+      "C3 Code failed to start",
       `Stage: ${stage}\n${message}${detail}`,
     );
   }
@@ -250,6 +250,7 @@ const startup = Effect.gen(function* () {
   }
   const userDataPath = yield* appIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
+  yield* electronApp.setPath("sessionData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   yield* desktopSettings.load;
 
@@ -263,7 +264,7 @@ const startup = Effect.gen(function* () {
     });
   }
 
-  yield* appIdentity.configure;
+  yield* appIdentity.configure({ beforeReady: true });
   yield* lifecycle.register;
   if (environment.platform === "darwin") {
     const webLinks = yield* DesktopWebLinks.DesktopWebLinks;
@@ -294,7 +295,7 @@ const startup = Effect.gen(function* () {
       backend: Option.getOrElse(selectedBackend, () => "unknown"),
     });
   }
-  yield* appIdentity.configure;
+  yield* appIdentity.configure();
   yield* (yield* PreviewPasskeys.PreviewPasskeys).configure;
   yield* applicationMenu.configure;
   yield* linuxUrlHandler.register;

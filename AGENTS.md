@@ -1,6 +1,6 @@
-# T3 Code (stripped fork)
+# C3 Code (Corporate T3 Code)
 
-This is a desktop-only cut of T3 Code, a minimal GUI for coding agents. An Electron app bundles a local Node WebSocket server that wraps the Codex and Claude Code CLIs. Read [STRIPPED.md](STRIPPED.md) first: it lists what this fork kept, what it cut, and what cleanup remains.
+C3 Code is an unofficial fork of [T3 Code](https://github.com/pingdotgg/t3code) adapted for corporate environments: desktop-only, loopback-only, Codex and Claude only, GitHub only, and minimal outbound calls. An Electron app bundles a local Node WebSocket server that wraps the Codex and Claude Code CLIs. Read [STRIPPED.md](STRIPPED.md) first: it lists what this fork kept, what it cut, and what cleanup remains.
 
 You can think of it as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop and the Codex app.
 
@@ -18,15 +18,15 @@ Channel both "measure twice, cut once" and "yagni". Fight scope creep. Try to ho
 
 The rest of this document is meant to help you navigate the codebase and make changes effectively. Think of these instructions less as "hard rules", more as "good defaults". The developer's preferences should be able to override anything here.
 
-Of note: contributions often come from T3 Code itself. Be careful about accessing data, killing dev servers, and other things that may damage the T3 Code instance the contributor is using.
+Of note: contributions often come from C3 Code itself. Be careful about accessing data, killing dev servers, and other things that may damage the C3 Code instance the contributor is using.
 
 ## A small glossary
 
-- **you** means the agent reading this file and changing T3 Code.
+- **you** means the agent reading this file and changing C3 Code.
 - **we, us, and maintainers** mean the people building this fork. These are who you are talking to now.
-- **user** means the person using T3 Code to direct coding agents.
-- **agent** means the coding agent a user runs inside T3 Code. Depending on context, that may also include you.
-- **provider** means the agent runtime T3 Code talks to: Codex or Claude.
+- **user** means the person using C3 Code to direct coding agents.
+- **agent** means the coding agent a user runs inside C3 Code. Depending on context, that may also include you.
+- **provider** means the agent runtime C3 Code talks to: Codex or Claude.
 - **client** means the Electron renderer.
 - **environment** means the one running local server and the machine, filesystem, provider credentials, and state it owns.
 - **project** means an environment-local workspace record rooted at a directory.
@@ -37,7 +37,7 @@ Of note: contributions often come from T3 Code itself. Be careful about accessin
 ## The ways to hurt yourself
 
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine may run several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port after confirming its cwd is your worktree.
-2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
+2. **Writing to the live install.** `~/.t3/userdata` is the developer's real C3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Reintroducing origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL`. Dev is single-origin and Vite proxies the backend.
 
 ## Hit every entry point

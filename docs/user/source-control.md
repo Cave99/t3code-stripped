@@ -1,6 +1,6 @@
 # Source control
 
-T3 Code integrates with GitHub to clone and publish repositories, create pull requests, and
+C3 Code integrates with GitHub to clone and publish repositories, create pull requests, and
 review changes on GitHub.
 
 ## Review turn changes
@@ -26,7 +26,7 @@ gh auth login
 ## Start, clone, or publish a project
 
 To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
-**New project** under **Add Project**, and type a name. T3 Code makes a Git
+**New project** under **Add Project**, and type a name. C3 Code makes a Git
 repository in `~/.t3/projects` (the `projects` folder of your T3 data directory) with a README,
 an icon, and a first commit, then opens a new thread in it. The folder is named after the project,
 like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on GitHub** to also
@@ -45,7 +45,7 @@ make your first commit before pushing.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
+Use a thread's Git actions to commit, push, and create a pull request. C3 Code can generate commit
 messages, review titles, and descriptions from your changes.
 
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
@@ -75,7 +75,7 @@ Tick a file off in the **Code** tab once you have read it and it collapses; the 
 running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
 single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
 
-These are GitHub's own viewed marks, so a review carries between T3 Code and github.com
+These are GitHub's own viewed marks, so a review carries between C3 Code and github.com
 in either direction.
 
 ## Troubleshooting

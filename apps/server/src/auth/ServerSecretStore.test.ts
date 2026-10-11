@@ -146,6 +146,38 @@ const makeConcurrentCreateSecretStoreLayer = () =>
   );
 
 it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
+  it.effect("removes only obsolete secrets on startup and is safe to repeat", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.makeDirectory(config.secretsDir, { recursive: true });
+      const entries = [
+        "usage-limit-source-old.bin",
+        "bitbucket-token.bin",
+        "provider-codex.bin",
+        "asset-signing-key.bin",
+        "usage-limit-source-old.txt",
+      ];
+      for (const entry of entries) {
+        yield* fs.writeFile(`${config.secretsDir}/${entry}`, Uint8Array.from([1, 2, 3]));
+      }
+      for (let startup = 0; startup < 2; startup++) {
+        const store = yield* ServerSecretStore.make;
+        assert.isTrue(Option.isNone(yield* store.get("usage-limit-source-old")));
+        assert.isTrue(Option.isNone(yield* store.get("bitbucket-token")));
+        assert.deepEqual(
+          Array.from(Option.getOrThrow(yield* store.get("provider-codex"))),
+          [1, 2, 3],
+        );
+        assert.deepEqual((yield* fs.readDirectory(config.secretsDir)).sort(), [
+          "asset-signing-key.bin",
+          "provider-codex.bin",
+          "usage-limit-source-old.txt",
+        ]);
+      }
+    }).pipe(Effect.provide(makeServerConfigLayer())),
+  );
+
   it.effect("returns Option.none when a secret file does not exist", () =>
     Effect.gen(function* () {
       const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -197,6 +229,7 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
           return {
             ...fileSystem,
             makeDirectory: () => Effect.void,
+            readDirectory: () => Effect.succeed([]),
             writeFile: () => Effect.void,
             rename: () => Effect.void,
             chmod: (path, mode) =>

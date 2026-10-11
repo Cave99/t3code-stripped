@@ -352,7 +352,7 @@ const runHomebrew = Effect.fn("runHomebrew")(function* (
 /**
  * Derive update capabilities from where the executable actually lives. Every
  * branch that yields a one-click command has evidence that the named tool
- * owns that path; anything unproven stays manual-only so T3 Code never runs
+ * owns that path; anything unproven stays manual-only so C3 Code never runs
  * a package manager against an install it did not create.
  */
 export const resolvePackageManagedProviderMaintenance = Effect.fn(
@@ -641,7 +641,7 @@ export function createProviderVersionAdvisory(input: {
 }
 
 /**
- * The newest version the owning installer reports (Homebrew today). T3 Code
+ * The newest version the owning installer reports (Homebrew today). C3 Code
  * does not query package registries itself, so other installs report none.
  */
 export function resolveLatestProviderVersion(

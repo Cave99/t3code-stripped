@@ -65,9 +65,6 @@ export function resolvePullRequestMergeMethod(
   return allowed[0] ?? "merge";
 }
 
-const safeShellArgument = /^[A-Za-z0-9._/@+=,-]+$/;
-const bitbucketRepositoryName = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-
 export type PullRequestPrimaryControl =
   | "resolve"
   | "ready"
@@ -110,34 +107,8 @@ export function resolvePullRequestPrimaryControl(input: {
 export function pullRequestCheckoutCommand(
   provider: SourceControlProviderKind,
   number: number,
-  headBranch: string,
-  headRepositoryNameWithOwner?: string | null,
-  repositoryUrl?: string | null,
 ): string | null {
-  switch (provider) {
-    case "github":
-      return `gh pr checkout ${number}`;
-    case "gitlab":
-      return `glab mr checkout ${number}`;
-    case "forgejo":
-      return repositoryUrl
-        ? `git fetch '${repositoryUrl.replaceAll("'", "'\\''")}' refs/pull/${number}/head && git checkout -B pulls/${number} FETCH_HEAD`
-        : null;
-    case "azure-devops":
-      return `az repos pr checkout --id ${number}`;
-    case "bitbucket": {
-      if (
-        !headRepositoryNameWithOwner ||
-        !bitbucketRepositoryName.test(headRepositoryNameWithOwner) ||
-        !safeShellArgument.test(headBranch)
-      ) {
-        return null;
-      }
-      return `git clone --single-branch --branch ${headBranch} https://bitbucket.org/${headRepositoryNameWithOwner}.git t3code-pr-${number}`;
-    }
-    case "unknown":
-      return null;
-  }
+  return provider === "github" ? `gh pr checkout ${number}` : null;
 }
 
 /** Build a checkout command from identity metadata while the detail request is still pending. */
@@ -146,14 +117,12 @@ export function loadingPullRequestCheckoutCommand(
   identity: RepositoryIdentity | null | undefined,
 ): string | null {
   const host = reference.host?.trim().toLowerCase();
-  const provider =
-    identity?.provider ??
-    (host === "github.com" ? "github" : host === "gitlab.com" ? "gitlab" : null);
-  if (provider !== "github" && provider !== "gitlab" && provider !== "azure-devops") return null;
+  const provider = identity?.provider ?? (host === "github.com" ? "github" : null);
+  if (provider !== "github") return null;
   if (identity?.provider !== undefined && host && pullRequestHostOf(identity, provider) !== host) {
     return null;
   }
-  return pullRequestCheckoutCommand(provider, reference.number, "");
+  return pullRequestCheckoutCommand(provider, reference.number);
 }
 
 /** Activity changes only when the same host resource reports a newer revision. */
@@ -409,11 +378,6 @@ export function orderPullRequestComments<T extends { readonly createdAt: string 
 /** A review that says something about the change itself, rather than only carrying remarks. */
 export type PullRequestReviewOutcome = "approved" | "changes-requested" | "dismissed";
 
-/**
- * Which review states are a verdict. Hosts spell the same three differently — GitHub reports
- * `CHANGES_REQUESTED`, Bitbucket `changes_requested` — so case and separator are ignored, and
- * anything else (GitHub's `COMMENTED`, a state no host here reports yet) is not a verdict.
- */
 export function pullRequestReviewOutcome(
   reviewState: string | null,
 ): PullRequestReviewOutcome | null {
@@ -869,7 +833,7 @@ export function buildFixFindingsHandoff(input: {
       !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
   );
   // Not every finding can be a chip. A review submitted with words and no inline comment has no
-  // line to hang on, and a host that reports no threads at all — Azure DevOps has no diff to pin
+
   // one to — has only these. They travel as text, the way a failing check does, rather than
   // being dropped for lacking somewhere to point.
   // Every thread's comments, not only the unresolved ones the sweep is about to include: the
@@ -1172,7 +1136,7 @@ const OPERATION_PREFIX = /^Pull request operation \w+ failed:\s*/iu;
  * host says is worth more than what this page could invent, so only these are replaced.
  */
 const TOOL_NOISE = [
-  /^(github|gitlab|bitbucket|azure devops)?\s*(cli|api)?\s*(command\s*)?failed\.?$/iu,
+  /^(github)?\s*(cli|api)?\s*(command\s*)?failed\.?$/iu,
   /^exited? with (code|status) \d+\.?$/iu,
   /^unknown error\.?$/iu,
 ];
@@ -1350,7 +1314,7 @@ export function resolveDisplayedPullRequestDetail(input: {
   if (input.reference.host === undefined) return input.cached;
   try {
     const url = new URL(input.cached.url);
-    const host = input.cached.provider === "forgejo" ? url.host : url.hostname;
+    const host = /\/pulls\/\d+(?:\/|$)/u.test(url.pathname) ? url.host : url.hostname;
     return (url.protocol === "https:" || url.protocol === "http:") &&
       host.toLowerCase() === input.reference.host.toLowerCase()
       ? input.cached

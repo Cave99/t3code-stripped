@@ -1,6 +1,6 @@
-# Contributing
+# Contributing to C3 Code
 
-This is a stripped-down, desktop-only fork of [T3 Code](https://github.com/pingdotgg/t3code); see
+C3 Code (Corporate T3 Code) is an unofficial corporate, desktop-only fork of [T3 Code](https://github.com/pingdotgg/t3code); see
 [STRIPPED.md](STRIPPED.md) for what was kept and cut. It is maintained for its owner's use, so
 outside contributions are not actively sought and review capacity is limited. Opening a PR creates
 no obligation to review or merge it.

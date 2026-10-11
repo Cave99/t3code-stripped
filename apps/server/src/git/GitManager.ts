@@ -236,10 +236,7 @@ interface BranchHeadContext {
 function pullRequestRepositoryKey(value: string): string | null {
   try {
     const url = new URL(value);
-    const match =
-      /^(.*)(?:\/pull\/|\/-\/merge_requests\/|\/pull-requests\/|\/pullrequest\/)\d+(?:\/.*)?$/iu.exec(
-        url.pathname,
-      );
+    const match = /^(.*)\/pull\/\d+(?:\/.*)?$/iu.exec(url.pathname);
     if (match?.[1] === undefined) return null;
     url.pathname = match[1];
     url.search = "";
@@ -290,10 +287,7 @@ function resolvePullRequestWorktreeLocalBranchName(
   return `t3code/pr-${pullRequest.number}/${suffix}`;
 }
 
-function parseRepositoryNameWithOwnerFromRemoteUrl(
-  url: string | null,
-  providerKind?: ChangeRequest["provider"],
-): string | null {
+function parseRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
   const trimmed = url?.trim() ?? "";
   if (trimmed.length === 0) {
     return null;
@@ -304,12 +298,6 @@ function parseRepositoryNameWithOwnerFromRemoteUrl(
       trimmed,
     );
   const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  // Forgejo HTTP paths can include an installation mount; its API always names owner/repo.
-  if (providerKind === "forgejo" && /^https?:\/\//iu.test(trimmed)) {
-    return repositoryNameWithOwner.length > 0
-      ? repositoryNameWithOwner.split("/").slice(-2).join("/")
-      : null;
-  }
   return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
 }
 
@@ -318,7 +306,7 @@ function parseRepositoryOwnerLogin(nameWithOwner: string | null): string | null 
   if (trimmed.length === 0) {
     return null;
   }
-  // GitLab reports the top-level group as owner. The full path distinguishes subgroups.
+
   const [ownerLogin] = trimmed.split("/");
   const normalizedOwnerLogin = ownerLogin?.trim() ?? "";
   return normalizedOwnerLogin.length > 0 ? normalizedOwnerLogin : null;
@@ -1050,7 +1038,7 @@ export const make = Effect.gen(function* () {
     normalizeStatusCacheKey(cwd).pipe(
       Effect.flatMap((cacheKey) => Cache.invalidate(localStatusResultCache, cacheKey)),
     );
-  // PR lookups hit the hosting provider's API (gh/glab/...), so they refresh
+
   // on their own, slower cadence: ahead/behind counts stay fresh on every
   // status poll while the PR association is re-fetched at most once per
   // PR_LOOKUP_CACHE_TTL per branch. Git actions and user-driven refreshes bump
@@ -1364,22 +1352,8 @@ export const make = Effect.gen(function* () {
     }
 
     const remoteUrl = yield* readConfigValueNullable(cwd, `remote.${remoteName}.url`);
-    let repositoryNameWithOwner = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
-    if (
-      remoteUrl !== null &&
-      /^https?:\/\//iu.test(remoteUrl) &&
-      (repositoryNameWithOwner?.split("/").length ?? 0) > 2
-    ) {
-      const detected = detectSourceControlProviderFromGitRemoteUrl(remoteUrl);
-      const kind =
-        detected?.kind === "unknown"
-          ? yield* sourceControlProvider(cwd).pipe(
-              Effect.map((provider) => provider.kind),
-              Effect.orElseSucceed(() => undefined),
-            )
-          : detected?.kind;
-      repositoryNameWithOwner = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl, kind);
-    }
+    const repositoryNameWithOwner = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+
     return {
       remoteUrlKey: remoteUrl ? normalizeGitRemoteUrl(remoteUrl) : null,
       repositoryNameWithOwner,

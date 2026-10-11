@@ -1,4 +1,4 @@
-# Install T3 Code
+# Install C3 Code
 
 Build the desktop app from source. To update it, pull the latest changes and rebuild.
 
@@ -37,21 +37,21 @@ configuration happen on this machine.
 | Codex    | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
 | Claude   | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
 
-Provider CLIs must be on the `PATH`. If T3 Code cannot find one, set its **Binary path** in
+Provider CLIs must be on the `PATH`. If C3 Code cannot find one, set its **Binary path** in
 provider settings, especially when using a version manager. Codex connected through ChatGPT can
 use its managed runtime without a `PATH` entry.
 
-T3 Code warns when a provider version has known compatibility problems with your build. Check
+C3 Code warns when a provider version has known compatibility problems with your build. Check
 **Settings → Providers** for the recommended version or range. An unlisted version is
 unverified.
 
 When Homebrew has a newer version of a provider CLI, its provider card shows it with
-**Update now**, which runs `brew upgrade`. T3 Code does not query npm or other package
+**Update now**, which runs `brew upgrade`. C3 Code does not query npm or other package
 registries, so update other installs the same way you installed them.
 
 Add another provider instance for a separate account or configuration. Each instance can have
 its own environment variables, such as API keys or a custom base URL. Mark secret values as
-sensitive; after saving, T3 Code does not display their original values.
+sensitive; after saving, C3 Code does not display their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md) and
 [Claude](./providers-claude.md).

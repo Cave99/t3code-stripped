@@ -1,17 +1,17 @@
 # Codex
 
-Use your ChatGPT plan or an existing Codex CLI login to code in T3 Code.
+Use your ChatGPT plan or an existing Codex CLI login to code in C3 Code.
 
 ## Connect with ChatGPT
 
-Connect during onboarding or in **Settings → Providers**. T3 Code handles Codex installation; sign in on
+Connect during onboarding or in **Settings → Providers**. C3 Code handles Codex installation; sign in on
 OpenAI and allow sharing of your ChatGPT plan.
 
-Manage shared usage and credits in ChatGPT through **Manage usage** in T3 Code.
+Manage shared usage and credits in ChatGPT through **Manage usage** in C3 Code.
 If a request uses a feature that ChatGPT sharing does not support, use another
 provider for that request.
 
-When reconnecting, choose the same account in T3 Code and on OpenAI's sign-in
+When reconnecting, choose the same account in C3 Code and on OpenAI's sign-in
 page. Disconnecting stops running threads but keeps their history and lets you
 reconnect later.
 
@@ -20,7 +20,7 @@ localhost page into the sign-in panel, even if that page could not load.
 
 ## Use an existing Codex login
 
-T3 Code can use your installed Codex and its existing login. Run `codex login`
+C3 Code can use your installed Codex and its existing login. Run `codex login`
 on the environment's machine to sign in. [Provider setup](./install.md#providers)
 covers installation and custom configuration.
 
@@ -28,7 +28,7 @@ covers installation and custom configuration.
 
 Add another ChatGPT account in **Settings → Providers**, then select the account
 from the thread's model picker. Compatible accounts can continue the same thread.
-Connecting accounts through T3 Code leaves your CLI login unchanged.
+Connecting accounts through C3 Code leaves your CLI login unchanged.
 
 ### Multiple CLI logins
 
@@ -51,7 +51,7 @@ Then add a second Codex instance in **Settings > Providers**:
 | Codex Work     | `~/.codex`      | Leave empty         |
 | Codex Personal | `~/.codex`      | `~/.codex_personal` |
 
-Both instances must use the same **CODEX_HOME path**. T3 Code prepares the shared
+Both instances must use the same **CODEX_HOME path**. C3 Code prepares the shared
 state in the shadow directory; do not populate it by copying your whole Codex
 home.
 
@@ -65,7 +65,7 @@ from the other home.
 
 ## Switch accounts in an existing thread
 
-Choose the other account from the thread's model picker. T3 Code offers compatible
+Choose the other account from the thread's model picker. C3 Code offers compatible
 Codex instances that share the thread's **CODEX_HOME path**. Changing accounts does
 not move the conversation into a separate Codex home.
 

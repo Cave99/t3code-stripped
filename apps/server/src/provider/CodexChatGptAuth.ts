@@ -2,13 +2,8 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeHttp from "node:http";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import {
-  ProviderSetupError,
-  type ChatGptReconnectProfile,
-  type ChatGptTransferredProfile,
-  type ProviderInstanceId,
-} from "@t3tools/contracts";
-import { codexCallbackUrl } from "@t3tools/shared/codexAuthHandoff";
+import { ProviderSetupError, type ProviderInstanceId } from "@t3tools/contracts";
+import { codexCallbackUrl } from "./codexCallbackUrl.ts";
 import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";
 import { codexAuthCallbackPage, codexAuthReturnUrl } from "./CodexAuthCallbackPage.ts";
@@ -99,7 +94,6 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
   readonly discoveryUrl?: string;
   readonly resource?: string;
   readonly defaultReturnUrl?: string;
-  readonly reconnectProfile?: ChatGptReconnectProfile | null;
 }) {
   const http = yield* HttpClient.HttpClient;
   const store = yield* ProviderCredentialStore.make("codex-chatgpt", options.instanceId);
@@ -364,50 +358,45 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
       codexAuthReturnUrl(context.returnUrl) ?? codexAuthReturnUrl(options.defaultReturnUrl);
     const pageNonce = NodeCrypto.randomBytes(24).toString("base64url");
     const callback = Promise.withResolvers<{ url: URL; response?: NodeHttp.ServerResponse }>();
-    const clientCallback = context.callbackMode === "client";
     let used = false;
-    const server = clientCallback
-      ? undefined
-      : yield* Effect.acquireRelease(
-          Effect.tryPromise({
-            try: () =>
-              new Promise<NodeHttp.Server>((resolve, reject) => {
-                const server = NodeHttp.createServer((request, response) => {
-                  const url = new URL(request.url ?? "/", "http://127.0.0.1");
-                  if (request.method !== "GET" || url.pathname !== "/auth/callback") {
-                    response.writeHead(404).end();
-                    return;
-                  }
-                  if (used) {
-                    response.writeHead(410).end("Sign-in is no longer active.");
-                    return;
-                  }
-                  used = true;
-                  callback.resolve({ url, response });
-                });
-                server.once("error", reject);
-                server.listen(0, "127.0.0.1", () => resolve(server));
-              }),
-            catch: () =>
-              failure("callback", "Could not start the local sign-in callback. Try again."),
+    const server = yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () =>
+          new Promise<NodeHttp.Server>((resolve, reject) => {
+            const server = NodeHttp.createServer((request, response) => {
+              const url = new URL(request.url ?? "/", "http://127.0.0.1");
+              if (request.method !== "GET" || url.pathname !== "/auth/callback") {
+                response.writeHead(404).end();
+                return;
+              }
+              if (used) {
+                response.writeHead(410).end("Sign-in is no longer active.");
+                return;
+              }
+              used = true;
+              callback.resolve({ url, response });
+            });
+            server.once("error", reject);
+            server.listen(0, "127.0.0.1", () => resolve(server));
           }),
-          (server) =>
-            Effect.promise(
-              () =>
-                new Promise<void>((resolve) => {
-                  server.closeAllConnections();
-                  server.close(() => resolve());
-                }),
-            ),
-        );
-    const address = server?.address();
-    if (!clientCallback && (!address || typeof address === "string"))
+        catch: () => failure("callback", "Could not start the local sign-in callback. Try again."),
+      }),
+      (server) =>
+        Effect.promise(
+          () =>
+            new Promise<void>((resolve) => {
+              server.closeAllConnections();
+              server.close(() => resolve());
+            }),
+        ),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
       return yield* failure("callback", "Could not start the local sign-in callback.");
     // Only the port may vary between attempts; token exchange uses this exact URI.
-    const port =
-      address && typeof address !== "string" ? address.port : NodeCrypto.randomInt(49_152, 65_536);
+    const port = address.port;
     const redirectUri = `http://127.0.0.1:${port}/auth/callback`;
-    const idTokenHint = selectedTokens?.idToken ?? options.reconnectProfile?.idTokenHint;
+    const idTokenHint = selectedTokens?.idToken;
     const url = new URL(endpoints.authorization_endpoint);
     url.search = new URLSearchParams({
       client_id: registeredClientId ?? "dynamic_agent_client",
@@ -420,7 +409,7 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
               ? { prompt: "consent" }
               : {}),
           }
-        : { agent_name_hint: "T3 Code" }),
+        : { agent_name_hint: "C3 Code" }),
       ext_agent_host_id: hostId,
       response_type: "code",
       redirect_uri: redirectUri,
@@ -720,10 +709,6 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
       ? undefined
       : "Signed out locally. Remote revocation could not be confirmed. Disconnect the app in ChatGPT Settings.";
   });
-  if (options.reconnectProfile) {
-    const { idTokenHint: _hint, ...registration } = options.reconnectProfile;
-    yield* saveRegistration(registration).pipe(Effect.orDie);
-  }
   const controller = yield* ProviderAuthFlow.make({
     instanceId: options.instanceId,
     credentialBinding: store.binding,
@@ -764,102 +749,10 @@ export const makeCodexChatGptAuth = Effect.fn("makeCodexChatGptAuth")(function* 
     authenticate: (method, context) => lock.withPermit(authenticate(method, context)),
     logout: lock.withPermit(withSessionLock(logout)),
   });
-  const reconnectProfile = Effect.fnUntraced(function* (methodId: string) {
-    if (methodId === "chatgpt-change-account") return null;
-    const registrations = yield* readRegistrations;
-    const active = Option.getOrUndefined(yield* read);
-    const clientId = methodId.startsWith("chatgpt-profile:")
-      ? methodId.slice("chatgpt-profile:".length)
-      : (active?.clientId ?? registrations.lastClientId);
-    const registration = registrations.profiles.find((profile) => profile.clientId === clientId);
-    if (!registration) {
-      if (methodId.startsWith("chatgpt-profile:"))
-        return yield* failure("export", "This saved connection is no longer available.");
-      return null;
-    }
-    const session = (yield* readSessions).sessions.find((session) => session.clientId === clientId);
-    return { ...registration, ...(session?.idToken ? { idTokenHint: session.idToken } : {}) };
-  });
-  const exportProfile = Effect.gen(function* () {
-    const credentials = Option.getOrUndefined(yield* read);
-    const registration =
-      credentials &&
-      (yield* readRegistrations).profiles.find(
-        (profile) => profile.clientId === credentials.clientId,
-      );
-    if (!credentials?.idToken || !credentials.issuer || !registration)
-      return yield* failure(
-        "export",
-        "Complete ChatGPT sign-in before transferring this connection.",
-      );
-    return {
-      registration,
-      credentials: { ...credentials, idToken: credentials.idToken, issuer: credentials.issuer },
-    } satisfies ChatGptTransferredProfile;
-  });
-  const importProfile = (
-    profile: ChatGptTransferredProfile,
-    stopSessions: Effect.Effect<void, ProviderSetupError>,
-  ) => {
-    const validate = Effect.gen(function* () {
-      const endpoints = yield* discover;
-      const credentials = profile.credentials;
-      if (
-        credentials.clientId !== profile.registration.clientId ||
-        credentials.issuer !== endpoints.issuer ||
-        !credentials.scopes.includes(REQUIRED_SCOPE) ||
-        credentials.expiresAt <= (yield* Clock.currentTimeMillis)
-      )
-        return yield* failure(
-          "import",
-          "The transferred ChatGPT connection is invalid or expired.",
-        );
-      const identity = yield* Effect.tryPromise({
-        try: () =>
-          jwtVerify(credentials.idToken, jwks!, {
-            issuer: endpoints.issuer,
-            audience: credentials.clientId,
-            algorithms: ["RS256", "ES256"],
-            clockTolerance: 5,
-          }),
-        catch: () => failure("import", "The transferred ChatGPT identity could not be verified."),
-      });
-      if (
-        identity.payload.sub !== credentials.subject ||
-        profile.registration.subject !== credentials.subject ||
-        (identity.payload.email ?? null) !== credentials.email ||
-        (profile.registration.email !== undefined &&
-          profile.registration.email !== credentials.email)
-      )
-        return yield* failure(
-          "import",
-          "The transferred ChatGPT identity does not match its profile.",
-        );
-    });
-    const saveImported = Effect.gen(function* () {
-      const { idTokenHint: _hint, ...registration } = profile.registration;
-      const existing = (yield* readRegistrations).profiles.find(
-        (saved) => saved.clientId === registration.clientId,
-      );
-      if (existing?.subject && existing.subject !== profile.credentials.subject)
-        return yield* failure(
-          "import",
-          "The transferred identity conflicts with the saved ChatGPT connection.",
-        );
-      yield* saveRegistration(registration);
-      yield* save(profile.credentials, true);
-    });
-    return lock.withPermit(
-      validate.pipe(
-        Effect.andThen(controller.adoptCredentials!(withSessionLock(saveImported), stopSessions)),
-      ),
-    );
-  };
   return {
-    controller: { ...controller, reconnectProfile, importProfile },
+    controller,
     read,
     access,
-    exportProfile,
     revoke: lock.withPermit(withSessionLock(remove)),
   };
 });

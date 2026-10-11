@@ -335,14 +335,6 @@
       "types": "./src/providerAuthReturnUrl.ts",
       "import": "./src/providerAuthReturnUrl.ts"
     },
-    "./codexAuthCallback": {
-      "types": "./src/codexAuthCallback.ts",
-      "import": "./src/codexAuthCallback.ts"
-    },
-    "./codexAuthHandoff": {
-      "types": "./src/codexAuthHandoff.ts",
-      "import": "./src/codexAuthHandoff.ts"
-    },
     "./codexArtifactTemplates": {
       "types": "./src/codexArtifactTemplates.ts",
       "import": "./src/codexArtifactTemplates.ts"

@@ -34,8 +34,6 @@ import { clearComposerDraftsEnvironment } from "../composerDraftStore";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
 import { connectionStorageLayer } from "./storage";
-import { clientPresentationMetadata } from "./clientMetadata";
-
 let nextObservedRpcRequestId = 0;
 
 function currentNetworkStatus(): "unknown" | "offline" | "online" {
@@ -86,16 +84,10 @@ const wakeupsLayer = Wakeups.layer({
 });
 
 function clientMetadata() {
-  return clientPresentationMetadata({
-    appVersion: APP_VERSION,
-    hosted: false,
-    identity: {
-      userAgent: navigator.userAgent,
-      platform: navigator.platform,
-      maxTouchPoints: navigator.maxTouchPoints,
-    },
-    desktopBridge: window.desktopBridge,
-  });
+  return {
+    surface: "desktop" as const,
+    ...(APP_VERSION === "0.0.0" ? {} : { appVersion: APP_VERSION }),
+  };
 }
 
 const capabilitiesLayer = Layer.effectContext(

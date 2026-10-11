@@ -59,7 +59,7 @@ applies when the project and environment are both on **Inherit**.
 ## Retry workspace preparation
 
 If fetching, checking out a worktree, or a blocking setup action fails, fix the cause and choose
-**Retry** on the failed preparation in the thread. T3 Code retries the original preparation and
+**Retry** on the failed preparation in the thread. C3 Code retries the original preparation and
 starts the waiting agent when it succeeds. An already-created worktree is reused.
 
 ## Worktree location
@@ -72,7 +72,7 @@ are, and cleanup covers both the default folder and the custom one.
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on this machine. Policies are off by
-default and run while T3 Code is running: at startup, when changed, and hourly.
+default and run while C3 Code is running: at startup, when changed, and hourly.
 
 Select a project to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
 Inherit follows this machine's rules; Off keeps that project's worktrees until you remove them
@@ -105,7 +105,7 @@ working. Current logs, message attachments, and browser profiles are kept.
 
 Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
 every checkout in the project group and appears on connected clients. Choose **Automatic** to let
-T3 Code detect an icon again.
+C3 Code detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
@@ -118,6 +118,6 @@ from the icon palette, derived from the saved project name. For example, `Nebula
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date
 with its configured upstream. Choose an environment to set the default or a project to override it.
 
-T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
+C3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.

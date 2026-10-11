@@ -325,13 +325,13 @@ describe("pull request involvement filtering", () => {
   });
 
   it("does not treat a matching login on another host as the viewer", () => {
-    // The same name on GitLab is a different account, and its viewer is unknown here.
+    // The same name on GitHub Enterprise is a different account, and its viewer is unknown here.
     const mixed = [
       entry({ number: 1, author: { login: "Bilal", name: null, avatarUrl: null } }),
       entry({
         number: 2,
-        provider: "gitlab",
-        host: "gitlab.com",
+        provider: "github",
+        host: "github.enterprise.test",
         author: { login: "Bilal", name: null, avatarUrl: null },
       }),
     ];
@@ -1148,7 +1148,7 @@ describe("the list snapshot across a reload", () => {
     // the hosts it was read from (which do not grow with the page) are kept in full.
     const storage = makeStorage();
     const manyEntries = Array.from({ length: 120 }, (_, index) => entry({ number: index + 1 }));
-    const viewers = { "github.com": "Bilal", "gitlab.com": "Bilal" };
+    const viewers = { "github.com": "Bilal", "github.enterprise.test": "Bilal" };
     const providers = [
       {
         host: "github.com",
@@ -1159,8 +1159,8 @@ describe("the list snapshot across a reload", () => {
         detail: null,
       },
       {
-        host: "gitlab.com",
-        kind: "gitlab",
+        host: "github.enterprise.test",
+        kind: "github",
         searchesOnHost: true,
         projectCount: 1,
         configured: true,

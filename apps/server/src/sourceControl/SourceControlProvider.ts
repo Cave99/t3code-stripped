@@ -25,7 +25,7 @@ export interface SourceControlProviderContext {
   readonly provider: SourceControlProviderInfo;
   readonly remoteName: string;
   readonly remoteUrl: string;
-  /** An explicit web authority can disambiguate Forgejo logins sharing an SSH alias. */
+
   readonly requestedHost?: string;
 }
 

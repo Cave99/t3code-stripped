@@ -78,17 +78,17 @@ describe("add project shared logic", () => {
     ).toBe("https://github.com/imputnet/helium");
     expect(
       getDefaultCloneUrl({
-        provider: "forgejo",
-        url: "https://forgejo.example.test:8443/owner/repo.git",
-        sshUrl: "ssh://git@forgejo.example.test:2222/owner/repo.git",
+        provider: "github",
+        url: "https://github.example.test:8443/owner/repo.git",
+        sshUrl: "ssh://git@github.example.test:2222/owner/repo.git",
       }),
-    ).toBe("https://forgejo.example.test:8443/owner/repo.git");
+    ).toBe("https://github.example.test:8443/owner/repo.git");
   });
 
   it("preserves existing clone transport behavior for other providers", () => {
     expect(
       getDefaultCloneUrl({
-        provider: "gitlab",
+        provider: "unknown",
         url: "https://gitlab.com/group/project.git",
         sshUrl: "git@gitlab.com:group/project.git",
       }),
@@ -200,27 +200,12 @@ describe("add project shared logic", () => {
             detail: Option.none(),
           },
         },
-        {
-          kind: "gitlab",
-          label: "GitLab",
-          status: "available",
-          installHint: "Install glab",
-          version: Option.some("1.0.0"),
-          detail: Option.none(),
-          auth: {
-            status: "unauthenticated",
-            account: Option.none(),
-            host: Option.none(),
-            detail: Option.some("Run glab auth login"),
-          },
-        },
       ],
     };
 
     const readiness = buildAddProjectRemoteSourceReadiness(discovery);
     expect(readiness.url.ready).toBe(true);
     expect(readiness.github.ready).toBe(true);
-    expect(readiness.gitlab).toEqual({ ready: false, hint: "Run glab auth login" });
     expect(sortAddProjectProviderSources(readiness)[0]).toBe("github");
   });
 

@@ -28,7 +28,6 @@ export interface ProviderAuthFlowContext {
   /** The lifetime timeout interrupts authenticate before publishing its expired result. */
   readonly expiresAt: number;
   readonly returnUrl?: string;
-  readonly callbackMode?: "server" | "client";
   readonly setInteraction: (
     interaction: ProviderAuthInteraction,
     respond?: (response: ProviderAuthResponse) => Effect.Effect<void, ProviderSetupError>,
@@ -147,40 +146,6 @@ export const make = Effect.fn("ProviderAuthFlow.make")(function* (options: {
 
   const controller: ProviderAuthService.ProviderAuthController = {
     credentialBinding: options.credentialBinding,
-    adoptCredentials: (update, stopSessions) =>
-      Effect.gen(function* () {
-        yield* lock.withPermit(
-          Effect.gen(function* () {
-            if (operation !== "idle")
-              return yield* new ProviderSetupError({
-                instanceId: options.instanceId,
-                operation: "import",
-                detail: "Finish or cancel the existing sign-in first.",
-              });
-            operation = "stopping";
-          }),
-        );
-        const result = yield* Effect.gen(function* () {
-          yield* stopOwnedSessions;
-          yield* stopSessions;
-          yield* update;
-          yield* refreshMethods;
-        }).pipe(Effect.exit);
-        const state: ProviderAuthState = {
-          ...empty,
-          methods: snapshot.value.state.methods ?? [],
-          phase: Exit.isSuccess(result) ? "succeeded" : "failed",
-          message: Exit.isSuccess(result) ? null : failureMessage(result.cause),
-        };
-        yield* lock.withPermit(
-          Effect.gen(function* () {
-            yield* SubscriptionRef.set(snapshot, { owner: null, state });
-            operation = "idle";
-          }),
-        );
-        if (Exit.isFailure(result)) return yield* Effect.failCause(result.cause);
-        return state;
-      }).pipe(Effect.uninterruptible),
     refreshMethods,
     invalidate: lock.withPermit(
       Effect.gen(function* () {
@@ -233,7 +198,7 @@ export const make = Effect.fn("ProviderAuthFlow.make")(function* (options: {
           );
         }),
       ),
-    start: (owner, stopSessions = Effect.void, selectedMethodId, returnUrl, callbackMode) =>
+    start: (owner, stopSessions = Effect.void, selectedMethodId, returnUrl) =>
       lock.withPermit(
         Effect.gen(function* () {
           if (operation === "auth" && active?.owner === owner) return snapshot.value.state;
@@ -285,7 +250,6 @@ export const make = Effect.fn("ProviderAuthFlow.make")(function* (options: {
               flowId: id,
               expiresAt: flow.expiresAt,
               ...(returnUrl ? { returnUrl } : {}),
-              ...(callbackMode ? { callbackMode } : {}),
               setInteraction: (interaction, respond, complete) =>
                 Effect.gen(function* () {
                   if (active !== flow) return;

@@ -74,7 +74,7 @@ export const makeProviderInstallation = Effect.fn("makeProviderInstallation")(fu
       return yield* new ProviderSetupError({
         instanceId,
         operation,
-        detail: "Choose managed setup to install Codex in T3 Code.",
+        detail: "Choose managed setup to install Codex in C3 Code.",
       });
     }
     if (managedOnly && config.binaryPath && config.binaryPath !== "codex") {
@@ -82,7 +82,7 @@ export const makeProviderInstallation = Effect.fn("makeProviderInstallation")(fu
         instanceId,
         operation,
         detail:
-          "This instance uses a custom executable. Clear its binary path to manage installation in T3 Code.",
+          "This instance uses a custom executable. Clear its binary path to manage installation in C3 Code.",
       });
     }
     return { installation, driver: instance.driverKind };

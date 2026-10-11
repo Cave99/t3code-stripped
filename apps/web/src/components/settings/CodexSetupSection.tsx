@@ -3,25 +3,11 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  ChatGptHandoffInput,
-  ChatGptTransferredProfile,
-  EnvironmentId,
-  ProviderInstanceId,
-  ServerProvider,
-} from "@t3tools/contracts";
-import { codexAuthHandoffUrl } from "@t3tools/shared/codexAuthHandoff";
-import { providerAuthReturnUrl } from "@t3tools/shared/providerAuthReturnUrl";
-import { isLoopbackHost } from "@t3tools/shared/preview";
+import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 import { CheckIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import { Children, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { ensureLocalApi } from "../../localApi";
-import {
-  useEnvironmentHttpBaseUrl,
-  usePrimaryEnvironmentId,
-  useEnvironment,
-} from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -212,14 +198,7 @@ function ManagedCodexSetup({
   const target = { environmentId, input: { instanceId } };
   const authQuery = useEnvironmentQuery(serverEnvironment.providerAuthState(target));
   const installQuery = useEnvironmentQuery(serverEnvironment.providerInstallState(target));
-  const [handoff, setHandoff] = useState<{
-    environmentId: EnvironmentId;
-    input: ChatGptHandoffInput;
-  } | null>(null);
-  const handoffQuery = useEnvironmentQuery(
-    handoff ? serverEnvironment.chatGptHandoffState(handoff) : null,
-  );
-  const auth = handoffQuery.data?.phase === "auth" ? handoffQuery.data.state : authQuery.data;
+  const auth = authQuery.data;
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [requestedMethodId, setRequestedMethodId] = useState("chatgpt");
   const reconnectEmail = auth?.methods?.find((method) => method.id === "chatgpt")?.accountEmail;
@@ -229,8 +208,6 @@ function ManagedCodexSetup({
   const hasSavedAccount = auth?.methods?.some((method) => method.id.startsWith("chatgpt-profile:"));
   const url = auth?.interaction?.type === "browser" ? auth.interaction.url : auth?.authorizationUrl;
   const installation = installQuery.data;
-  const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const local = httpBaseUrl !== null && isLoopbackHost(new URL(httpBaseUrl).hostname);
   const options = { reportFailure: false, reportDefect: false };
   const startAuth = useAtomCommand(serverEnvironment.startProviderAuth, options);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, options);
@@ -239,34 +216,12 @@ function ManagedCodexSetup({
   const logoutAuth = useAtomCommand(serverEnvironment.logoutProviderAuth, options);
   const startInstall = useAtomCommand(serverEnvironment.startProviderInstall, options);
   const cancelInstall = useAtomCommand(serverEnvironment.cancelProviderInstall, options);
-  const reconnectProfile = useAtomCommand(serverEnvironment.chatGptReconnectProfile, options);
-  const importProfile = useAtomCommand(serverEnvironment.chatGptImportProfile, options);
-  const clientCallback =
-    !handoff && (!local || window.desktopBridge?.receiveProviderAuthCallback !== undefined);
-  const remoteWeb = clientCallback && !window.desktopBridge?.receiveProviderAuthCallback;
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const primaryEnvironment = useEnvironment(primaryEnvironmentId);
-  const primaryHttpBaseUrl = useEnvironmentHttpBaseUrl(primaryEnvironmentId);
-  const primaryAuthEnvironmentId =
-    !local &&
-    primaryEnvironmentId &&
-    primaryEnvironment?.connection.phase === "connected" &&
-    primaryHttpBaseUrl &&
-    isLoopbackHost(new URL(primaryHttpBaseUrl).hostname) &&
-    (window.desktopBridge !== undefined || isLoopbackHost(window.location.hostname))
-      ? primaryEnvironmentId
-      : null;
-  const returnUrl = new URL(window.location.href);
-  if (returnUrl.pathname === "/welcome") returnUrl.hash = `agents:${environmentId}`;
-  if (returnUrl.pathname === "/settings/providers")
-    returnUrl.searchParams.set("instanceId", instanceId);
-  const needsManualCallback = remoteWeb;
   const callbackHelpId = useId();
   const [callbackHelpOpen, setCallbackHelpOpen] = useState(false);
   const [callbackDraft, setCallbackDraft] = useState({ flowId: "", value: "" });
   const callbackUrl = callbackDraft.flowId === auth?.flowId ? callbackDraft.value : "";
   const [pending, setPending] = useState(false);
-  const [awaitingProvider, setAwaitingProvider] = useState<"sign-in" | "handoff" | null>(null);
+  const [awaitingProvider, setAwaitingProvider] = useState<"sign-in" | null>(null);
   const pendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const continueWithSignIn = useRef<string | null>(null);
@@ -283,9 +238,7 @@ function ManagedCodexSetup({
   // Auth receipts and provider snapshots arrive independently. Keep the current
   // attempt pending until its authenticated snapshot arrives, even after success.
   const finishingSignIn =
-    awaitingProvider !== null &&
-    !authenticated &&
-    (auth?.phase === "succeeded" || awaitingProvider === "handoff");
+    awaitingProvider !== null && !authenticated && auth?.phase === "succeeded";
   useEffect(() => {
     if (authenticated || auth?.phase === "failed" || auth?.phase === "cancelled") {
       setAwaitingProvider(null);
@@ -302,7 +255,6 @@ function ManagedCodexSetup({
   const authInProgress =
     finishingSignIn ||
     waitingForAuthState ||
-    handoff !== null ||
     auth?.phase === "starting" ||
     auth?.phase === "waiting" ||
     auth?.phase === "verifying";
@@ -346,83 +298,20 @@ function ManagedCodexSetup({
     [],
   );
 
-  const handoffId = useId();
-  const handoffSequence = useRef(0);
-  const importedAttempt = useRef<string | null>(null);
-  const [transferFailed, setTransferFailed] = useState(false);
-  const transferProfile = useCallback(
-    async (profile: ChatGptTransferredProfile) => {
-      const succeeded = await run(() =>
-        importProfile({ environmentId, input: { instanceId, profile } }),
-      );
-      if (succeeded) {
-        setAwaitingProvider("handoff");
-        setHandoff(null);
-      }
-      setTransferFailed(!succeeded);
-    },
-    [run, importProfile, environmentId, instanceId],
-  );
-  useEffect(() => {
-    if (!handoff || handoffQuery.data?.phase !== "finished") return;
-    const attemptId = handoff.input.attemptId;
-    if (importedAttempt.current === attemptId) return;
-    importedAttempt.current = attemptId;
-    void transferProfile(handoffQuery.data.profile);
-  }, [handoff, handoffQuery.data, transferProfile]);
-  useEffect(() => {
-    if (!handoff) return;
-    if (
-      handoffQuery.error ||
-      (handoffQuery.data?.phase === "auth" &&
-        ["failed", "cancelled"].includes(handoffQuery.data.state.phase))
-    ) {
-      setError(
-        handoffQuery.data?.phase === "auth"
-          ? (handoffQuery.data.state.message ?? "ChatGPT sign-in could not finish. Try again.")
-          : "ChatGPT sign-in on the primary environment was interrupted. Try again.",
-      );
-      setHandoff(null);
-    }
-  }, [handoff, handoffQuery.data, handoffQuery.error]);
   const cancelSignIn = useCallback(() => {
     setAwaitingProvider(null);
-    if (handoff) {
-      setHandoff(null);
-      return Promise.resolve();
-    }
     return run(() => cancelAuth({ environmentId, input: { instanceId, flowId: auth!.flowId! } }));
-  }, [handoff, run, cancelAuth, environmentId, instanceId, auth]);
+  }, [run, cancelAuth, environmentId, instanceId, auth]);
 
   const signIn = useCallback(
     async (methodId = "chatgpt") => {
       if (pendingRef.current) return;
       openRequested.current = true;
-      setTransferFailed(false);
       setRequestedMethodId(methodId);
       const returnUrl = new URL(window.location.href);
       if (returnUrl.pathname === "/welcome") returnUrl.hash = `agents:${environmentId}`;
       if (returnUrl.pathname === "/settings/providers")
         returnUrl.searchParams.set("instanceId", instanceId);
-      if (primaryAuthEnvironmentId) {
-        const attemptId = `${handoffId}:${++handoffSequence.current}`;
-        const succeeded = await run(
-          () => reconnectProfile({ environmentId, input: { instanceId, methodId } }),
-          (profile) =>
-            setHandoff({
-              environmentId: primaryAuthEnvironmentId,
-              input: {
-                instanceId,
-                environmentId,
-                attemptId,
-                returnUrl: returnUrl.toString(),
-                profile,
-              },
-            }),
-        );
-        if (!succeeded) openRequested.current = false;
-        return;
-      }
       if (
         !(await run(
           () =>
@@ -432,7 +321,6 @@ function ManagedCodexSetup({
                 instanceId,
                 methodId,
                 returnUrl: returnUrl.toString(),
-                callbackMode: clientCallback ? "client" : "server",
               },
             }),
           () => setAwaitingProvider("sign-in"),
@@ -441,16 +329,7 @@ function ManagedCodexSetup({
         openRequested.current = false;
       }
     },
-    [
-      environmentId,
-      instanceId,
-      run,
-      startAuth,
-      clientCallback,
-      primaryAuthEnvironmentId,
-      reconnectProfile,
-      handoffId,
-    ],
+    [environmentId, instanceId, run, startAuth],
   );
 
   const setup = useCallback(
@@ -513,43 +392,13 @@ function ManagedCodexSetup({
     }
   }, [pending, installActive, installation?.phase, installed, signIn]);
 
-  const receivingCallback = useRef<string | null>(null);
-  const flowId = auth?.flowId;
-  const openPage = useCallback(
-    async (authorizationUrl: string) => {
-      try {
-        const receive = window.desktopBridge?.receiveProviderAuthCallback;
-        if (receive && clientCallback && flowId) {
-          if (receivingCallback.current === authorizationUrl) {
-            await ensureLocalApi().shell.openExternal(authorizationUrl);
-            return;
-          }
-          receivingCallback.current = authorizationUrl;
-          const callbackUrl = await receive(authorizationUrl);
-          if (receivingCallback.current !== authorizationUrl) return;
-          receivingCallback.current = null;
-          await run(() =>
-            completeAuth({ environmentId, input: { instanceId, flowId, callbackUrl } }),
-          );
-        } else {
-          await ensureLocalApi().shell.openExternal(authorizationUrl);
-        }
-      } catch {
-        setError(
-          "Could not finish sign-in on this computer. Try again or paste the redirect URL below.",
-        );
-      }
-    },
-    [clientCallback, flowId, run, completeAuth, environmentId, instanceId],
-  );
-
-  useEffect(() => {
-    if (!clientCallback || !url || !window.desktopBridge?.cancelProviderAuthCallback) return;
-    return () => {
-      if (receivingCallback.current === url) receivingCallback.current = null;
-      void window.desktopBridge?.cancelProviderAuthCallback?.(url).catch(() => undefined);
-    };
-  }, [clientCallback, url]);
+  const openPage = useCallback(async (authorizationUrl: string) => {
+    try {
+      await ensureLocalApi().shell.openExternal(authorizationUrl);
+    } catch {
+      setError("Could not open the sign-in page. Try again.");
+    }
+  }, []);
 
   useEffect(() => {
     if (
@@ -562,8 +411,8 @@ function ManagedCodexSetup({
       return;
     openedFlow.current = auth.flowId;
     openRequested.current = false;
-    if (!remoteWeb) void openPage(url);
-  }, [auth?.phase, auth?.flowId, url, openPage, remoteWeb]);
+    void openPage(url);
+  }, [auth?.phase, auth?.flowId, url, openPage]);
 
   const runtimeDescription =
     installation?.phase === "downloading"
@@ -573,8 +422,8 @@ function ManagedCodexSetup({
         : installation?.phase === "verifying"
           ? "Checking Codex."
           : installed
-            ? `${installation?.source === "local" ? "Using your installed Codex" : "Managed by T3 Code"}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
-            : (installation?.message ?? "T3 Code downloads and manages Codex for you.");
+            ? `${installation?.source === "local" ? "Using your installed Codex" : "Managed by C3 Code"}${installation?.installedVersion ? ` · v${installation.installedVersion}` : ""}.`
+            : (installation?.message ?? "C3 Code downloads and manages Codex for you.");
   const accountDescription = finishingSignIn ? (
     "Finishing sign-in..."
   ) : installActive ? (
@@ -604,54 +453,27 @@ function ManagedCodexSetup({
     (reconnectEmail ?? "Use your ChatGPT subscription.")
   );
 
-  const handoffUrl =
-    needsManualCallback && url && auth?.flowId && providerAuthReturnUrl(returnUrl.toString())
-      ? codexAuthHandoffUrl(
-          {
-            authorizationUrl: url,
-            returnUrl: returnUrl.toString(),
-            environmentId,
-            instanceId,
-            flowId: auth.flowId,
-          },
-          import.meta.env.DEV,
-        )
-      : null;
   const waitingControl = (
     <Button
       size="sm"
-      variant={remoteWeb ? "default" : "outline"}
+      variant="outline"
       className={presentation === "onboarding" ? "min-w-44" : undefined}
-      disabled={
-        handoffQuery.data?.phase === "finished"
-          ? pending || !transferFailed
-          : !url || auth?.phase !== "waiting"
-      }
+      disabled={!url || auth?.phase !== "waiting"}
       onClick={() => {
-        if (handoffQuery.data?.phase === "finished")
-          void transferProfile(handoffQuery.data.profile);
-        else if (url) void openPage(url);
+        if (url) void openPage(url);
       }}
     >
       {finishingSignIn
         ? "Finishing sign-in..."
-        : handoffQuery.data?.phase === "finished"
-          ? transferFailed
-            ? "Retry connection"
-            : "Finishing sign-in..."
-          : auth?.phase === "waiting"
-            ? remoteWeb
-              ? "Open ChatGPT sign-in"
-              : "Open sign-in page"
-            : presentation === "onboarding"
-              ? "Open sign-in page"
-              : "Signing in..."}
+        : auth?.phase === "waiting" || presentation === "onboarding"
+          ? "Open sign-in page"
+          : "Signing in..."}
     </Button>
   );
   const callbackCompletion =
-    !handoff && auth?.phase === "waiting" && url ? (
+    auth?.phase === "waiting" && url ? (
       <div className="flex w-full flex-col gap-3 text-xs leading-relaxed text-muted-foreground">
-        <p>If sign-in doesn't return to T3 Code, paste the URL from the final localhost page.</p>
+        <p>If sign-in doesn't return to C3 Code, paste the URL from the final localhost page.</p>
         <form
           className="flex flex-col gap-2 sm:flex-row sm:items-center"
           onSubmit={(event) => {
@@ -691,26 +513,16 @@ function ManagedCodexSetup({
             Connect
           </Button>
         </form>
-        {!remoteWeb ? (
-          <div>
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              onClick={() => void ensureLocalApi().shell.openExternal(url)}
-            >
-              Try sign-in in your browser
-              <ExternalLinkIcon className="size-3.5" />
-            </Button>
-          </div>
-        ) : null}
-        {handoffUrl ? (
-          <details>
-            <summary className="cursor-pointer">Other ways to connect</summary>
-            <Button className="mt-2" size="sm" variant="outline" render={<a href={handoffUrl} />}>
-              Use T3 desktop for automatic return
-            </Button>
-          </details>
-        ) : null}
+        <div>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => void ensureLocalApi().shell.openExternal(url)}
+          >
+            Try sign-in in your browser
+            <ExternalLinkIcon className="size-3.5" />
+          </Button>
+        </div>
       </div>
     ) : null;
   const callbackHelpContent =
@@ -719,9 +531,7 @@ function ManagedCodexSetup({
         {callbackCompletion}
       </div>
     ) : null;
-  const callbackFallback = needsManualCallback ? (
-    callbackCompletion
-  ) : callbackCompletion ? (
+  const callbackFallback = callbackCompletion ? (
     <div className="space-y-3 text-xs leading-relaxed text-muted-foreground">
       <CodexSignInDescription
         label="Having trouble signing in?"
@@ -785,7 +595,7 @@ function ManagedCodexSetup({
               ) : (
                 "Connected to ChatGPT."
               )
-            ) : callbackCompletion && !needsManualCallback ? (
+            ) : callbackCompletion ? (
               <CodexSignInDescription
                 expanded={callbackHelpOpen}
                 controls={callbackHelpId}
@@ -841,7 +651,7 @@ function ManagedCodexSetup({
                 onClick={() => {
                   openRequested.current = false;
                   continueWithSignIn.current = null;
-                  if (handoff || (authActive && auth?.flowId)) void cancelSignIn();
+                  if (authActive && auth?.flowId) void cancelSignIn();
                   else if (installation?.operationId)
                     void run(() =>
                       cancelInstall({
@@ -874,7 +684,7 @@ function ManagedCodexSetup({
             ) : null
           }
         >
-          {needsManualCallback ? callbackFallback : callbackHelpContent}
+          {callbackHelpContent}
           {setupError ? (
             <p role="alert" className="text-xs text-destructive">
               {setupError}
@@ -902,7 +712,7 @@ function ManagedCodexSetup({
                     variant="ghost"
                     disabled={pending || readOnly}
                     onClick={() => {
-                      if (!handoff && !auth?.flowId) return;
+                      if (!auth?.flowId) return;
                       openRequested.current = false;
                       void cancelSignIn();
                       onSignInCancelled?.();
@@ -1028,7 +838,7 @@ export function CodexManagedRuntimeFields({
     <>
       <SettingsRow
         title="Binary path"
-        description="Selected by T3 Code."
+        description="Selected by C3 Code."
         control={
           <div className="w-full sm:w-80">
             <Input

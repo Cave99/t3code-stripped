@@ -101,7 +101,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
     Layer.succeed(
       ClientCapabilities.ClientPresentation,
       ClientCapabilities.ClientPresentation.of({
-        metadata: { label: "Test Client", deviceType: "desktop", surface: "web" },
+        metadata: { label: "Test Client", surface: "web" },
       }),
     ),
     Layer.succeed(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization, remote),
@@ -128,7 +128,7 @@ describe("ConnectionResolver", () => {
       const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
 
       expect(error).toMatchObject({ reason: "unsupported" });
-      expect(error.message).toContain("Update T3 Code on Compatible environment");
+      expect(error.message).toContain("Update C3 Code on Compatible environment");
     }),
   );
 
@@ -172,14 +172,11 @@ describe("ConnectionResolver", () => {
 
   it.effect("authorizes a desktop primary environment with its platform bearer token", () =>
     Effect.gen(function* () {
-      const bearerInputs = yield* Ref.make<ReadonlyArray<{ token: string; method: string }>>([]);
+      const bearerInputs = yield* Ref.make<ReadonlyArray<{ token: string }>>([]);
       const brokerLayer = yield* makeDependencies({
         primaryBearerToken: "desktop-bearer",
         authorizeBearer: (input) =>
-          Ref.update(bearerInputs, (values) => [
-            ...values,
-            { token: input.bearerToken, method: input.connectionMethod },
-          ]).pipe(
+          Ref.update(bearerInputs, (values) => [...values, { token: input.bearerToken }]).pipe(
             Effect.as({
               environmentId: input.expectedEnvironmentId,
               label: "Primary",
@@ -205,13 +202,13 @@ describe("ConnectionResolver", () => {
         httpAuthorization: { _tag: "Bearer", token: "desktop-bearer" },
         target,
       });
-      expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "desktop-bearer", method: "direct" }]);
+      expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "desktop-bearer" }]);
     }),
   );
 
   it.effect("uses the registered bearer profile without re-reading the profile store", () =>
     Effect.gen(function* () {
-      const bearerInputs = yield* Ref.make<ReadonlyArray<{ token: string; method: string }>>([]);
+      const bearerInputs = yield* Ref.make<ReadonlyArray<{ token: string }>>([]);
       const target = new BearerConnectionTarget({
         environmentId: ENVIRONMENT_ID,
         label: "Saved",
@@ -227,10 +224,7 @@ describe("ConnectionResolver", () => {
       const brokerLayer = yield* makeDependencies({
         credentials: [["saved-1", new BearerConnectionCredential({ token: "secret-bearer" })]],
         authorizeBearer: (input) =>
-          Ref.update(bearerInputs, (values) => [
-            ...values,
-            { token: input.bearerToken, method: input.connectionMethod },
-          ]).pipe(
+          Ref.update(bearerInputs, (values) => [...values, { token: input.bearerToken }]).pipe(
             Effect.as({
               environmentId: input.expectedEnvironmentId,
               label: "Saved",
@@ -248,7 +242,7 @@ describe("ConnectionResolver", () => {
       expect(
         (yield* broker.prepare(catalogEntry(target, Option.some(profile)))).socketUrl,
       ).toContain("token=ticket");
-      expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "secret-bearer", method: "direct" }]);
+      expect(yield* Ref.get(bearerInputs)).toEqual([{ token: "secret-bearer" }]);
     }),
   );
 });

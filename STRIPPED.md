@@ -1,6 +1,6 @@
-# t3code-stripped
+# C3 Code (Corporate T3 Code)
 
-A desktop-only cut of [upstream T3 Code](https://github.com/pingdotgg/t3code): one Electron surface, one local backend, and Codex and Claude Code. The cuts reduce dependencies, connection machinery, and runtime branches so maintenance and performance work focus on that surface.
+C3 Code is an unofficial fork for corporate environments, built from [upstream T3 Code](https://github.com/pingdotgg/t3code): one Electron surface, one local backend, and Codex and Claude Code. The cuts reduce dependencies, connection machinery, and runtime branches so maintenance and performance work focus on that surface.
 
 ## What was cut, and why
 
@@ -9,7 +9,7 @@ A desktop-only cut of [upstream T3 Code](https://github.com/pingdotgg/t3code): o
 - **Providers:** Cursor, Grok, OpenCode, Pi, Antigravity, and the ACP registry. Codex and Claude cover the fork's intended use without carrying extra adapters, settings, and dependencies. Cursor remains usable as a local editor.
 - **Forges:** GitLab, Bitbucket, Azure DevOps, and Forgejo. GitHub alone backs source-control integration and pull-request review, reducing host-specific branches.
 - **Features:** the device panel and its MCP tools, scheduled tasks and their MCP tools, browser cookie import, auto-updater/release notes, server self-update, and server CLI subcommands other than `claudeHistory` and `trace`. These cuts keep device management, recurring automation, and distribution services outside the desktop coding workflow. The internal scheduler remains for usage-limit recovery.
-- **Outbound calls:** PostHog product telemetry, CLIProxyAPI usage hubs, Claude reset-credit claims made with the CLI's stored login, npm registry version checks, and stored Bitbucket credentials. The app no longer sends data to analytics or reuses provider credentials outside the official CLIs. CLI-reported usage limits, Codex reset credits, and Homebrew update checks remain. Inline HTML previews are a deliberate exception: the first preview downloads a pinned, SHA-256-checked headless Chrome (~120 MB) once from `storage.googleapis.com` and caches it locally. Rendering untrusted agent HTML needs a real browser engine, and bundling one would grow every install for a feature most sessions never touch.
+- **Outbound calls:** PostHog product telemetry, CLIProxyAPI usage hubs, Claude reset-credit claims made with the CLI's stored login, npm registry version checks, upstream model-manifest fetches, and stored Bitbucket credentials. The app no longer sends data to analytics or reuses provider credentials outside the official CLIs. CLI-reported usage limits, Codex reset credits, and Homebrew update checks remain. Model metadata comes only from the bundled manifest. Inline HTML previews are a deliberate exception: the first preview downloads a pinned, SHA-256-checked headless Chrome (~120 MB) once from `storage.googleapis.com` and caches it locally. Rendering untrusted agent HTML needs a real browser engine, and bundling one would grow every install for a feature most sessions never touch.
 - **Packages and dependencies:** `effect-acp`, `ssh`, and `tailscale` packages; the Expo/React Native stack; `@cursor/sdk`, `@opencode-ai/sdk`, `@clerk/*`, `electron-updater`, `yauzl`, and `three`. Subsequent dead-code sweeps removed orphaned helpers and 14 unused dependency declarations, keeping installation and packaging smaller.
 
 ## How the key systems changed
@@ -75,20 +75,11 @@ Development does not prebuild production assets. Electron spawns `apps/server/sr
 
 ### Outbound connections still made
 
-- **Model manifest comes from upstream's `main` branch.** `apps/server/src/provider/ModelManifest.ts` fetches `pingdotgg/t3code/main/.../model-manifest.json` hourly. The fork's model list and compatibility warnings change whenever upstream edits that file. Point it at this fork, or rely on the bundled copy only. Turning off **Provider update checks** already stops the fetch.
 - **LiteLLM price table is fetched daily.** `apps/server/src/usage/UsageService.ts` downloads `BerriAI/litellm` prices from `raw.githubusercontent.com` for cost estimates. It is third-party data loaded at runtime; a bundled copy would remove the call.
 - **Link favicons go through Google.** `packages/shared/src/favicon.ts` sends every linked domain in chat to `google.com/s2/favicons`, so Google sees what agents are reading. A generic link icon avoids the leak.
 - **Open VSX theme search.** Settings theme search downloads third-party theme content from `open-vsx.org`. It is cosmetic; built-in themes may be enough for a locked-down setup.
 - **Preview browser can open any URL.** Agents can drive a browser tab to arbitrary sites through MCP. A security review will ask about this; restricting it to loopback dev ports would cover most use.
 - **Managed Codex install downloads a binary.** `apps/server/src/provider/CodexInstallation.ts` pulls a pinned, SHA-256-checked release from GitHub. Some companies only allow software from their own channels; requiring an installed `codex` would drop this.
-
-### Leftovers from cut features
-
-- **GitLab, Bitbucket, and Azure DevOps branches (~45 files).** URL parsing, Command Palette entries, `glab`/`az` handling, icons, and settings rows remain, though the server only discovers GitHub. Dead code that invites security-review questions and slows changes to source-control code. Big enough for its own PR.
-- **Stale secrets in existing installs.** Users who configured a usage hub or Bitbucket tokens still have `usage-limit-source-*` and `bitbucket-*` entries in the server secret store. A one-time cleanup on startup would delete credentials nothing reads.
-- **Unused client connection metadata.** The renderer still sends device type, OS, browser, and connection method on the `/ws` URL (`packages/client-runtime/src/authorization/remote.ts`). Only analytics read them, and analytics is gone.
-- **Remote-environment Codex sign-in handoff.** `packages/shared/src/codexAuthHandoff.ts` and the desktop callback exist to deliver a ChatGPT sign-in to a remote environment, which this fork no longer has.
-- **`t3.codes` strings.** The `t3.json` schema URL and generated project README still point at upstream's site. Harmless, but editors may fetch the schema URL.
 
 ### Behaviour to decide
 

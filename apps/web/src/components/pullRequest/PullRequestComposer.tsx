@@ -158,7 +158,6 @@ export function PullRequestComposer({
               environmentId={environmentId}
               reference={reference}
               verdicts={verdicts}
-              requestChangesSummaryRequired={detail.provider === "forgejo"}
               textareaRef={reviewRef}
               pending={reviewPending}
               onPendingChange={setReviewPending}

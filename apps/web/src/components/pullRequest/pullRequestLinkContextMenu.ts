@@ -10,10 +10,6 @@ type PullRequestLinkContextMenuAction = "copy-link" | "open-external";
 /** Named for the host rather than "externally": the point is where you will land. */
 const OPEN_ON_HOST_LABELS: Partial<Record<string, string>> = {
   github: "Open on GitHub",
-  gitlab: "Open on GitLab",
-  forgejo: "Open on Forgejo",
-  bitbucket: "Open on Bitbucket",
-  "azure-devops": "Open on Azure DevOps",
 };
 
 export const openOnHostLabel = (provider: string): string =>
@@ -29,15 +25,6 @@ function pullRequestLinkContextMenuItems(
   ];
 }
 
-/**
- * The right-click on a change request's number. Everywhere else that number is written it is a
- * link, and the gesture that copies a link is the one hand reaches for — so without this the
- * platform's own edit menu opens over a control that has nothing to cut, paste or select.
- *
- * The host is named by the caller rather than guessed here: the same number belongs to GitHub,
- * GitLab, Bitbucket or Azure DevOps depending on where it was read, and the `url` the contract
- * carries is already whichever of them it came from.
- */
 export async function showPullRequestLinkContextMenu({
   url,
   openLabel,

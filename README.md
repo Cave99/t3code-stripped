@@ -1,9 +1,26 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# t3code-stripped
+# C3 Code (Corporate T3 Code)
 
-A desktop-only cut of [T3 Code](https://t3.codes), the minimal GUI for coding agents. It runs
-Codex and Claude Code in an Electron app that bundles its own local server.
+**C3 Code is an unofficial fork of [T3 Code](https://github.com/pingdotgg/t3code),
+by T3 Tools Inc., adapted for corporate environments. It is not affiliated with or
+endorsed by the upstream project.**
+
+An Electron desktop app for Codex and Claude Code, with a bundled local backend.
+
+## What differs from upstream
+
+- Desktop-only and loopback-only: no hosted web app, cloud, remote access, or pairing.
+- No product telemetry. Optional, explicitly configured OpenTelemetry exports remain available.
+- Codex and Claude only, through their official CLIs; GitHub only for source control integration.
+- Bundled model manifest; no runtime model-manifest or npm version fetches, and no auto-updater.
+
+Local operation does not mean offline. Remaining outbound calls include the official provider
+CLIs and GitHub integration, daily LiteLLM prices from `raw.githubusercontent.com`, Google link
+favicons, Open VSX theme search and downloads, Homebrew update checks, Codex reset credits,
+and managed Codex binary downloads from GitHub. The first inline HTML preview downloads a
+pinned, SHA-256-checked Chrome from `storage.googleapis.com`; preview tabs can visit arbitrary
+URLs. See [STRIPPED.md](STRIPPED.md#remaining-cleanup) for details and remaining work.
 
 ## Quick start
 
@@ -15,20 +32,9 @@ pnpm dev              # Vite renderer + Electron; the server runs from source
 pnpm build:desktop    # production build
 ```
 
-## What is different from upstream
+See [STRIPPED.md](STRIPPED.md) for the fork's scope, [AGENTS.md](AGENTS.md) for contributor
+guidance, and [docs/](docs/) for user, internal, and operations documentation.
 
-- Desktop only: no mobile app, marketing site, or hosted web app.
-- One local backend, bound to loopback, authenticated with the desktop launch token.
-- Providers: Codex and Claude only.
-- Forges: GitHub only.
-- No device panel, scheduled tasks, browser cookie import, or auto-updater.
+## License
 
-Kept: the Unsettled/Settled thread sidebar, the right panel (browser and file explorer), git
-controls, usage, worktrees, the terminal drawer, Snap Shot, the GitHub pull requests view, agent
-MCP tools, and dev-port detection.
-
-See [STRIPPED.md](STRIPPED.md) for the full list and remaining work,
-[AGENTS.md](AGENTS.md) for contributor guidance, and [docs/](docs/) for user, internal, and
-operations documentation.
-
-Created in [T3 Code](https://t3.codes).
+MIT, with the upstream [LICENSE](LICENSE) notice retained: Copyright (c) 2026 T3 Tools Inc.

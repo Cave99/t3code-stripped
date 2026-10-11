@@ -5,7 +5,6 @@ import type {
   ProjectMutation,
   ProjectId,
   SourceControlDiscoveryResult,
-  SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { newProjectFolderName } from "@t3tools/shared/path";
@@ -24,10 +23,7 @@ import {
 } from "../state/projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
 
-export type AddProjectRemoteProviderKind = Extract<
-  SourceControlProviderKind,
-  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
->;
+export type AddProjectRemoteProviderKind = "github";
 type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
 
 export function canCreateProjectInEnvironment(
@@ -41,35 +37,14 @@ export type AddProjectRemoteSourceReadiness = Record<
   { readonly ready: boolean; readonly hint: string | null }
 >;
 
-const ADD_PROJECT_REMOTE_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
-  "url",
-  "github",
-  "gitlab",
-  "forgejo",
-  "bitbucket",
-  "azure-devops",
-];
+const ADD_PROJECT_REMOTE_SOURCES: ReadonlyArray<AddProjectRemoteSource> = ["url", "github"];
 
-const ADD_PROJECT_REMOTE_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProviderKind> = [
-  "github",
-  "gitlab",
-  "forgejo",
-  "bitbucket",
-  "azure-devops",
-];
+const ADD_PROJECT_REMOTE_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProviderKind> = ["github"];
 
 function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): string {
   switch (source) {
     case "github":
       return "GitHub";
-    case "forgejo":
-      return "Forgejo / Gitea";
-    case "gitlab":
-      return "GitLab";
-    case "bitbucket":
-      return "Bitbucket";
-    case "azure-devops":
-      return "Azure DevOps";
     case "url":
       return "Git URL";
   }
@@ -92,13 +67,10 @@ export function normalizePastedCloneUrl(input: string): string {
   return `https://github.com/${repository}`;
 }
 
-/** GitHub and Forgejo default to HTTPS; other providers retain their existing SSH default. */
 export function getDefaultCloneUrl(
   repository: Pick<SourceControlRepositoryInfo, "provider" | "url" | "sshUrl">,
 ): string {
-  return repository.provider === "github" || repository.provider === "forgejo"
-    ? repository.url
-    : repository.sshUrl;
+  return repository.provider === "github" ? repository.url : repository.sshUrl;
 }
 
 export function sortAddProjectProviderSources(
@@ -129,10 +101,6 @@ export function buildAddProjectRemoteSourceReadiness(
   const readiness: AddProjectRemoteSourceReadiness = {
     url: { ready: true, hint: null },
     github: unavailable,
-    gitlab: unavailable,
-    forgejo: unavailable,
-    bitbucket: unavailable,
-    "azure-devops": unavailable,
   };
 
   if (!discovery) {
@@ -173,14 +141,6 @@ export function getAddProjectInitialQuery(baseDirectory: string | null | undefin
   return trimmed.length === 0 ? "~/" : ensureBrowseDirectoryPath(trimmed);
 }
 
-/**
- * Folder name `git clone` would pick, from either a looked-up repository or a
- * pasted clone URL. Providers report `owner/repo`, Azure DevOps reports
- * `org/project/repo`, and a URL can arrive in any form: `https://host/owner/
- * repo.git`, `ssh://git@host:22/owner/repo`, `git@host:owner/repo.git`, with
- * or without a query, a fragment or a trailing slash. The repository is always
- * the last segment, minus the `.git` suffix.
- */
 export function getCloneDirectoryName(repositoryOrRemoteUrl: string | null | undefined): string {
   const withoutQuery = (repositoryOrRemoteUrl ?? "").split(/[?#]/)[0]?.trim() ?? "";
   const schemeIndex = withoutQuery.indexOf("://");

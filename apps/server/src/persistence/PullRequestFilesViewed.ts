@@ -13,12 +13,6 @@ import {
   type PullRequestFilesViewedRepositoryError,
 } from "./Errors.ts";
 
-/**
- * Which change request, on which host, for which reader. The host is part of it because the same
- * `group/project` exists on gitlab.com and on a self-managed instance, and the reader because
- * signing in as somebody else must not inherit their ticks. A host that will not say who the
- * reader is leaves it empty, which is one reader rather than none.
- */
 export const PullRequestFilesViewedScope = Schema.Struct({
   provider: SourceControlProviderKind,
   host: Schema.String,

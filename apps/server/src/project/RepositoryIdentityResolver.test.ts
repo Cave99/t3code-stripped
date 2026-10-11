@@ -71,7 +71,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
           if (refinementFails)
             return Effect.fail(
               new SourceControlProviderError({
-                provider: "forgejo",
+                provider: "github",
                 operation: "detectProvider",
                 cwd: rootPath,
                 detail: "account unavailable",
@@ -81,7 +81,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
             identity.canonicalKey.startsWith("ssh.forge.test/")
               ? {
                   ...identity,
-                  provider: "forgejo",
+                  provider: "github",
                   webUrl: "http://forge.test:3000/git/team/repo",
                 }
               : identity,
@@ -114,12 +114,12 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
         ["-C", "/repo/packages/web", "remote", "-v"],
       ]);
       remoteUrl = "git@ssh.forge.test:team/repo.git";
-      const forgejo = yield* resolver.resolve(rootPath, { refresh: true });
-      expect(forgejo?.webUrl).toBe("http://forge.test:3000/git/team/repo");
-      expect(forgejo?.provider).toBe("forgejo");
-      expect(forgejo?.canonicalKey).toBe("ssh.forge.test/team/repo");
-      expect(forgejo?.locator.remoteUrl).toBe(remoteUrl);
-      expect(yield* resolver.resolve(rootPath)).toEqual(forgejo);
+      const refined = yield* resolver.resolve(rootPath, { refresh: true });
+      expect(refined?.webUrl).toBe("http://forge.test:3000/git/team/repo");
+      expect(refined?.provider).toBe("github");
+      expect(refined?.canonicalKey).toBe("ssh.forge.test/team/repo");
+      expect(refined?.locator.remoteUrl).toBe(remoteUrl);
+      expect(yield* resolver.resolve(rootPath)).toEqual(refined);
       expect(refinements).toBe(3);
       refinementFails = true;
       const unavailable = yield* resolver.resolve(rootPath, { refresh: true });

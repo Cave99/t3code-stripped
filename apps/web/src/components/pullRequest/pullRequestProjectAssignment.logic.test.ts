@@ -75,7 +75,7 @@ describe("one server per repository", () => {
     const assignment = assignProjectsToEnvironments(
       [
         project("a1", "env-1", "github.com/acme/app"),
-        project("b2", "env-2", "gitlab.com/acme/app"),
+        project("b2", "env-2", "github.enterprise.test/acme/app"),
       ],
       envs("env-1", "env-2"),
       "env-1" as EnvironmentId,

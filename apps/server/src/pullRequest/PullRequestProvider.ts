@@ -623,15 +623,6 @@ export interface PullRequestProviderApi {
     input: ProviderRepositoryRef & { readonly number: number },
   ) => Effect.Effect<PullRequestReviewerCandidateList, PullRequestProviderError>;
 
-  /**
-   * Asks for a review, or takes the request back. Only called when
-   * `capabilities.reviewers.request` is true.
-   *
-   * One call for both directions, because that is what every host does with them: GitHub posts and
-   * deletes the same collection, and GitLab and Bitbucket write the whole reviewer set either way.
-   * Asking again somebody who has already reviewed is a request like any other — which is how a
-   * re-request is made.
-   */
   readonly setReviewerRequest: (
     input: ProviderRepositoryRef & {
       readonly number: number;

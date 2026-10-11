@@ -157,11 +157,6 @@ export const PullRequestCheck = Schema.Struct({
 });
 export type PullRequestCheck = typeof PullRequestCheck.Type;
 
-/**
- * The reactions a remark can carry. GitHub's eight, which is also what the picker offers: GitLab
- * accepts any emoji as an award, and the ones outside this set are read as nothing rather than
- * shown under a name no other host would recognise.
- */
 export const PullRequestReactionContent = Schema.Literals([
   "thumbs-up",
   "thumbs-down",
@@ -272,11 +267,7 @@ export type PullRequestReviewerKind = typeof PullRequestReviewerKind.Type;
  */
 export const PullRequestReviewerCandidate = Schema.Struct({
   ...PullRequestActor.fields,
-  /**
-   * How the host addresses this reviewer when a review is requested, which is not always the
-   * handle it shows: GitHub takes a login or a team slug, GitLab a numeric user id, Bitbucket an
-   * account uuid. Opaque to the page, which sends back whatever the candidate arrived with.
-   */
+
   id: TrimmedNonEmptyString,
   kind: PullRequestReviewerKind,
   /** A review has already been asked of them, so pressing them takes the request back. */
@@ -326,11 +317,6 @@ export const PullRequestCommit = Schema.Struct({
 });
 export type PullRequestCommit = typeof PullRequestCommit.Type;
 
-/**
- * What a host can do with a review, which is where the four differ most. GitLab has no way to
- * say "changes requested", and Azure DevOps exposes no diff through its CLI, so it has no lines
- * to write against at all.
- */
 export const PullRequestReviewCapabilities = Schema.Struct({
   /** A new comment can be anchored to a line of the diff. */
   inlineComment: Schema.Boolean,
@@ -343,12 +329,6 @@ export const PullRequestReviewCapabilities = Schema.Struct({
 });
 export type PullRequestReviewCapabilities = typeof PullRequestReviewCapabilities.Type;
 
-/**
- * What a host lets be rewritten after it has been posted. The two are separate because a host can
- * take one without the other: Azure DevOps takes a new title and description through the same
- * command that closes a pull request, and has no way to post a remark here at all — so nothing it
- * shows in a conversation can be rewritten either.
- */
 export const PullRequestEditCapabilities = Schema.Struct({
   /** The change request's own title and description can be rewritten. */
   changeRequest: Schema.Boolean,
@@ -357,10 +337,6 @@ export const PullRequestEditCapabilities = Schema.Struct({
 });
 export type PullRequestEditCapabilities = typeof PullRequestEditCapabilities.Type;
 
-/**
- * What a host can do about who reviews. The two are independent: a host can take a request without
- * publishing who may receive one, which is Azure DevOps.
- */
 export const PullRequestReviewerCapabilities = Schema.Struct({
   /** A review can be asked of somebody, and the request taken back. */
   request: Schema.Boolean,
@@ -381,14 +357,6 @@ export type PullRequestReviewerCapabilities = typeof PullRequestReviewerCapabili
 export const PullRequestViewedFilesStore = Schema.Literals(["host", "environment"]);
 export type PullRequestViewedFilesStore = typeof PullRequestViewedFilesStore.Type;
 
-/**
- * What a provider can actually do, so a surface can hide what is missing rather than offer an
- * action that would fail. Every provider fills this in for itself; nothing is assumed.
- *
- * Hosts differ more than they look: Azure DevOps exposes no patch through its CLI, and
- * Bitbucket has no endpoint that reopens a declined pull request. Both would otherwise be dead
- * buttons.
- */
 export const PullRequestCapabilities = Schema.Struct({
   /** A unified patch can be fetched for the change request. */
   diff: Schema.Boolean,
@@ -582,16 +550,7 @@ export const PullRequestListInput = Schema.Struct({
    * done and still does.
    */
   cursors: Schema.optional(PullRequestListCursors),
-  /**
-   * Free text the hosts themselves are asked to match, rather than a filter over the rows that
-   * have already arrived: a listing only ever holds a page per repository, so a search that
-   * never leaves the client can only find what happened to be loaded. What a match means is the
-   * host's own business — GitHub reads a body, GitLab a description — and a host with no text
-   * filter answers unnarrowed rather than pretending.
-   *
-   * Bounded because it travels into a CLI argument and a query string, and no host makes
-   * anything of a search term this long.
-   */
+
   query: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
 });
 export type PullRequestListInput = typeof PullRequestListInput.Type;
@@ -1114,15 +1073,6 @@ export const PullRequestUpdateInput = Schema.Struct({
 });
 export type PullRequestUpdateInput = typeof PullRequestUpdateInput.Type;
 
-/**
- * A remark already posted, rewritten by whoever wrote it. The kind travels beside the id because
- * an id alone does not say which endpoint addresses it: GitHub rewrites a comment on the
- * conversation and a comment on a line through two different mutations.
- *
- * A review's own summary is not among them. The hosts disagree about what one even is — the entry
- * Bitbucket shows is a vote this page renders as a remark, with no words behind it to rewrite —
- * and a control that worked on one host and failed on another is worse than one that is not there.
- */
 export const PullRequestCommentUpdateInput = Schema.Struct({
   ...PullRequestRef.fields,
   commentId: TrimmedNonEmptyString,
@@ -1154,11 +1104,7 @@ export type PullRequestReviewPosition = typeof PullRequestReviewPosition.Type;
 /** One remark in a review that has not been sent yet, anchored to a line of the diff. */
 export const PullRequestReviewCommentDraft = Schema.Struct({
   path: TrimmedNonEmptyString,
-  /**
-   * What the file was called before the change, sent only when it differs. GitLab resolves a
-   * position against both sides of the diff, so a comment on a renamed file needs both names;
-   * the hosts that address a comment by one path ignore this.
-   */
+
   oldPath: Schema.optional(TrimmedNonEmptyString),
   position: PullRequestReviewPosition,
   body: CommentBody,
@@ -1260,11 +1206,6 @@ export const PullRequestUnavailableReason = Schema.Literals([
 ]);
 export type PullRequestUnavailableReason = typeof PullRequestUnavailableReason.Type;
 
-/**
- * What each host needs before it can be read, so a failure names the fix rather than the
- * symptom. Bitbucket is credentials on the server rather than a signed-in CLI, which is why
- * these are whole sentences instead of a tool name to interpolate.
- */
 const PROVIDER_REQUIREMENT: Partial<
   Record<SourceControlProviderKind, { readonly missing: string; readonly unauthenticated: string }>
 > = {
@@ -1272,28 +1213,6 @@ const PROVIDER_REQUIREMENT: Partial<
     missing:
       "GitHub CLI (`gh`) is required to browse change requests on this host. Install it from https://cli.github.com/ and reload.",
     unauthenticated: "GitHub CLI is not authenticated. Run `gh auth login` and retry.",
-  },
-  forgejo: {
-    missing:
-      "Install Forgejo CLI (`fj` 0.6 or later) from https://codeberg.org/forgejo-contrib/forgejo-cli or Gitea CLI (`tea` 0.16 or later) from https://gitea.com/gitea/tea to browse Forgejo pull requests.",
-    unauthenticated:
-      "Authenticate your Forgejo or Gitea server with `fj --host <server-url> auth add-token` on the T3 Code server. If fj is missing or unconfigured for that server, use `tea login add`. A configured fj account must be repaired with fj.",
-  },
-  gitlab: {
-    missing:
-      "GitLab CLI (`glab`) is required to browse change requests on this host. Install it from https://gitlab.com/gitlab-org/cli and reload.",
-    unauthenticated: "GitLab CLI is not authenticated. Run `glab auth login` and retry.",
-  },
-  "azure-devops": {
-    missing:
-      "Azure CLI (`az`) with the Azure DevOps extension is required. Install `az`, then run `az extension add --name azure-devops`.",
-    unauthenticated: "Azure CLI is not signed in. Run `az login` and retry.",
-  },
-  bitbucket: {
-    missing:
-      "Bitbucket needs API credentials on the server. Add them in Settings → Source Control.",
-    unauthenticated:
-      "Bitbucket rejected the configured credentials. Check them in Settings → Source Control.",
   },
 };
 
@@ -1315,15 +1234,6 @@ export function pullRequestHostOf(
     | undefined,
   kind: SourceControlProviderKind,
 ): string {
-  if (kind === "forgejo") {
-    try {
-      const remote = new URL(identity?.locator?.remoteUrl ?? "");
-      if (remote.protocol === "http:" || remote.protocol === "https:")
-        return remote.host.toLowerCase();
-    } catch {
-      // SSH remotes retain their canonical host; the CLI resolves their web endpoint.
-    }
-  }
   const host = identity?.canonicalKey?.split("/")[0]?.trim();
   return host === undefined || host.length === 0 ? kind : host.toLowerCase();
 }

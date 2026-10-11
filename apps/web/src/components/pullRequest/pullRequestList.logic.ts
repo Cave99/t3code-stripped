@@ -149,11 +149,6 @@ export function pullRequestEntryViewer(
   return normalize(viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
 }
 
-/**
- * Authorship is per host, not per provider kind: the same list can hold change requests from
- * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
- * about the others.
- */
 function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
   const viewer = pullRequestEntryViewer(entry, viewers);
   return viewer !== null && normalize(entry.author?.login) === viewer;
@@ -959,18 +954,6 @@ export function resolveSelectedEnvironmentId<Id extends string>(
   return knownEnvironmentIds.has(namedEnvironmentId) ? namedEnvironmentId : fallbackEnvironmentId;
 }
 
-/**
- * How well a row answers the text that was searched for, as a number to order by.
- *
- * Every host searches more than a row shows — GitHub reads bodies and commit messages, GitLab
- * and Bitbucket read descriptions — so a result can be a real match with nothing on the row to
- * show for it. Ordering those by recency alone is what puts an apparently unrelated pull request
- * between two obvious ones. They are still results, so they are still shown; they are shown last,
- * under the rows whose own words matched.
- *
- * The scale is deliberately coarse. It sorts rows into "this is the one", "this mentions it" and
- * "the host says so", which is as fine a judgement as the row's own fields support.
- */
 export function scorePullRequestMatch(entry: PullRequestListEntry, query: string): number {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) return 0;

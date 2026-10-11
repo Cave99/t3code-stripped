@@ -1293,7 +1293,7 @@ function PullRequestsRouteView() {
     // The hosts search more than the row shows — a body, a review, a commit message — so once
     // their answer is in, narrowing it again here would throw away matches the reader asked for.
     // The local pass stands in for the answer that has not arrived yet, and for the hosts that
-    // answered without searching at all: Azure DevOps has no text filter, so its rows arrive
+
     // whole and would otherwise sit under a search that never touched them.
     // The rows the hosts could not narrow themselves, for the fields a row actually carries:
     // a host with no filter of its own answers unnarrowed, and so does one whose answer for the
@@ -1879,7 +1879,7 @@ function PullRequestsRouteView() {
       ) : !pullRequestsSupported ? (
         <PullRequestsUnavailableState
           title="Pull requests unavailable"
-          error="Update your T3 Code servers to browse pull requests."
+          error="Update your C3 Code servers to browse pull requests."
         />
       ) : firstLoad ? (
         <PullRequestListGhost rows={7} />

@@ -304,6 +304,20 @@ export const make = Effect.gen(function* () {
       Effect.withSpan("ServerSecretStore.remove"),
     );
 
+  // Removed usage hubs and Bitbucket credentials have no readers in this fork.
+  const entries = yield* fileSystem
+    .readDirectory(serverConfig.secretsDir)
+    .pipe(
+      Effect.mapError(
+        (cause) => new SecretStoreReadError({ resource: "secrets directory", cause }),
+      ),
+    );
+  for (const entry of entries) {
+    if (/^(?:usage-limit-source-|bitbucket-).+\.bin$/u.test(entry)) {
+      yield* remove(entry.slice(0, -".bin".length));
+    }
+  }
+
   return ServerSecretStore.of({
     directory: serverConfig.secretsDir,
     get,

@@ -9,23 +9,8 @@ import {
 } from "./sourceControl.ts";
 
 describe("source control presentation", () => {
-  it("uses merge request terminology for GitLab", () => {
-    expect(getChangeRequestTerminologyForKind("gitlab")).toEqual({
-      shortLabel: "MR",
-      singular: "merge request",
-    });
-  });
-
-  it("uses pull request terminology for GitHub-compatible providers", () => {
+  it("uses pull request terminology for GitHub", () => {
     expect(getChangeRequestTerminologyForKind("github")).toEqual({
-      shortLabel: "PR",
-      singular: "pull request",
-    });
-    expect(getChangeRequestTerminologyForKind("azure-devops")).toEqual({
-      shortLabel: "PR",
-      singular: "pull request",
-    });
-    expect(getChangeRequestTerminologyForKind("bitbucket")).toEqual({
       shortLabel: "PR",
       singular: "pull request",
     });
@@ -50,53 +35,21 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     );
     expect(
       detectSourceControlProviderFromRemoteUrl("https://gitlab.com/group/repo.git")?.kind,
-    ).toBe("gitlab");
+    ).toBe("unknown");
     expect(
       detectSourceControlProviderFromRemoteUrl("https://dev.azure.com/org/project/_git/repo")?.kind,
-    ).toBe("azure-devops");
+    ).toBe("unknown");
     expect(
       detectSourceControlProviderFromRemoteUrl("git@bitbucket.org:workspace/repo.git")?.kind,
-    ).toBe("bitbucket");
-  });
-
-  it("detects Forgejo and Gitea hosts while preserving HTTP origins", () => {
-    for (const host of ["codeberg.org", "forgejo.example.test", "gitea.example.test"]) {
-      expect(detectSourceControlProviderFromRemoteUrl(`http://${host}:3000/team/repo.git`)).toEqual(
-        {
-          kind: "forgejo",
-          name: "Forgejo",
-          baseUrl: `http://${host}:3000`,
-        },
-      );
-    }
-    expect(getChangeRequestTerminologyForKind("forgejo")).toEqual({
-      shortLabel: "PR",
-      singular: "pull request",
-    });
-  });
-
-  it("detects Azure DevOps SSH remotes", () => {
-    // The default Azure DevOps SSH clone URL uses the ssh.dev.azure.com host.
-    expect(
-      detectSourceControlProviderFromRemoteUrl("git@ssh.dev.azure.com:v3/org/project/repo")?.kind,
-    ).toBe("azure-devops");
-    expect(
-      detectSourceControlProviderFromRemoteUrl("ssh://git@ssh.dev.azure.com:22/v3/org/project/repo")
-        ?.kind,
-    ).toBe("azure-devops");
-    // Legacy visualstudio.com SSH host stays classified too.
-    expect(
-      detectSourceControlProviderFromRemoteUrl("git@vs-ssh.visualstudio.com:v3/org/project/repo")
-        ?.kind,
-    ).toBe("azure-devops");
+    ).toBe("unknown");
   });
 
   it("preserves ports while classifying by hostname", () => {
     expect(
       detectSourceControlProviderFromRemoteUrl("https://gitlab.com:8443/group/repo.git"),
     ).toEqual({
-      kind: "gitlab",
-      name: "GitLab",
+      kind: "unknown",
+      name: "gitlab.com:8443",
       baseUrl: "https://gitlab.com:8443",
     });
     expect(
@@ -114,8 +67,8 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     expect(
       detectSourceControlProviderFromRemoteUrl("ssh://git@gitlab.example.test:24/group/repo.git"),
     ).toEqual({
-      kind: "gitlab",
-      name: "GitLab Self-Hosted",
+      kind: "unknown",
+      name: "gitlab.example.test",
       baseUrl: "https://gitlab.example.test",
     });
     expect(
@@ -133,11 +86,11 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     ).toBe("github");
     expect(
       detectSourceControlProviderFromRemoteUrl("https://gitlab.example.com/group/repo.git")?.kind,
-    ).toBe("gitlab");
+    ).toBe("unknown");
     expect(
       detectSourceControlProviderFromRemoteUrl("https://bitbucket.example.com/workspace/repo.git")
         ?.kind,
-    ).toBe("bitbucket");
+    ).toBe("unknown");
   });
 
   it("does not match provider names embedded in unrelated DNS labels", () => {
@@ -154,22 +107,6 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
         "https://notbitbucket.example.com/workspace/repo.git",
       )?.kind,
     ).toBe("unknown");
-  });
-
-  it("detects SSH remotes with non-git SSH users (e.g. gitlab@, deploy@)", () => {
-    expect(
-      detectSourceControlProviderFromRemoteUrl("gitlab@gitlab.example.com:group/project.git")?.kind,
-    ).toBe("gitlab");
-    expect(
-      detectSourceControlProviderFromRemoteUrl("gitlab@gitlab.example.com:group/project.git")
-        ?.baseUrl,
-    ).toBe("https://gitlab.example.com");
-    expect(detectSourceControlProviderFromRemoteUrl("deploy@github.com:owner/repo.git")?.kind).toBe(
-      "github",
-    );
-    expect(
-      detectSourceControlProviderFromRemoteUrl("git@bitbucket.org:workspace/repo.git")?.kind,
-    ).toBe("bitbucket");
   });
 });
 
@@ -193,37 +130,6 @@ describe("isSshRemoteUrl", () => {
     expect(isSshRemoteUrl("")).toBe(false);
     expect(isSshRemoteUrl("deploy@github.com/project/repo")).toBe(false);
   });
-});
-
-it("names an Azure DevOps repository by its own name, not its project path", () => {
-  // `az repos pr list --repository` takes a name and detects the organisation and project from
-  // the checkout; the recorded `org/project/_git/repo` path is refused, and the repository then
-  // reads as unavailable on the page.
-  const selector = sourceControlRepositorySelector({
-    provider: "azure-devops",
-    displayName: "contoso/payments/_git/checkout",
-    owner: "contoso",
-    name: "checkout",
-  });
-  expect(selector).toBe("checkout");
-});
-
-it("falls back to the path's last segment where an Azure identity has no name", () => {
-  const selector = sourceControlRepositorySelector({
-    provider: "azure-devops",
-    displayName: "contoso/payments/_git/checkout",
-  });
-  expect(selector).toBe("checkout");
-});
-
-it("keeps a GitLab identity's whole path, because a nested group is part of the name", () => {
-  const selector = sourceControlRepositorySelector({
-    provider: "gitlab",
-    displayName: "group/subgroup/service",
-    owner: "group",
-    name: "service",
-  });
-  expect(selector).toBe("group/subgroup/service");
 });
 
 it("puts owner and name back together for an identity recorded before displayName", () => {

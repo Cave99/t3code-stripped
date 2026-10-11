@@ -1,11 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import {
-  SourceControlCloneProtocol,
-  SourceControlProviderKind,
-  SourceControlRepositoryInfo,
-} from "./sourceControl.ts";
+import { SourceControlCloneProtocol, SourceControlRepositoryInfo } from "./sourceControl.ts";
 
 /**
  * Live progress of a repository clone that backs a freshly added project. The
@@ -61,7 +57,7 @@ export const ProjectCloneStartInput = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   createdAt: IsoDateTime,
-  provider: Schema.optional(SourceControlProviderKind),
+  provider: Schema.optional(Schema.Literal("github")),
   repository: Schema.optional(TrimmedNonEmptyString),
   remoteUrl: Schema.optional(TrimmedNonEmptyString),
   destinationPath: TrimmedNonEmptyString,

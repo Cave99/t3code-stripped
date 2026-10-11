@@ -1,8 +1,4 @@
-import {
-  canonicalRepositoryKey,
-  isSshRemoteUrl,
-  sourceControlRepositorySelector,
-} from "@t3tools/shared/sourceControl";
+import { isSshRemoteUrl, sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -97,16 +93,6 @@ export interface PullRequestMergeEvent extends PullRequestRef {
   readonly mergedAt: string;
 }
 
-/**
- * Rows per repository when the client does not ask for a page size, and rows per slice when a
- * listing is carried on from a cursor.
- *
- * 99 and not 100, because every provider asks its host for one row over this to probe for a next
- * page: 99 requests 100, which is exactly what a page of GitHub's API serves — GraphQL refuses
- * `first` over 100 with EXCESSIVE_PAGINATION and REST clamps `per_page` to it — and what GitLab
- * caps `per_page` at. Asking for 100 here would request 101 and buy a whole second round trip for
- * one row (measured: `gh pr list --limit 100` makes 1 HTTP request, `--limit 101` makes 2).
- */
 const DEFAULT_REPOSITORY_LIST_LIMIT = 99;
 /**
  * Repositories read at once. Each one is a CLI process that spends nearly all its wall clock
@@ -671,8 +657,7 @@ export const make = Effect.gen(function* () {
       if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
       const identity = project.repositoryIdentity;
       if (
-        (identity?.provider !== "unknown" &&
-          !(identity?.provider === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))) ||
+        identity?.provider !== "unknown" ||
         sourceControlRepositorySelector(project.repositoryIdentity) === null
       )
         continue;
@@ -683,7 +668,6 @@ export const make = Effect.gen(function* () {
         filter.host !== undefined &&
         host !== "unknown" &&
         host !== filter.host.toLowerCase() &&
-        pullRequestHostOf(identity, "forgejo") !== filter.host.toLowerCase() &&
         !isSshRemoteUrl(identity.locator.remoteUrl)
       ) {
         continue;
@@ -707,8 +691,7 @@ export const make = Effect.gen(function* () {
               sourceControlProviders.resolveHandle({
                 cwd: project.workspaceRoot,
                 context: {
-                  provider:
-                    provider.kind === "forgejo" ? { ...provider, kind: "unknown" } : provider,
+                  provider: provider,
                   remoteName,
                   remoteUrl,
                   ...(filter.host !== undefined && isSshRemoteUrl(remoteUrl)
@@ -786,18 +769,12 @@ export const make = Effect.gen(function* () {
           // the page from repeating every change request per local checkout. The host is part
           // of the key, so the same `owner/repo` on two hosts stays two repositories.
           let refinedProvider: SourceControlProviderInfo | null | undefined;
-          if (
-            kind === "unknown" ||
-            (kind === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))
-          ) {
+          if (kind === "unknown") {
             const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
             refinedProvider = provider === null ? null : refinedProviders.get(provider.baseUrl);
             kind = refinedProvider?.kind ?? kind;
           }
-          const host =
-            refinedProvider?.kind === "forgejo"
-              ? new URL(refinedProvider.baseUrl).host.toLowerCase()
-              : pullRequestHostOf(identity, kind);
+          const host = pullRequestHostOf(identity, kind);
           if (filter.host !== undefined && host !== filter.host.toLowerCase()) {
             continue;
           }
@@ -809,10 +786,7 @@ export const make = Effect.gen(function* () {
             if (roots === undefined) viewerRoots.set(host, [project.workspaceRoot]);
             else if (!roots.includes(project.workspaceRoot)) roots.push(project.workspaceRoot);
           }
-          const key = listCursorKey(
-            host,
-            kind === "azure-devops" ? identity.canonicalKey : repository,
-          );
+          const key = listCursorKey(host, repository);
           if (seen.has(key)) continue;
           seen.add(key);
           if (api === null) {
@@ -827,10 +801,7 @@ export const make = Effect.gen(function* () {
             api: withRateLimitBackoff(api, host, rateLimits),
             repository,
             host,
-            remote:
-              kind === "azure-devops"
-                ? identity.canonicalKey
-                : normalizeGitRemoteUrl(`https://${host}/${repository}`),
+            remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
           });
         }
         return { supported, unimplemented, viewerRoots };
@@ -868,37 +839,20 @@ export const make = Effect.gen(function* () {
             }),
           );
         }
-        const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
-        // Azure SSH and legacy clone hosts differ from the browser URL's host. Compare
-        // the complete repository identity before narrowing those checkouts by host.
-        return listWorkspaceProjects(
-          repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
-        ).pipe(
+        return listWorkspaceProjects({ host }).pipe(
           Effect.flatMap(({ supported }) => {
             const onHost = supported.filter((candidate) => candidate.host === host);
             const route =
-              supported.find(
-                (candidate) =>
-                  candidate.api.kind === "azure-devops" &&
-                  candidate.project.repositoryIdentity != null &&
-                  canonicalRepositoryKey(
-                    candidate.project.repositoryIdentity.canonicalKey.toLowerCase(),
-                  ) === repositoryKey,
-              ) ??
               onHost.find(
-                (candidate) =>
-                  candidate.api.kind !== "azure-devops" &&
-                  candidate.repository.toLowerCase() === repository.toLowerCase(),
-              ) ??
-              onHost.find((candidate) => candidate.api.kind !== "azure-devops");
+                (candidate) => candidate.repository.toLowerCase() === repository.toLowerCase(),
+              ) ?? onHost[0];
             if (route === undefined) {
               return Effect.fail(
                 new PullRequestUnavailableError({ reason: "provider-unsupported" }),
               );
             }
             return Effect.succeed(
-              route.api.kind === "azure-devops" ||
-                route.repository.toLowerCase() === repository.toLowerCase()
+              route.repository.toLowerCase() === repository.toLowerCase()
                 ? route
                 : {
                     ...route,
@@ -1944,7 +1898,7 @@ export const make = Effect.gen(function* () {
           );
         }
         // A strategy the host does not offer must be refused rather than passed on: every
-        // provider maps an unrecognised method to its own default, so asking Azure DevOps to
+
         // rebase would quietly merge instead of failing.
         if (
           input.mergeMethod !== undefined &&
@@ -2050,11 +2004,7 @@ export const make = Effect.gen(function* () {
                         : refreshAfterTurn(project.project.id),
                     ),
                     Effect.mapError(toPullRequestError("runAction")),
-                    Effect.as(
-                      project.api.kind === "azure-devops"
-                        ? input.repository.trim()
-                        : project.repository,
-                    ),
+                    Effect.as(project.repository),
                   ),
               ),
             );

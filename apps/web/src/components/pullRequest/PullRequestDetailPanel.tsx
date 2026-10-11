@@ -715,13 +715,7 @@ export function PullRequestDetailPanel({
       ? new URL(`/${encodeURIComponent(detail.author.login)}`, repositoryUrl).toString()
       : null;
   const checkoutCommand = handoffSummary
-    ? pullRequestCheckoutCommand(
-        handoffSummary.provider,
-        handoffSummary.number,
-        handoffSummary.headBranch,
-        detail?.headRepositoryNameWithOwner,
-        changeRequestRepositoryUrl(handoffSummary.url),
-      )
+    ? pullRequestCheckoutCommand(handoffSummary.provider, handoffSummary.number)
     : loadingPullRequestCheckoutCommand(reference, repositoryIdentity);
   const onCheckoutCommandError = useCallback((error: Error) => {
     toastManager.add({
@@ -906,7 +900,7 @@ export function PullRequestDetailPanel({
     setPendingAction(null);
     if (result._tag === "Failure") {
       // The host's own sentence, because it is the only thing that says why. A merge strategy a
-      // branch policy forbids is refused at completion and nowhere earlier — Azure DevOps
+
       // publishes no per-strategy availability to hide the control with — so "action failed"
       // would leave the reader pressing the same button again.
       const failure = squashAtomCommandFailure(result);

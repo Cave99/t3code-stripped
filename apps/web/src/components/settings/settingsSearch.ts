@@ -424,7 +424,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",
-    searchTerms: ["installed cli versions newer available homebrew model list codex claude"],
+    searchTerms: ["installed cli versions newer available homebrew codex claude"],
     scope: "environment-defaults",
   },
   {
@@ -709,7 +709,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
     scope: "environment-defaults",
     searchTerms: [
-      "version control git github gitlab forgejo gitea tea codeberg bitbucket azure devops hosting integrations credentials scan server environment",
+      "version control git github hosting integrations credentials scan server environment",
     ],
   },
   {

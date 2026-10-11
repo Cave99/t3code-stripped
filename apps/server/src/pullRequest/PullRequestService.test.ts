@@ -1,9 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
 import { assert, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
-import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -54,7 +52,7 @@ function project(input: {
 }): OrchestrationProjectShell {
   // The host defaults from the provider, so a fixture only names one when the point of the
   // test is two hosts of the same kind.
-  const host = input.host ?? (input.provider === "gitlab" ? "gitlab.com" : "github.com");
+  const host = input.host ?? "github.com";
   return {
     id: input.id as ProjectId,
     title: input.title,
@@ -1336,15 +1334,6 @@ it.effect("stops new reads after a rate limit while leaving manual actions avail
     assert.lengthOf(paused.errors, 1);
   }),
 );
-
-for (const [provider, host] of [
-  ["github", "github.com"],
-  ["gitlab", "gitlab.com"],
-  ["forgejo", "code.example.test"],
-  ["bitbucket", "bitbucket.org"],
-  ["azure-devops", "dev.azure.com"],
-] as const) {
-}
 
 it.effect("does not fall back to full detail when checks are unsupported", () =>
   Effect.gen(function* () {
@@ -4384,7 +4373,7 @@ const environmentViewedProvider = (
   asked: Array<ReadonlyArray<string>>,
   unreadable: ReadonlySet<string> = new Set(),
 ) =>
-  fakeProvider("gitlab", {
+  fakeProvider("github", {
     capabilities: {
       diff: true,
       comment: true,
@@ -4423,16 +4412,16 @@ const environmentViewedService = (
     projects: [
       project({
         id: "p1",
-        title: "on gitlab",
+        title: "local viewed marks",
         workspaceRoot: "/a",
         repository: "group/project",
-        provider: "gitlab",
+        provider: "github",
       }),
     ],
     providers: [environmentViewedProvider(revisions, asked, unreadable)],
   });
 
-const GITLAB_REFERENCE = {
+const ENVIRONMENT_VIEWED_REFERENCE = {
   projectId: "p1" as ProjectId,
   repository: "group/project",
   number: 1,
@@ -4450,18 +4439,18 @@ it.effect("keeps viewed files itself for a host that keeps none of its own", () 
     );
 
     // Nothing marked is nothing to ask the host about.
-    const empty = yield* service.filesViewed(GITLAB_REFERENCE);
+    const empty = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
     assert.deepStrictEqual(empty, { files: [], truncated: false });
     assert.deepStrictEqual(asked, []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [
         { path: "src/a.ts", viewed: true },
         { path: "src/b.ts", viewed: true },
       ],
     });
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(
       [...marked.files].toSorted((left, right) => left.path.localeCompare(right.path)),
@@ -4486,12 +4475,12 @@ it.effect("reads the marks without asking the host what the head has every time"
     const service = yield* environmentViewedService(new Map([["src/a.ts", "blob-a"]]), asked);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     // Past the marks' own cache, so this read reaches the point where the host would be asked.
     yield* TestClock.adjust("20 seconds");
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(marked.files, [{ path: "src/a.ts", state: "viewed" }]);
     assert.deepStrictEqual(asked, [["src/a.ts"]]);
@@ -4505,19 +4494,19 @@ it.effect("answers the marks from what it last heard while it asks the host agai
     const service = yield* environmentViewedService(revisions, asked);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     revisions.set("src/a.ts", "blob-a-again");
     yield* TestClock.adjust("90 seconds");
-    const held = yield* service.filesViewed(GITLAB_REFERENCE);
+    const held = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     // The push is not in this answer, because waiting for the host is the thing being avoided.
     assert.deepStrictEqual(held.files, [{ path: "src/a.ts", state: "viewed" }]);
     assert.strictEqual(asked.length, 2);
 
     yield* TestClock.adjust("20 seconds");
-    const caught = yield* service.filesViewed(GITLAB_REFERENCE);
+    const caught = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(caught.files, [{ path: "src/a.ts", state: "dismissed" }]);
     // The refresh behind the previous answer is the one that heard about the push.
@@ -4537,16 +4526,16 @@ it.effect("asks the host about a file it has not been asked about before", () =>
     );
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     yield* TestClock.adjust("20 seconds");
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/b.ts", viewed: true }],
     });
     yield* TestClock.adjust("20 seconds");
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(
       [...marked.files].toSorted((left, right) => left.path.localeCompare(right.path)),
@@ -4570,7 +4559,7 @@ it.effect("does not let a press about one file keep another file's version alive
     const service = yield* environmentViewedService(revisions, asked);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     yield* TestClock.adjust("40 seconds");
@@ -4578,18 +4567,18 @@ it.effect("does not let a press about one file keep another file's version alive
     // the whole scope as heard from would put the first file's version back inside the window it
     // had almost aged out of, and a reader working down a long diff renews it press after press.
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/b.ts", viewed: true }],
     });
     assert.deepStrictEqual(asked, [["src/a.ts"], ["src/b.ts"]]);
 
     revisions.set("src/a.ts", "blob-a-again");
     yield* TestClock.adjust("30 seconds");
-    yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
     assert.strictEqual(asked.length, 3);
 
     yield* TestClock.adjust("20 seconds");
-    const caught = yield* service.filesViewed(GITLAB_REFERENCE);
+    const caught = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(
       [...caught.files].toSorted((left, right) => left.path.localeCompare(right.path)),
@@ -4610,7 +4599,7 @@ it.effect("reports a file pushed to since it was cleared as changed", () =>
     const service = yield* environmentViewedService(revisions, []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [
         { path: "src/a.ts", viewed: true },
         { path: "src/b.ts", viewed: true },
@@ -4618,8 +4607,8 @@ it.effect("reports a file pushed to since it was cleared as changed", () =>
     });
     revisions.set("src/a.ts", "blob-a-again");
     // A push is not something the marks can hear about, so the reader asks to be re-answered.
-    yield* service.invalidate({ reference: GITLAB_REFERENCE });
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.invalidate({ reference: ENVIRONMENT_VIEWED_REFERENCE });
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(
       [...marked.files].toSorted((left, right) => left.path.localeCompare(right.path)),
@@ -4637,14 +4626,14 @@ it.effect("clears a mark again when the file is put back", () =>
     const service = yield* environmentViewedService(new Map([["src/a.ts", "blob-a"]]), asked);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: false }],
     });
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(marked.files, []);
     // Unticking asks the host nothing: the row is going away whatever the head has.
@@ -4657,11 +4646,11 @@ it.effect("keeps a deleted file cleared, which the head has no version of at all
     const service = yield* environmentViewedService(new Map(), []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/gone.ts", viewed: true }],
     });
-    yield* service.invalidate({ reference: GITLAB_REFERENCE });
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.invalidate({ reference: ENVIRONMENT_VIEWED_REFERENCE });
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(marked.files, [{ path: "src/gone.ts", state: "viewed" }]);
   }),
@@ -4682,15 +4671,15 @@ it.effect("leaves a mark alone when the host could not say what the head has of 
     );
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [
         { path: "src/a.ts", viewed: true },
         { path: "src/past-the-cut.ts", viewed: true },
       ],
     });
     revisions.set("src/a.ts", "blob-a-again");
-    yield* service.invalidate({ reference: GITLAB_REFERENCE });
-    const marked = yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.invalidate({ reference: ENVIRONMENT_VIEWED_REFERENCE });
+    const marked = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.deepStrictEqual(
       [...marked.files].toSorted((left, right) => left.path.localeCompare(right.path)),
@@ -4713,13 +4702,13 @@ it.effect("keeps a file cleared that the press could not learn a version for", (
     const service = yield* environmentViewedService(revisions, [], unreadable);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/past-the-cut.ts", viewed: true }],
     });
     unreadable.delete("src/past-the-cut.ts");
-    yield* service.invalidate({ reference: GITLAB_REFERENCE });
+    yield* service.invalidate({ reference: ENVIRONMENT_VIEWED_REFERENCE });
 
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/past-the-cut.ts", state: "viewed" },
     ]);
   }),
@@ -4733,12 +4722,12 @@ it.effect("keeps the version it last heard when a later read of the head stops s
     const service = yield* environmentViewedService(revisions, asked, unreadable);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     revisions.set("src/a.ts", "blob-a-again");
-    yield* service.invalidate({ reference: GITLAB_REFERENCE });
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    yield* service.invalidate({ reference: ENVIRONMENT_VIEWED_REFERENCE });
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/a.ts", state: "dismissed" },
     ]);
 
@@ -4747,10 +4736,10 @@ it.effect("keeps the version it last heard when a later read of the head stops s
     // answer that said nothing about the file either way.
     unreadable.add("src/a.ts");
     yield* TestClock.adjust("90 seconds");
-    yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
     yield* TestClock.adjust("20 seconds");
 
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/a.ts", state: "dismissed" },
     ]);
   }),
@@ -4762,7 +4751,7 @@ it.effect("re-asks what the head has of a marked file after a whole-workspace re
     const service = yield* environmentViewedService(revisions, []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     // A push nobody told this environment about. No single reference has moved, so the held
@@ -4770,7 +4759,7 @@ it.effect("re-asks what the head has of a marked file after a whole-workspace re
     revisions.set("src/a.ts", "blob-a-again");
     yield* service.invalidate({});
 
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/a.ts", state: "dismissed" },
     ]);
   }),
@@ -4782,82 +4771,17 @@ it.effect("forgets what the head had of a marked file once a mutation moves the 
     const service = yield* environmentViewedService(revisions, []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
     // Merging moves the head under the mark, and nobody asks for the refresh: the mutation is
     // the thing that knows, so it drops what it was holding rather than waiting to be told.
     revisions.set("src/a.ts", "blob-a-again");
-    yield* service.runAction({ ...GITLAB_REFERENCE, action: "merge" });
+    yield* service.runAction({ ...ENVIRONMENT_VIEWED_REFERENCE, action: "merge" });
 
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/a.ts", state: "dismissed" },
     ]);
-  }),
-);
-
-/** Azure, whose selector is a bare repository name, backed by this environment's own marks. */
-const azureViewedService = (projects: ReadonlyArray<OrchestrationProjectShell>) =>
-  makeService({
-    projects,
-    providers: [
-      fakeProvider("azure-devops", {
-        capabilities: {
-          diff: true,
-          comment: true,
-          actions: ["merge"],
-          mergeMethods: ["merge"],
-          search: true,
-          reactions: true,
-          viewedFiles: "environment",
-          review: FULL_REVIEW,
-          reviewers: FULL_REVIEWERS,
-        },
-        getFilesViewed: () => Effect.die("the host keeps no marks of this environment's own"),
-        setFilesViewed: () => Effect.die("the host keeps no marks of this environment's own"),
-        getFileRevisions: (input) =>
-          Effect.succeed({ revisions: new Map(input.paths.map((path) => [path, "blob-a"])) }),
-      }),
-    ],
-  });
-
-const AZURE_PAIR = [
-  project({
-    id: "p1",
-    title: "platform web",
-    workspaceRoot: "/a",
-    repository: "acme/platform/_git/web",
-    provider: "azure-devops",
-    host: "dev.azure.com",
-  }),
-  project({
-    id: "p2",
-    title: "other web",
-    workspaceRoot: "/b",
-    repository: "acme/other/_git/web",
-    provider: "azure-devops",
-    host: "dev.azure.com",
-  }),
-];
-
-const AZURE_PLATFORM = { projectId: "p1" as ProjectId, repository: "web", number: 1 };
-const AZURE_OTHER = { projectId: "p2" as ProjectId, repository: "web", number: 1 };
-
-it.effect("keeps the marks of two Azure repositories of the same name apart", () =>
-  Effect.gen(function* () {
-    // Azure addresses a repository by its bare name, which is unique inside one of its projects
-    // and not across an organisation. Two `web` repositories would otherwise share one row.
-    const service = yield* azureViewedService(AZURE_PAIR);
-
-    yield* service.setFilesViewed({
-      ...AZURE_PLATFORM,
-      files: [{ path: "src/a.ts", viewed: true }],
-    });
-
-    assert.deepStrictEqual((yield* service.filesViewed(AZURE_PLATFORM)).files, [
-      { path: "src/a.ts", state: "viewed" },
-    ]);
-    assert.deepStrictEqual((yield* service.filesViewed(AZURE_OTHER)).files, []);
   }),
 );
 
@@ -4866,10 +4790,10 @@ it.effect("keeps environment marks apart from another change request's", () =>
     const service = yield* environmentViewedService(new Map([["src/a.ts", "blob-a"]]), []);
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
-    const other = yield* service.filesViewed({ ...GITLAB_REFERENCE, number: 2 });
+    const other = yield* service.filesViewed({ ...ENVIRONMENT_VIEWED_REFERENCE, number: 2 });
 
     assert.deepStrictEqual(other.files, []);
   }),
@@ -4888,7 +4812,7 @@ it.effect("bounds the paths one change request's held revisions carry", () =>
         viewed: true,
       }));
     const press = (prefix: string, count: number) =>
-      service.setFilesViewed({ ...GITLAB_REFERENCE, files: batch(prefix, count) });
+      service.setFilesViewed({ ...ENVIRONMENT_VIEWED_REFERENCE, files: batch(prefix, count) });
 
     yield* press("a", MAX_FILE_REVISION_PATHS / 2);
     yield* press("b", MAX_FILE_REVISION_PATHS / 2);
@@ -4899,7 +4823,7 @@ it.effect("bounds the paths one change request's held revisions carry", () =>
     // is where the paths asked about longest ago are. Held short of them the entry no longer
     // answers the read, and the host is asked rather than the reader being told a version that
     // nothing holds any more.
-    yield* service.filesViewed(GITLAB_REFERENCE);
+    yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     assert.strictEqual(asked.length, pressed + 1);
     assert.ok(asked.at(-1)?.includes("a/0000.ts"));
@@ -4915,7 +4839,7 @@ it.effect("keeps the change request being ticked through, not the one pressed fi
     const service = yield* environmentViewedService(new Map([["src/a.ts", "blob-a"]]), asked);
     const press = (number: number) =>
       service.setFilesViewed({
-        ...GITLAB_REFERENCE,
+        ...ENVIRONMENT_VIEWED_REFERENCE,
         number,
         files: [{ path: "src/a.ts", viewed: true }],
       });
@@ -4940,10 +4864,10 @@ const environmentViewedServiceWithViewer = (
     projects: [
       project({
         id: "p1",
-        title: "on gitlab",
+        title: "local viewed marks",
         workspaceRoot: "/a",
         repository: "group/project",
-        provider: "gitlab",
+        provider: "github",
       }),
     ],
     providers: [{ ...environmentViewedProvider(revisions, []), getViewer }],
@@ -4957,11 +4881,11 @@ it.effect("keeps one reader's marks on a host that names nobody", () =>
     );
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: [{ path: "src/a.ts", viewed: true }],
     });
 
-    assert.deepStrictEqual((yield* service.filesViewed(GITLAB_REFERENCE)).files, [
+    assert.deepStrictEqual((yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE)).files, [
       { path: "src/a.ts", state: "viewed" },
     ]);
   }),
@@ -4980,10 +4904,10 @@ it.effect("carries a bounded number of its own marks and says it held more", () 
     );
 
     yield* service.setFilesViewed({
-      ...GITLAB_REFERENCE,
+      ...ENVIRONMENT_VIEWED_REFERENCE,
       files: paths.map((path) => ({ path, viewed: true })),
     });
-    const read = yield* service.filesViewed(GITLAB_REFERENCE);
+    const read = yield* service.filesViewed(ENVIRONMENT_VIEWED_REFERENCE);
 
     // Every mark read is a path held in a set and a map for as long as the caller holds the read,
     // per scope it is holding, so the rows are bounded rather than however many a reader has ever

@@ -141,11 +141,9 @@ export class VcsProcessExitError extends Schema.TaggedError<VcsProcessExitError>
         : failureKind === "rate-limited"
           ? "API rate limit exceeded."
           : failureKind === "not-found"
-            ? context.command === "glab"
-              ? "Merge request not found."
-              : context.command === "gh" || context.command === "az"
-                ? "Pull request not found."
-                : "VCS resource not found."
+            ? context.command === "gh"
+              ? "Pull request not found."
+              : "VCS resource not found."
             : "Process exited with a non-zero status.";
 
     return new VcsProcessExitError({

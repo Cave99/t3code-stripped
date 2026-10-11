@@ -10,11 +10,11 @@ import {
 const decodeJson = Schema.decodeUnknownSync(T3ProjectFileFromJson);
 
 describe("buildT3ProjectFileJsonSchema", () => {
-  it("emits a draft 2020-12 schema with the published $id", () => {
+  it("emits a draft 2020-12 schema without a remote $id", () => {
     const schema = buildT3ProjectFileJsonSchema();
 
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(schema.$id).toBe("https://t3.codes/schema/t3.json");
+    expect(schema.$id).toBeUndefined();
     expect(schema.type).toBe("object");
     expect(schema.additionalProperties).toBe(false);
   });

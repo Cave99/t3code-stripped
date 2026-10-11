@@ -27,7 +27,7 @@ export class DesktopAppIdentity extends Context.Service<
       string,
       DesktopUserData.DesktopUserDataInitializationError
     >;
-    readonly configure: Effect.Effect<void>;
+    readonly configure: (options?: { readonly beforeReady: boolean }) => Effect.Effect<void>;
   }
 >()("@t3tools/desktop/app/DesktopAppIdentity") {}
 
@@ -89,30 +89,52 @@ export const make = Effect.gen(function* () {
     Effect.provide(userDataContext),
   );
 
-  const configure = Effect.gen(function* () {
-    const commitHash = yield* resolveAboutCommitHash;
-    yield* electronApp.setName(environment.displayName);
-    yield* electronApp.setAboutPanelOptions({
-      applicationName: environment.displayName,
-      applicationVersion: environment.appVersion,
-      version: Option.getOrElse(commitHash, () => "unknown"),
-    });
-
-    if (environment.platform === "win32") {
-      yield* electronApp.setAppUserModelId(environment.appUserModelId);
-    }
-
-    // Unpackaged runs only. A packaged bundle already carries its icon in
-    // Info.plist, so setting the dock tile again changes nothing except to
-    // overwrite a custom icon the user attached to the app themselves.
-    if (environment.platform === "darwin" && !environment.isPackaged) {
-      const iconPaths = yield* assets.iconPaths;
-      yield* Option.match(iconPaths.png, {
-        onNone: () => Effect.void,
-        onSome: electronApp.setDockIcon,
+  const configure = (options?: { readonly beforeReady: boolean }) =>
+    Effect.gen(function* () {
+      const commitHash = yield* resolveAboutCommitHash;
+      if (options?.beforeReady && environment.platform === "darwin") {
+        // Electron's default macOS log directory also follows the product name.
+        yield* electronApp.setPath(
+          "logs",
+          environment.path.join(
+            environment.homeDirectory,
+            "Library",
+            "Logs",
+            environment.isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)",
+          ),
+        );
+      }
+      // Electron captures this name at startup for macOS Keychain and Linux
+      // secret-store encryption. Keep existing keys readable, then switch the
+      // visible name after whenReady. userData is pinned separately.
+      yield* electronApp.setName(
+        options?.beforeReady
+          ? environment.isDevelopment
+            ? "T3 Code (Dev)"
+            : "T3 Code (Alpha)"
+          : environment.displayName,
+      );
+      yield* electronApp.setAboutPanelOptions({
+        applicationName: environment.displayName,
+        applicationVersion: environment.appVersion,
+        version: Option.getOrElse(commitHash, () => "unknown"),
       });
-    }
-  }).pipe(Effect.withSpan("desktop.appIdentity.configure"));
+
+      if (environment.platform === "win32") {
+        yield* electronApp.setAppUserModelId(environment.appUserModelId);
+      }
+
+      // Unpackaged runs only. A packaged bundle already carries its icon in
+      // Info.plist, so setting the dock tile again changes nothing except to
+      // overwrite a custom icon the user attached to the app themselves.
+      if (environment.platform === "darwin" && !environment.isPackaged) {
+        const iconPaths = yield* assets.iconPaths;
+        yield* Option.match(iconPaths.png, {
+          onNone: () => Effect.void,
+          onSome: electronApp.setDockIcon,
+        });
+      }
+    }).pipe(Effect.withSpan("desktop.appIdentity.configure"));
 
   return DesktopAppIdentity.of({
     resolveUserDataPath: userDataPath,

@@ -144,10 +144,7 @@ function LinkPullRequestDialog({
     return {
       host,
       repository,
-      webUrl: (number: number) =>
-        kind === "forgejo" && identity.webUrl
-          ? `${identity.webUrl.replace(/\/+$/, "")}/pulls/${number}`
-          : changeRequestWebUrl(kind, host, repository, number, identity.locator.remoteUrl),
+      webUrl: (number: number) => changeRequestWebUrl(kind, host, repository, number),
     };
   }, [environmentProjects, projectId]);
   const linking = usePullRequestLinking(threadRef.environmentId);

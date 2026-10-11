@@ -54,6 +54,11 @@ import * as PreviewPasskeys from "./preview/Passkeys.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
 
+// Set the encryption identity synchronously: service construction can yield
+// before Electron captures the macOS Keychain / Linux secret-store name.
+// DesktopAppIdentity switches the visible name to C3 Code after readiness.
+Electron.app.setName(process.env.VITE_DEV_SERVER_URL?.trim() ? "T3 Code (Dev)" : "T3 Code (Alpha)");
+
 const desktopEnvironmentLayer = Layer.unwrap(
   Effect.gen(function* () {
     const metadata = yield* Effect.service(ElectronApp.ElectronApp).pipe(

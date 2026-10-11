@@ -146,12 +146,7 @@ await Effect.runPromise(
       Layer.mergeAll(
         ProcessRunner.layer,
         SourceControlProviderRegistry.layer.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              GitHubCli.layer,
-              // No saved credentials here; Bitbucket falls back to T3CODE_BITBUCKET_* variables.
-            ),
-          ),
+          Layer.provide(Layer.mergeAll(GitHubCli.layer)),
           Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer))),
           Layer.provide(GitVcsDriver.layer),
           Layer.provide(VcsProcess.layer),

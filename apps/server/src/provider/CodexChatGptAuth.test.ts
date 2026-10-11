@@ -8,9 +8,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import * as Fiber from "effect/Fiber";
-import * as Deferred from "effect/Deferred";
-import { subscribeChatGptHandoff } from "./CodexChatGptHandoff.ts";
 import { FetchHttpClient } from "effect/unstable/http";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -233,9 +230,9 @@ const makeHarnessFor = Effect.fnUntraced(function* (
     }).toString();
     return callback;
   };
-  const startRemote = (methodId?: string) =>
+  const startManual = (methodId?: string) =>
     Effect.gen(function* () {
-      yield* auth.controller.start("owner", Effect.void, methodId, returnUrl, "client");
+      yield* auth.controller.start("owner", Effect.void, methodId, returnUrl);
       const waiting = yield* phase("waiting");
       return { waiting, callbackUrl: prepareCallback(waiting).toString() };
     });
@@ -263,44 +260,6 @@ const makeHarnessFor = Effect.fnUntraced(function* (
     secrets,
     environmentId,
     bytes,
-    handoff: (profile: Parameters<typeof subscribeChatGptHandoff>[0]["profile"]) =>
-      subscribeChatGptHandoff(
-        {
-          instanceId,
-          environmentId,
-          attemptId: "test-handoff",
-          returnUrl,
-          profile,
-        },
-        "owner",
-        { discoveryUrl: `${origin}/discovery`, resource: `${origin}/v1` },
-      ),
-    finishCallback: (state: { authorizationUrl: string | null }) =>
-      Effect.promise(() => fetch(prepareCallback(state))),
-    destination: Effect.gen(function* () {
-      const destinationBytes = new Map<string, Uint8Array>();
-      const destinationStore = ServerSecretStore.ServerSecretStore.of({
-        ...secrets,
-        get: (name) => Effect.sync(() => Option.fromUndefinedOr(destinationBytes.get(name))),
-        set: (name, value) =>
-          Effect.sync(() => {
-            destinationBytes.set(name, value);
-          }),
-        remove: (name) =>
-          Effect.sync(() => {
-            destinationBytes.delete(name);
-          }),
-      });
-      const destination = yield* makeCodexChatGptAuth({
-        instanceId,
-        discoveryUrl: `${origin}/discovery`,
-        resource: `${origin}/v1`,
-      }).pipe(
-        Effect.provideService(ServerSecretStore.ServerSecretStore, destinationStore),
-        Effect.provideService(ServerEnvironment.ServerEnvironmentIdentity, environment),
-      );
-      return { auth: destination, bytes: destinationBytes };
-    }),
     recreateAuth: makeCodexChatGptAuth({
       instanceId,
       discoveryUrl: `${origin}/discovery`,
@@ -309,7 +268,7 @@ const makeHarnessFor = Effect.fnUntraced(function* (
       Effect.provideService(ServerSecretStore.ServerSecretStore, secrets),
       Effect.provideService(ServerEnvironment.ServerEnvironmentIdentity, environment),
     ),
-    startRemote,
+    startManual,
     signIn: signInWithMethod(),
     changeAccount: signInWithMethod("chatgpt-change-account"),
     reconnectProfile: (clientId: string) => signInWithMethod(`chatgpt-profile:${clientId}`),
@@ -599,7 +558,7 @@ it.effect(
           "state",
         ]);
         assert.strictEqual(first.searchParams.get("client_id"), "dynamic_agent_client");
-        assert.strictEqual(first.searchParams.get("agent_name_hint"), "T3 Code");
+        assert.strictEqual(first.searchParams.get("agent_name_hint"), "C3 Code");
         assert.strictEqual(first.searchParams.get("response_type"), "code");
         assert.strictEqual(
           first.searchParams.get("scope"),
@@ -996,11 +955,11 @@ it.effect("returns successful desktop sign-in to the original Welcome step", () 
 );
 
 it.effect(
-  "completes remote sign-in on the owning environment and reuses its exact callback for reauthorization",
+  "completes manual sign-in on the owning environment and reuses its exact callback for reauthorization",
   () =>
     Effect.gen(function* () {
       const harness = yield* makeHarnessFor(instanceId);
-      const first = yield* harness.startRemote();
+      const first = yield* harness.startManual();
       assert.isTrue(
         first.waiting.interaction?.type === "browser" && first.waiting.interaction.acceptsCallback,
       );
@@ -1010,7 +969,7 @@ it.effect(
       });
       yield* harness.phase("succeeded");
       assert.strictEqual(Option.getOrThrow(yield* harness.auth.read).email, "hidden@example.test");
-      const second = yield* harness.startRemote();
+      const second = yield* harness.startManual();
       assertSameCallback(second.callbackUrl, first.callbackUrl);
       assert.strictEqual(
         new URL(second.waiting.authorizationUrl!).searchParams.get("client_id"),
@@ -1029,11 +988,11 @@ it.effect(
 );
 
 it.effect(
-  "rejects foreign clients and malformed remote callbacks without consuming the owner's sign-in",
+  "rejects foreign clients and malformed manual callbacks without consuming the owner's sign-in",
   () =>
     Effect.gen(function* () {
       const harness = yield* makeHarnessFor(instanceId);
-      const { waiting, callbackUrl } = yield* harness.startRemote();
+      const { waiting, callbackUrl } = yield* harness.startManual();
       assert.isTrue(Option.isNone(yield* harness.auth.read));
       yield* Effect.flip(
         harness.auth.controller.complete("other-client", { flowId: waiting.flowId!, callbackUrl }),
@@ -1071,8 +1030,8 @@ it.effect("keeps simultaneous remote accounts and environments independent", () 
     const second = yield* makeHarnessFor(instanceId);
     second.setIdentity("other-user", "other@example.test");
     second.setCallbackClientId("oaiapp_other");
-    const a = yield* first.startRemote();
-    const b = yield* second.startRemote();
+    const a = yield* first.startManual();
+    const b = yield* second.startManual();
     assert.notStrictEqual(
       new URL(a.waiting.authorizationUrl!).searchParams.get("ext_agent_host_id"),
       new URL(b.waiting.authorizationUrl!).searchParams.get("ext_agent_host_id"),
@@ -1372,14 +1331,14 @@ it.effect(
     provision(
       Effect.gen(function* () {
         const h = yield* makeHarness;
-        const first = yield* h.startRemote();
+        const first = yield* h.startManual();
         yield* h.auth.controller.complete("owner", {
           flowId: first.waiting.flowId!,
           callbackUrl: first.callbackUrl,
         });
         yield* h.phase("succeeded");
         yield* h.auth.controller.logout(Effect.void);
-        const second = yield* h.startRemote();
+        const second = yield* h.startManual();
         assert.strictEqual(
           new URL(second.waiting.authorizationUrl!).searchParams.get("client_id"),
           "oaiapp_test",
@@ -1645,158 +1604,4 @@ it.effect("keeps the active connection first when another profile declines shari
       assert.include(profiles[1]!.name, "Connection 2");
     }),
   ),
-);
-
-it.effect("primary completes OAuth and destination imports and owns the refresh session", () =>
-  provision(
-    Effect.gen(function* () {
-      const h = yield* makeHarness;
-      const destination = yield* h.destination;
-      const before = h.bytes.size;
-      const waiting = yield* Deferred.make<{ authorizationUrl: string | null }>();
-      const transferred = yield* h.handoff(null).pipe(
-        Stream.tap((state) =>
-          state.phase === "auth" && state.state.phase === "waiting"
-            ? Deferred.succeed(waiting, state.state)
-            : Effect.void,
-        ),
-        Stream.filter((state) => state.phase === "finished"),
-        Stream.runHead,
-        Effect.map(Option.getOrThrow),
-        Effect.forkChild,
-      );
-      yield* h.finishCallback(yield* Deferred.await(waiting));
-      const result = yield* Fiber.join(transferred);
-      assert.strictEqual(result.phase, "finished");
-      if (result.phase !== "finished") return;
-      assert.strictEqual(h.bytes.size, before);
-      assert.isTrue(Option.isNone(yield* h.auth.read));
-      let stopped = false;
-      const imported = yield* destination.auth.controller.importProfile!(
-        result.profile,
-        Effect.sync(() => {
-          stopped = true;
-        }),
-      );
-      assert.isTrue(stopped);
-      assert.strictEqual(imported.phase, "succeeded");
-      const saved = Option.getOrThrow(yield* destination.auth.read);
-      assert.strictEqual(saved.clientId, result.profile.registration.clientId);
-      assert.strictEqual(saved.refreshToken, "initial-refresh");
-      const reconnect = yield* destination.auth.controller.reconnectProfile!("chatgpt");
-      assert.strictEqual(reconnect?.idTokenHint, result.profile.credentials.idToken);
-      assert.isFalse("refreshToken" in reconnect!);
-      const store = yield* ProviderCredentialStore.make("codex-chatgpt", instanceId).pipe(
-        Effect.provideService(
-          ServerSecretStore.ServerSecretStore,
-          ServerSecretStore.ServerSecretStore.of({
-            get: (name) => Effect.sync(() => Option.fromUndefinedOr(destination.bytes.get(name))),
-            set: (name, value) =>
-              Effect.sync(() => {
-                destination.bytes.set(name, value);
-              }),
-            remove: () => Effect.void,
-            create: () => Effect.die("unused"),
-            getOrCreateRandom: () => Effect.die("unused"),
-          }),
-        ),
-      );
-      yield* store.set(new TextEncoder().encode(JSON.stringify({ ...saved, expiresAt: 0 })));
-      yield* destination.auth.access;
-      assert.strictEqual(
-        h.exchanges.filter((entry) => entry.get("grant_type") === "authorization_code").length,
-        1,
-      );
-      assert.strictEqual(
-        h.exchanges.filter((entry) => entry.get("grant_type") === "refresh_token").length,
-        1,
-      );
-    }),
-  ),
-);
-
-it.effect("transferred profiles reject mismatched identities without overwriting credentials", () =>
-  provision(
-    Effect.gen(function* () {
-      const h = yield* makeHarness;
-      yield* h.signIn;
-      yield* h.phase("succeeded");
-      const profile = yield* h.auth.exportProfile;
-      const destination = yield* h.destination;
-      yield* destination.auth.controller.importProfile!(profile, Effect.void);
-      const original = Option.getOrThrow(yield* destination.auth.read);
-      for (const credentials of [
-        { ...profile.credentials, subject: "wrong-user" },
-        { ...profile.credentials, clientId: "oaiapp_wrong" },
-        { ...profile.credentials, idToken: "not-a-jwt" },
-        { ...profile.credentials, scopes: ["openid"] },
-        { ...profile.credentials, expiresAt: 0 },
-      ]) {
-        const result = yield* destination.auth.controller.importProfile!(
-          { ...profile, credentials },
-          Effect.void,
-        ).pipe(Effect.result);
-        assert.strictEqual(result._tag, "Failure");
-        assert.deepEqual(Option.getOrThrow(yield* destination.auth.read), original);
-      }
-    }),
-  ),
-);
-
-it.effect("primary handoff reuses the selected registration and ID token hint", () =>
-  provision(
-    Effect.gen(function* () {
-      const h = yield* makeHarness;
-      yield* h.signIn;
-      yield* h.phase("succeeded");
-      const profile = yield* h.auth.controller.reconnectProfile!("chatgpt");
-      const waiting = yield* Deferred.make<{ authorizationUrl: string | null }>();
-      const resultFiber = yield* h.handoff(profile).pipe(
-        Stream.tap((state) =>
-          state.phase === "auth" && state.state.phase === "waiting"
-            ? Deferred.succeed(waiting, state.state)
-            : Effect.void,
-        ),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-      const state = yield* Deferred.await(waiting);
-      const url = new URL(state.authorizationUrl!);
-      assert.strictEqual(url.searchParams.get("client_id"), profile!.clientId);
-      assert.strictEqual(url.searchParams.get("id_token_hint"), profile!.idTokenHint);
-      assert.strictEqual(url.searchParams.get("login_hint"), profile!.email);
-      assert.strictEqual(url.searchParams.get("ext_agent_host_id"), `urn:uuid:${h.environmentId}`);
-      yield* h.finishCallback(state);
-      const results = yield* Fiber.join(resultFiber);
-      assert.strictEqual(results.at(-1)?.phase, "finished");
-    }),
-  ),
-);
-
-it.effect(
-  "cancelling primary handoff closes its callback listener without saving credentials",
-  () =>
-    provision(
-      Effect.gen(function* () {
-        const h = yield* makeHarness;
-        const waiting = yield* Deferred.make<{ authorizationUrl: string | null }>();
-        const flow = yield* h.handoff(null).pipe(
-          Stream.tap((state) =>
-            state.phase === "auth" && state.state.phase === "waiting"
-              ? Deferred.succeed(waiting, state.state)
-              : Effect.void,
-          ),
-          Stream.runDrain,
-          Effect.forkChild,
-        );
-        const state = yield* Deferred.await(waiting);
-        yield* Fiber.interrupt(flow);
-        const callback = new URL(
-          new URL(state.authorizationUrl!).searchParams.get("redirect_uri")!,
-        );
-        const request = yield* Effect.tryPromise(() => fetch(callback)).pipe(Effect.result);
-        assert.strictEqual(request._tag, "Failure");
-        assert.isTrue(Option.isNone(yield* h.auth.read));
-      }),
-    ),
 );

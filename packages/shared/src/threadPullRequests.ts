@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 
 import { pullRequestHostOf } from "@t3tools/contracts";
-import { parseChangeRequestUrl } from "./changeRequestUrl.ts";
+
 import { canonicalRepositoryKey, sourceControlRepositorySelector } from "./sourceControl.ts";
 
 type ThreadPullRequestKeySource = ThreadPullRequestKey & {
@@ -19,7 +19,7 @@ type ThreadPullRequestKeySource = ThreadPullRequestKey & {
 export function normalizeThreadPullRequestKey(
   key: ThreadPullRequestKeySource,
 ): ThreadPullRequestKey {
-  const parsed = key.url === undefined ? null : parseChangeRequestUrl(key.url);
+  const parsed = key.url === undefined ? null : parseHistoricalChangeRequestUrl(key.url);
   const authority =
     key.authority ??
     (parsed?.repository === key.repository.trim().toLowerCase() && parsed.number === key.number
@@ -41,7 +41,7 @@ export function legacyThreadPullRequestKey(
   linked: Pick<ThreadLinkedPullRequest, "repository" | "number" | "url">,
   fallbackHost?: string,
 ): ThreadPullRequestKey {
-  const parsed = parseChangeRequestUrl(linked.url);
+  const parsed = parseHistoricalChangeRequestUrl(linked.url);
   if (parsed !== null && parsed.number === linked.number) {
     const canonical = canonicalRepositoryKey(`${parsed.host}/${parsed.repository}`);
     if (parsed.authority !== undefined || canonical.startsWith("dev.azure.com/")) {
@@ -172,7 +172,7 @@ export function legacyLinkedPullRequestOf(
         const key = legacyThreadPullRequestKey(link, link.host);
         return canonicalRepositoryKey(`${key.host}/${key.repository}`) === azureKey;
       }
-      const parsed = parseChangeRequestUrl(link.url);
+      const parsed = parseHistoricalChangeRequestUrl(link.url);
       if (parsed?.authority !== undefined) {
         try {
           const remote = new URL(identity.locator.remoteUrl);
@@ -195,7 +195,10 @@ export function legacyLinkedPullRequestOf(
   if (link === null) return null;
   return {
     projectId,
-    repository: azureKey === null ? link.repository : repository,
+    repository:
+      azureKey === null
+        ? link.repository
+        : (identity.name ?? repository.split("/").at(-1) ?? repository),
     number: link.number,
     url: link.url,
   };
@@ -344,4 +347,27 @@ export function threadPullRequestsOf(thread: {
           stack: null,
         },
       ];
+}
+
+/** Only stored links use removed forge URL shapes, so old link identities remain stable. */
+function parseHistoricalChangeRequestUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const match =
+      /^\/(.+?)\/(?:pulls?|pull-requests|pullrequest|-\/merge_requests)\/(\d+)(?:\/|$)/u.exec(
+        url.pathname,
+      );
+    if (!match?.[1] || !match[2]) return null;
+    const number = Number(match[2]);
+    if (!Number.isSafeInteger(number) || number < 1) return null;
+    return {
+      host: url.hostname.toLowerCase(),
+      repository: match[1].toLowerCase(),
+      number,
+      ...(url.pathname.includes("/pulls/") ? { authority: url.host.toLowerCase() } : {}),
+    };
+  } catch {
+    return null;
+  }
 }

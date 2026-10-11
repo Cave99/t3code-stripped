@@ -11,13 +11,7 @@ import {
   resolveChangeRequestPresentation,
   type ChangeRequestTerminology,
 } from "@t3tools/shared/sourceControl";
-import {
-  AzureDevOpsIcon,
-  BitbucketIcon,
-  ForgejoIcon,
-  GitHubIcon,
-  GitLabIcon,
-} from "./components/Icons";
+import { GitHubIcon } from "./components/Icons";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 export interface SourceControlPresentation {
@@ -30,44 +24,11 @@ export function getSourceControlPresentation(
   provider: SourceControlProviderInfo | null | undefined,
 ): SourceControlPresentation {
   const presentation = resolveChangeRequestPresentation(provider);
-  switch (presentation.icon) {
-    case "github":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: GitHubIcon,
-      };
-    case "forgejo":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: ForgejoIcon,
-      };
-    case "gitlab":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: GitLabIcon,
-      };
-    case "azure-devops":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: AzureDevOpsIcon,
-      };
-    case "bitbucket":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: BitbucketIcon,
-      };
-    case "change-request":
-      return {
-        providerName: provider?.name || presentation.providerName,
-        terminology: getChangeRequestTerminology(provider),
-        Icon: PullRequestGlyph.pullRequest,
-      };
-  }
+  return {
+    providerName: provider?.name || presentation.providerName,
+    terminology: getChangeRequestTerminology(provider),
+    Icon: presentation.icon === "github" ? GitHubIcon : PullRequestGlyph.pullRequest,
+  };
 }
 
 /** For surfaces that know only the host kind, such as a change request row or filter. */

@@ -51,7 +51,6 @@ export function PullRequestReviewForm({
   environmentId,
   reference,
   verdicts,
-  requestChangesSummaryRequired,
   textareaRef,
   pending,
   onPendingChange,
@@ -60,7 +59,6 @@ export function PullRequestReviewForm({
   environmentId: EnvironmentId;
   reference: PullRequestRef;
   verdicts: ReadonlyArray<PullRequestReviewVerdict>;
-  requestChangesSummaryRequired: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   pending: boolean;
   onPendingChange: (pending: boolean) => void;
@@ -115,11 +113,8 @@ export function PullRequestReviewForm({
     onSubmitted();
   };
 
-  // Forgejo requires a summary when requesting changes, even with inline comments.
   const canSubmit = (verdict: PullRequestReviewVerdict) =>
-    verdict === "request-changes" && requestChangesSummaryRequired
-      ? body.trim().length > 0
-      : verdict === "approve" || body.trim().length > 0 || comments.length > 0;
+    verdict === "approve" || body.trim().length > 0 || comments.length > 0;
 
   return (
     <>
@@ -127,11 +122,7 @@ export function PullRequestReviewForm({
         ref={textareaRef}
         rows={3}
         value={body}
-        placeholder={
-          requestChangesSummaryRequired && verdicts.includes("request-changes")
-            ? "Summarize your review (required to request changes)"
-            : "Summarize your review (optional)"
-        }
+        placeholder="Summarize your review (optional)"
         aria-label="Review summary"
         onChange={(event) => setSummary(reviewKey, event.target.value)}
       />
