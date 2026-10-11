@@ -7337,6 +7337,11 @@ export function makeClaudeAdapterV2(
           getModelContextWindow: (selection) =>
             resolveClaudeCatalogContextWindowTokens(BUNDLED_CLAUDE_MODEL_CATALOG, selection),
           events: Stream.fromEffectRepeat(Queue.take(events)),
+          // No `mcpApps`: MCP Apps stay Codex-only. T3 does not own Claude's
+          // MCP connections (they live inside the Claude Code CLI process),
+          // and its `mcp_tool_result` blocks carry no `_meta.ui` metadata, so
+          // there is no UI resource to snapshot and no channel for an app's
+          // tool or resource requests. Claude MCP tool calls stay plain rows.
           hasPendingBackgroundWork: Effect.gen(function* () {
             // Session capability: any native thread with pending work pins idle.
             for (const roster of (yield* Ref.get(pendingBackgroundTasksByNativeThread)).values()) {

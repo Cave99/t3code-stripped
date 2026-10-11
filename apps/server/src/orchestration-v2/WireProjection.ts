@@ -8,19 +8,22 @@ import { compactDynamicToolOutput, toolOutputIndicatesFailure } from "@t3tools/s
 
 const MAX_DETAIL_STRING_BYTES = 32_768;
 const MAX_DYNAMIC_VALUE_BYTES = 16_384;
+const MAX_ON_DEMAND_BYTES = 256 * 1024;
 
-function truncateDetail(value: string | undefined): string | undefined {
+function truncateDetail(
+  value: string | undefined,
+  maxBytes = MAX_DETAIL_STRING_BYTES,
+): string | undefined {
   if (
     value === undefined ||
-    (value.length <= MAX_DETAIL_STRING_BYTES &&
-      Buffer.byteLength(value, "utf8") <= MAX_DETAIL_STRING_BYTES)
+    (value.length <= maxBytes && Buffer.byteLength(value, "utf8") <= maxBytes)
   ) {
     return value;
   }
   // UTF-8 needs at least one byte per UTF-16 code unit. Only encode the prefix
   // that could fit, rather than allocating a buffer for the complete output.
-  const prefix = Buffer.from(value.slice(0, MAX_DETAIL_STRING_BYTES), "utf8")
-    .subarray(0, MAX_DETAIL_STRING_BYTES)
+  const prefix = Buffer.from(value.slice(0, maxBytes), "utf8")
+    .subarray(0, maxBytes)
     .toString("utf8")
     .replace(/\uFFFD$/u, "");
   return `${prefix}\n… output truncated for transport`;
@@ -104,6 +107,55 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
         ...(output === undefined ? {} : { output }),
       };
     }
+    default:
+      return item;
+  }
+}
+
+function boundDynamicValue(value: unknown): unknown {
+  if (value === undefined) return value;
+  if (typeof value === "string") return truncateDetail(value, MAX_ON_DEMAND_BYTES);
+  let json: string;
+  try {
+    // Compact, so measuring does not inflate the value; clients indent it.
+    json = JSON.stringify(value) ?? String(value);
+  } catch {
+    return "Unserializable tool value";
+  }
+  return Buffer.byteLength(json, "utf8") <= MAX_ON_DEMAND_BYTES
+    ? value
+    : truncateDetail(json, MAX_ON_DEMAND_BYTES);
+}
+
+/**
+ * Projects one item for an on-demand detail read: keeps the input and output
+ * the timeline withholds, bounded so a huge result cannot stall the socket.
+ */
+export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): OrchestrationV2TurnItem {
+  switch (item.type) {
+    case "command_execution":
+      return {
+        ...item,
+        input: truncateDetail(item.input, MAX_ON_DEMAND_BYTES) ?? "",
+        output: truncateDetail(item.output, MAX_ON_DEMAND_BYTES),
+      };
+    case "dynamic_tool":
+      return {
+        ...item,
+        input: boundDynamicValue(item.input),
+        output: boundDynamicValue(item.output),
+      };
+    case "subagent":
+      return {
+        ...item,
+        prompt: truncateDetail(item.prompt, MAX_ON_DEMAND_BYTES) ?? "",
+        progress: truncateDetail(item.progress, MAX_ON_DEMAND_BYTES),
+        result:
+          item.result === null ? null : (truncateDetail(item.result, MAX_ON_DEMAND_BYTES) ?? null),
+      };
+    case "handoff":
+    case "file_change":
+      return projectTurnItemForWire(item);
     default:
       return item;
   }
