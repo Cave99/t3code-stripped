@@ -18,6 +18,7 @@ import {
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2GetTurnItemResult,
   type OrchestrationV2Run,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
@@ -27,6 +28,7 @@ import {
   RunId,
   type ScheduledTaskId,
   ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -38,6 +40,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "./Orchestrator.ts";
+import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 
 type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
@@ -288,6 +291,14 @@ export interface ThreadManagementServiceShape {
   readonly getThreadHistoryPage: Orchestrator.OrchestratorV2["Service"]["getThreadHistoryPage"];
   readonly getTimelinePage: Orchestrator.OrchestratorV2["Service"]["getTimelinePage"];
   readonly getMessageCount: Orchestrator.OrchestratorV2["Service"]["getMessageCount"];
+  /**
+   * One turn item with the input and output the thread stream withholds,
+   * bounded for the wire. Clients fetch it when a tool row is expanded.
+   */
+  readonly getTurnItem: (input: {
+    readonly threadId: ThreadId;
+    readonly itemId: TurnItemId;
+  }) => Effect.Effect<OrchestrationV2GetTurnItemResult, Orchestrator.OrchestratorV2Error>;
   readonly getThreadRecords: Orchestrator.OrchestratorV2["Service"]["getThreadRecords"];
   readonly getThreadProjection: (
     threadId: ThreadId,
@@ -834,6 +845,11 @@ const make = Effect.gen(function* () {
     getMessageCount: (threadId) =>
       ensureProjectionTranscript(threadId).pipe(
         Effect.andThen(orchestrator.getMessageCount(threadId)),
+      ),
+    getTurnItem: (input) =>
+      ensureProjectionTranscript(input.threadId).pipe(
+        Effect.andThen(orchestrator.getTurnItem(input)),
+        Effect.map((item) => ({ item: item === null ? null : projectTurnItemForDetail(item) })),
       ),
     getThreadRecords: (threadId, fields, filter) =>
       ensureProjectionTranscript(threadId).pipe(

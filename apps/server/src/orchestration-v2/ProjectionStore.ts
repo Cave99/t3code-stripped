@@ -69,6 +69,7 @@ import {
   isOrchestrationV2TurnItemVisible,
 } from "@t3tools/shared/orchestrationV2Timeline";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -78,6 +79,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type * as Statement from "effect/unstable/sql/Statement";
 
+import { threadHtmlRenderAttachmentIds } from "../attachmentStore.ts";
 import {
   isThreadHistoryUserTurn,
   isConversationHistoryItem,
@@ -354,6 +356,11 @@ export interface ProjectionStoreV2Shape {
   readonly getNextTurnItemOrdinal: (
     threadId: ThreadId,
   ) => Effect.Effect<number, ProjectionStoreV2Error>;
+  /** One persisted turn item, or null when the thread has no such item. */
+  readonly getTurnItem: (input: {
+    readonly threadId: ThreadId;
+    readonly itemId: TurnItemId;
+  }) => Effect.Effect<OrchestrationV2TurnItem | null, ProjectionStoreV2Error>;
   readonly getThreadRecords: <K extends ProjectionRecordField>(
     threadId: ThreadId,
     fields: ReadonlyArray<K>,
@@ -4580,14 +4587,51 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError(controlReadError(threadId)),
       );
 
+    const getTurnItem: ProjectionStoreV2Shape["getTurnItem"] = ({ threadId, itemId }) =>
+      sql<{ payload_json: string }>`SELECT payload_json
+        FROM orchestration_v2_projection_turn_items
+        WHERE turn_item_id = ${itemId} AND thread_id = ${threadId}`.pipe(
+        Effect.flatMap((rows) =>
+          rows[0] === undefined
+            ? Effect.succeed(null)
+            : decodeTurnItemPayload(rows[0].payload_json),
+        ),
+        Effect.mapError(controlReadError(threadId)),
+      );
+
     const getThreadAttachmentIds: ProjectionStoreV2Shape["getThreadAttachmentIds"] = (threadId) =>
-      sql<{ id: string }>`
+      Effect.all([
+        sql<{ id: string }>`
       SELECT DISTINCT json_extract(attachment.value, '$.id') AS id
       FROM orchestration_v2_projection_messages AS message,
         json_each(message.payload_json, '$.attachments') AS attachment
       WHERE message.thread_id = ${threadId}
-    `.pipe(
-        Effect.map((rows) => rows.map((row) => row.id)),
+    `,
+        // Pages published by html_render, and captured MCP App documents,
+        // live in the attachment store too.
+        sql<{ payload_json: string }>`
+      SELECT payload_json
+      FROM orchestration_v2_projection_turn_items
+      WHERE thread_id = ${threadId}
+        AND type = 'dynamic_tool'
+        AND (payload_json LIKE '%htmlRender%' OR payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`})
+    `,
+      ]).pipe(
+        Effect.map(([messages, renders]) => [
+          ...new Set([
+            ...messages.map((row) => row.id),
+            ...threadHtmlRenderAttachmentIds(
+              threadId,
+              renders.map((row) => {
+                const item = parseEncodedPayload(row.payload_json);
+                return {
+                  toolName: typeof item.toolName === "string" ? item.toolName : null,
+                  output: item.output,
+                };
+              }),
+            ),
+          ]),
+        ]),
         Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
       );
 
@@ -5744,6 +5788,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       hasUnpairedRunInterruptRequest,
       getMessageCount,
       getNextTurnItemOrdinal,
+      getTurnItem,
       getThreadRecords,
       getRuntimeRequest,
       getPlan,
@@ -6001,18 +6046,29 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 ?.turnItems.reduce((max, item) => Math.max(max, item.ordinal), 0) ?? 0) + 1,
           ),
         ),
+      getTurnItem: ({ threadId, itemId }) =>
+        Ref.get(replayState).pipe(
+          Effect.map(
+            (state) =>
+              state.projections.get(threadId)?.turnItems.find((item) => item.id === itemId) ?? null,
+          ),
+        ),
       getThreadAttachmentIds: (threadId) =>
-        service
-          .getThreadProjection(threadId)
-          .pipe(
-            Effect.map((projection) => [
-              ...new Set(
-                projection.messages.flatMap((message) =>
-                  message.attachments.map((attachment) => attachment.id),
+        service.getThreadProjection(threadId).pipe(
+          Effect.map((projection) => [
+            ...new Set([
+              ...projection.messages.flatMap((message) =>
+                message.attachments.map((attachment) => attachment.id),
+              ),
+              ...threadHtmlRenderAttachmentIds(
+                threadId,
+                projection.turnItems.flatMap((item) =>
+                  item.type === "dynamic_tool" ? [item] : [],
                 ),
               ),
             ]),
-          ),
+          ]),
+        ),
       getThreadRecords: (threadId, fields, filter) =>
         Effect.gen(function* () {
           const projection = (yield* Ref.get(replayState)).projections.get(threadId);

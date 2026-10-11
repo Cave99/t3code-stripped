@@ -1,3 +1,6 @@
+import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+
 const MAX_TEXT_BLOCK_DEPTH = 4;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,4 +108,19 @@ export function toolCallLines(input: {
     return { command: null, args: entries.length > 0 ? entries : null, argsText: null };
   }
   return { command: null, args: null, argsText: formatToolValue(args) };
+}
+
+const LIVE_TURN_ITEM_STATUSES: ReadonlySet<OrchestrationV2TurnItem["status"]> = new Set([
+  "idle",
+  "pending",
+  "running",
+  "waiting",
+]);
+
+/**
+ * Cache key for a fetched item. A running item keeps one key, so an open row
+ * fetches once while it streams and again when it finishes, not on every update.
+ */
+export function turnItemDetailRevision(item: OrchestrationV2TurnItem): string {
+  return LIVE_TURN_ITEM_STATUSES.has(item.status) ? "live" : DateTime.formatIso(item.updatedAt);
 }

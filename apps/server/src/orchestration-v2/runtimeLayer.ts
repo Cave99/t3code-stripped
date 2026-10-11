@@ -1,6 +1,8 @@
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
+import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
+import * as McpAppRequests from "../mcpApps/McpAppRequests.ts";
 import * as OrchestrationCommandReceipts from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import * as OrchestrationEventStore from "../persistence/Layers/OrchestrationEventStore.ts";
 import { layer as providerSessionRuntimeLayer } from "../persistence/ProviderSessionRuntime.ts";
@@ -129,6 +131,7 @@ const providerAuthServiceProvided = ProviderAuthServiceLive.pipe(
 const runExecutionServiceProvided = runExecutionServiceLayer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      McpAppModelContext.layer,
       checkpointServiceProvided,
       eventSinkProvided,
       idAllocatorLayer,
@@ -226,6 +229,17 @@ const agentSessionImporterProvided = agentSessionImporterLayer.pipe(
 const threadManagementProvided = threadManagementServiceLayer.pipe(
   Layer.provide(Layer.merge(orchestratorProvided, legacyV1ThreadImporterProvided)),
 );
+
+const mcpAppRequestsProvided = McpAppRequests.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      McpAppModelContext.layer,
+      orchestratorProvided,
+      threadManagementProvided,
+      providerSessionManagerProvided,
+    ),
+  ),
+);
 export const ProjectSetupScriptRunnerLayerLive = projectSetupScriptRunnerLayer.pipe(
   Layer.provide(ProjectServiceLayerLive),
 );
@@ -286,6 +300,7 @@ const providerRuntimeRecoveryProvided = providerRuntimeRecoveryLayer.pipe(
 
 export const OrchestrationV2LayerLive = Layer.mergeAll(
   orchestratorProvided,
+  mcpAppRequestsProvided,
   threadManagementProvided,
   effectWorkerProvided,
   providerSessionManagerProvided,

@@ -14,6 +14,8 @@ import type {
   ProjectContentMatch,
   ProjectEntry,
   ProjectEntryKind,
+  ThreadId,
+  TurnItemId,
   VcsListRefsResult,
   VcsRef,
 } from "@t3tools/contracts";
@@ -352,4 +354,23 @@ export function useCheckpointDiff(
     turnTarget === null ? null : orchestrationEnvironment.turnDiff(turnTarget),
   );
   return fullThreadTarget === null ? turn : fullThread;
+}
+
+/** Full input and output of one timeline item, fetched only while its row is open. */
+export function useTurnItemDetail(
+  target: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+    readonly itemId: TurnItemId;
+    readonly revision: string;
+  } | null,
+) {
+  return useEnvironmentQuery(
+    target === null
+      ? null
+      : orchestrationEnvironment.turnItem({
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId, itemId: target.itemId, revision: target.revision },
+        }),
+  );
 }

@@ -89,6 +89,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
@@ -966,6 +967,7 @@ const makeWsRpcLayer = (
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -1267,6 +1269,21 @@ const makeWsRpcLayer = (
             readWorkflowScript({ scriptPath: input.scriptPath }),
             { "rpc.aggregate": "orchestration" },
           ),
+        [ORCHESTRATION_V2_WS_METHODS.getTurnItem]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_V2_WS_METHODS.getTurnItem,
+            threadManagement.getTurnItem(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationV2GetThreadProjectionError({
+                    threadId: input.threadId,
+                    message: "Failed to load turn item",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
         [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_V2_WS_METHODS.getTurnDiff,
@@ -1525,6 +1542,10 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
+        [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
+        [WS_METHODS.mcpAppsUpdateModelContext]: (input) => mcpAppRequests.updateModelContext(input),
+        [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
         [WS_METHODS.providerUploadFeedback]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerUploadFeedback,

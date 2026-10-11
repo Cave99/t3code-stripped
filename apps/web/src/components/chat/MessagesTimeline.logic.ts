@@ -44,6 +44,8 @@ import {
   type OrchestrationV2ProjectedTurnItem,
   type RunAttemptId,
   RunId,
+  type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
 import {
@@ -52,6 +54,8 @@ import {
 } from "@t3tools/shared/t3McpToolPresentation";
 import { compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
 import { computerUseToolTitle } from "@t3tools/shared/toolActivity";
+import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
+import { mcpAppReferencesEqual, type McpAppReference } from "@t3tools/shared/mcpApp";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   collectToolFilePaths,
@@ -67,6 +71,7 @@ function timelineEntryRunId(entry: TimelineEntry): RunId | null {
   if (entry.kind === "proposed-plan") {
     return entry.proposedPlan.runId;
   }
+  if (entry.kind === "html-render" || entry.kind === "mcp-app") return entry.runId;
   return entry.kind === "work" ? (entry.entry.runId ?? null) : null;
 }
 
@@ -587,6 +592,21 @@ type MessagesTimelineRowContent =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "html-render";
+      id: string;
+      createdAt: string;
+      htmlRender: HtmlRenderReference;
+    }
+  | {
+      kind: "mcp-app";
+      id: string;
+      createdAt: string;
+      sourceThreadId: ThreadId;
+      itemId: TurnItemId;
+      revision: string;
+      mcpApp: McpAppReference;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -706,6 +726,9 @@ function deriveSupersededAttemptFolds(
       entry.attempt?.status !== "superseded" ||
       unfoldedRunIds.has(entry.attempt.runId) ||
       (entry.kind === "message" && entry.message.role === "user") ||
+      // A published page stays visible, as it does when its turn folds.
+      entry.kind === "html-render" ||
+      entry.kind === "mcp-app" ||
       timelineEntryIsPersistentResourceCard(entry) ||
       (entry.kind === "work" && entry.entry.itemType === "system_notice")
     ) {
@@ -1625,6 +1648,29 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "html-render") {
+      nextRows.push({
+        kind: "html-render",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        htmlRender: timelineEntry.htmlRender,
+      });
+      continue;
+    }
+
+    if (timelineEntry.kind === "mcp-app") {
+      nextRows.push({
+        kind: "mcp-app",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        sourceThreadId: timelineEntry.sourceThreadId,
+        itemId: timelineEntry.itemId,
+        revision: timelineEntry.revision,
+        mcpApp: timelineEntry.mcpApp,
+      });
+      continue;
+    }
+
     if (timelineEntry.kind === "event") {
       const previous = nextRows.at(-1);
       if (
@@ -2015,6 +2061,22 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
+
+    case "html-render": {
+      // Entries rebuild on any tool update; an equal page must keep its mounted frame.
+      const bh = b as typeof a;
+      return a.createdAt === bh.createdAt && htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender);
+    }
+
+    case "mcp-app": {
+      // Same reason: an equal app keeps its live frame and its state.
+      const bm = b as typeof a;
+      return (
+        a.createdAt === bm.createdAt &&
+        a.revision === bm.revision &&
+        mcpAppReferencesEqual(a.mcpApp, bm.mcpApp)
+      );
+    }
 
     case "event":
       return (

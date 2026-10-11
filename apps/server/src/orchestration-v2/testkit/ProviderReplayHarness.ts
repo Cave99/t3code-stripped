@@ -17,6 +17,7 @@ import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ThreadManagementService from "../ThreadManagementService.ts";
 import * as McpSessionRegistryTestkit from "../../mcp/McpSessionRegistry.testkit.ts";
+import * as McpAppModelContext from "../../mcpApps/McpAppModelContext.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import * as CheckpointCaptureService from "../CheckpointCaptureService.ts";
@@ -341,6 +342,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
   const runExecutionServiceProvided = RunExecutionService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        McpAppModelContext.layerEmpty,
         checkpointServiceProvided,
         eventSinkProvided,
         IdAllocator.layer,
