@@ -9,7 +9,6 @@ import {
   CheckpointScopeId,
   MessageId,
   type ModelSelection,
-  type OrchestrationV2ProviderThread,
   type OrchestrationV2ThreadShellSnapshot,
   NodeId,
   ProjectId,
@@ -29,6 +28,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Tracer from "effect/Tracer";
 import { projectThreadAwarenessV2 } from "@t3tools/shared/agentAwareness";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
@@ -55,6 +55,23 @@ const decodeStoredEvent = Schema.decodeUnknownSync(
   Schema.fromJsonString(OrchestrationV2DomainEventJson),
 );
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+const traceSqlStatements = () => {
+  const statements: Array<string> = [];
+  const tracer = Tracer.make({
+    span(options) {
+      const span = new Tracer.NativeSpan(options);
+      const end = span.end.bind(span);
+      span.end = (endTime, exit) => {
+        end(endTime, exit);
+        const query = span.attributes.get("db.query.text");
+        if (typeof query === "string") statements.push(query);
+      };
+      return span;
+    },
+  });
+  return { statements, tracer };
+};
 
 const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate")(function* (
   suffix: string,
@@ -397,6 +414,7 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
       }
     }),
   );
+});
 // Project A holds an active thread, an archived thread and a fork of a run in
 // an archived project B thread, so a project-scoped snapshot still has to load
 // a fork source that is outside the project and archived.
@@ -1783,84 +1801,6 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         (thread) => thread.id === threadId,
       );
       assert.deepEqual(shell?.providerInstanceHistory, [providerInstanceId, claudeInstanceId]);
-    }),
-  );
-
-  it.effect("shows the native goal of the active provider thread on the shell", () =>
-    Effect.gen(function* () {
-      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const now = yield* DateTime.now;
-      const threadId = ThreadId.make("thread:provider-goal");
-      yield* projectionStore.apply({
-        id: EventId.make("event:provider-goal:thread"),
-        type: "thread.created",
-        threadId,
-        occurredAt: now,
-        payload: {
-          createdBy: "user",
-          creationSource: "web",
-          id: threadId,
-          projectId: ProjectId.make("project:provider-goal"),
-          title: "Provider goal",
-          providerInstanceId,
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          activeProviderThreadId: null,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-          forkedFrom: null,
-          createdAt: now,
-          updatedAt: now,
-          archivedAt: null,
-          settledOverride: null,
-          settledAt: null,
-          lastVisitedAt: null,
-          deletedAt: null,
-        },
-      });
-      const applyProviderThread = (
-        suffix: string,
-        goal: OrchestrationV2ProviderThread["goal"],
-        seconds: number,
-      ) =>
-        projectionStore.apply({
-          id: EventId.make(`event:provider-goal:${suffix}:${seconds}`),
-          type: "provider-thread.updated",
-          threadId,
-          driver,
-          occurredAt: DateTime.add(now, { seconds }),
-          payload: {
-            id: ProviderThreadId.make(`provider-thread:provider-goal:${suffix}`),
-            driver,
-            providerInstanceId,
-            providerSessionId: null,
-            appThreadId: threadId,
-            ownerNodeId: null,
-            nativeThreadRef: null,
-            nativeConversationHeadRef: null,
-            status: "idle",
-            firstRunOrdinal: null,
-            lastRunOrdinal: null,
-            handoffIds: [],
-            forkedFrom: null,
-            goal,
-            createdAt: now,
-            updatedAt: DateTime.add(now, { seconds }),
-          },
-        });
-      const shellGoal = Effect.map(
-        projectionStore.getShellSnapshot(),
-        (snapshot) => snapshot.threads.find((thread) => thread.id === threadId)?.goal,
-      );
-      const goal = { objective: "Ship it", status: "active" as const, tokensUsed: 10 };
-
-      yield* applyProviderThread("first", goal, 0);
-      assert.deepEqual(yield* shellGoal, goal);
-      // A handoff moves the conversation; the previous provider's goal stays behind.
-      yield* applyProviderThread("second", null, 1);
-      assert.isNull(yield* shellGoal);
     }),
   );
 

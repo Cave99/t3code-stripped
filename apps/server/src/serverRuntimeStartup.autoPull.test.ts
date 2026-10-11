@@ -10,8 +10,6 @@ import * as Path from "effect/Path";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
-import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
-import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -22,22 +20,19 @@ import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeReco
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
-import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectService from "./project/ProjectService.ts";
-import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
-import { ServerActivation } from "./serverActivation.ts";
+import * as ServerActivation from "./serverActivation.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 
 it.effect("parks automatic pull until activation without delaying command readiness", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const activation = yield* Deferred.make<void>();
-      const prepared = yield* Deferred.make<void>();
-      const commitTrial = yield* Deferred.make<void>();
+      const activateStarted = yield* Deferred.make<void>();
+      const releaseActivation = yield* Deferred.make<void>();
       const statusCalled = yield* Deferred.make<string>();
       const statusInterrupted = yield* Deferred.make<void>();
       const cwd = "/auto-pull-project";
@@ -87,19 +82,12 @@ it.effect("parks automatic pull until activation without delaying command readin
           otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
           otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
           otelEnvironment: OtelEnvironment.none,
-          staticDir: undefined,
-          devAllowedOrigins: [],
           desktopBootstrapToken: undefined,
           logWebSocketEvents: false,
-          tailscaleServeEnabled: false,
-          tailscaleServePort: 443,
-          mode: "desktop",
-          cwd,
-          host: "localhost",
           port: 3773,
+          host: "localhost",
+          cwd,
           devUrl: undefined,
-          noBrowser: true,
-          startupPresentation: "browser",
           autoBootstrapProjectFromCwd: false,
         }),
         Layer.mock(Keybindings.Keybindings)({ start: Effect.void }),
@@ -114,7 +102,6 @@ it.effect("parks automatic pull until activation without delaying command readin
           reconcile: () => Effect.succeed(recovery),
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ shutdown: Effect.void }),
-        Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({ start: () => Effect.void }),
         Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({ runOnce: Effect.never }),
         Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
           publish: (event) => Effect.succeed({ ...event, sequence: 1 }),
@@ -145,13 +132,8 @@ it.effect("parks automatic pull until activation without delaying command readin
               archivedThreads: [],
             }),
         }),
-        Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
-        Layer.mock(ServiceLauncherClient.ServiceLauncherClient)({
-          managed: true,
-          prepareTrial: Deferred.succeed(prepared, undefined).pipe(
-            Effect.andThen(Deferred.await(commitTrial)),
-            Effect.as(undefined),
-          ),
+        Layer.mock(ThreadLaunch.ThreadLaunchService)({
+          launch: () => Effect.dieMessage("auto-pull test never launches threads"),
         }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({
           statusDetails: (root) =>
@@ -160,10 +142,7 @@ it.effect("parks automatic pull until activation without delaying command readin
               Effect.onInterrupt(() => Deferred.succeed(statusInterrupted, undefined)),
             ),
         }),
-        Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void }),
         NodeCrypto.layer,
-        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
-        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
         Layer.mock(HttpServer.HttpServer)({
           address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 3773),
         }),
@@ -174,14 +153,13 @@ it.effect("parks automatic pull until activation without delaying command readin
         const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
         yield* startup.markHttpListening;
 
-        // A reverted, awaited pull reaches statusDetails instead of prepareTrial.
-        // Race the two receipts so that regression fails without a timeout.
-        yield* Effect.raceFirst(Deferred.await(prepared), Deferred.await(statusCalled));
+        // Activation is held back, so the parked pull must not have started.
+        // activateStarted proves startup already ran past the auto-pull phase.
+        yield* Deferred.await(activateStarted);
         expect(yield* Deferred.isDone(activation)).toBe(false);
         expect(yield* Deferred.isDone(statusCalled)).toBe(false);
-        expect(yield* Deferred.isDone(prepared)).toBe(true);
 
-        yield* Deferred.succeed(commitTrial, undefined);
+        yield* Deferred.succeed(releaseActivation, undefined);
         yield* Deferred.await(activation);
         expect(yield* Deferred.await(statusCalled)).toBe(cwd);
         // statusDetails can never finish; readiness must not depend on it.
@@ -189,11 +167,15 @@ it.effect("parks automatic pull until activation without delaying command readin
       }).pipe(
         Effect.provide(
           ServerRuntimeStartup.layerWithOptions({
-            activate: Deferred.succeed(activation, undefined).pipe(Effect.asVoid),
+            activate: Deferred.succeed(activateStarted, undefined).pipe(
+              Effect.andThen(Deferred.await(releaseActivation)),
+              Effect.andThen(Deferred.succeed(activation, undefined)),
+              Effect.asVoid,
+            ),
             awaitAuxiliaryParked: Effect.void,
           }).pipe(Layer.provide(dependencies)),
         ),
-        Effect.provideService(ServerActivation, Deferred.await(activation)),
+        Effect.provideService(ServerActivation.ServerActivation, Deferred.await(activation)),
       );
       expect(yield* Deferred.isDone(statusInterrupted)).toBe(true);
     }),

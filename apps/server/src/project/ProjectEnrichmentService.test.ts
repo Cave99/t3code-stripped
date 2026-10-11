@@ -383,7 +383,7 @@ it.effect("rescans a favicon only after 15 minutes", () =>
         (value) => value.faviconPath === "/repo/favicon-2.svg",
       );
       assert.equal(yield* Ref.get(faviconScans), 2);
-    }).pipe(Effect.provide(layer(layerMetadata)));
+    }).pipe(Effect.provide(makeLayer(layerMetadata)));
   }),
 );
 
@@ -428,6 +428,6 @@ it.effect(
           );
         }
         assert.equal(yield* Ref.get(faviconScans), 1);
-      }).pipe(Effect.provide(layer(layerMetadata)));
+      }).pipe(Effect.provide(makeLayer(layerMetadata)));
     }),
 );

@@ -15,7 +15,7 @@ import {
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type * as SqlClient from "effect/sql/SqlClient";
+import type * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 /** Build the regular navigation shell without duplicating the archive dataset. */
