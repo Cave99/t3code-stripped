@@ -9,10 +9,12 @@ import { memo } from "react";
 
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import ChatMarkdown from "../ChatMarkdown";
 import { ToolOutputThreadLinks } from "./MarkdownThreadLink";
 import { resolveExternalWebLinkHref } from "./externalLinkContextMenu";
+import { ShellCommandBlock } from "./ShellCommandBlock";
 
 interface V2ItemInspectorProps {
   readonly projectedItem: OrchestrationV2ProjectedTurnItem;
@@ -37,7 +39,11 @@ function StructuredValue({
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   if (!text) return null;
   return (
-    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-2xs leading-relaxed text-muted-foreground select-text">
+    <pre
+      className={cn(
+        "max-h-80 overflow-auto font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-muted-foreground select-text",
+      )}
+    >
       {environmentId ? (
         <ToolOutputThreadLinks environmentId={environmentId} text={text ?? ""} />
       ) : (
@@ -46,6 +52,9 @@ function StructuredValue({
     </pre>
   );
 }
+
+const monoClassName =
+  "font-mono text-(length:--font-size-code,var(--text-2xs)) leading-relaxed whitespace-pre-wrap break-words select-text";
 
 export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspectorProps) {
   const { item } = props.projectedItem;
@@ -71,12 +80,10 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       ) : null}
 
       {item.type === "command_execution" ? (
-        <div className="space-y-2">
-          <StructuredValue value={item.input} />
-          {item.exitCode !== undefined ? (
-            <p className={item.exitCode === 0 ? "text-success" : "text-destructive"}>
-              Process exited with code {item.exitCode}
-            </p>
+        <div className={cn("space-y-1.5", monoClassName)}>
+          <ShellCommandBlock command={item.input} />
+          {item.exitCode !== undefined && item.exitCode !== 0 ? (
+            <div className="text-destructive">exit {item.exitCode}</div>
           ) : null}
         </div>
       ) : null}
@@ -120,7 +127,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       ) : null}
 
       {item.type === "file_search" && item.results ? (
-        <ul className="space-y-1 rounded-md border border-border/45 p-2">
+        <ul className="space-y-1">
           {item.results.map((result) => (
             <li key={JSON.stringify(result)}>
               <span className="font-mono text-foreground/80">
@@ -137,7 +144,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       ) : null}
 
       {item.type === "web_search" && item.results ? (
-        <ul className="space-y-1.5 rounded-md border border-border/45 p-2">
+        <ul className="space-y-1.5">
           {item.results.map((result) => {
             const safeHref = resolveExternalWebLinkHref(result.url);
             return (
@@ -165,10 +172,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       ) : null}
 
       {item.type === "dynamic_tool" ? (
-        <div>
-          <p className="mb-1 text-3xs font-medium tracking-wide uppercase text-muted-foreground">
-            Input
-          </p>
+        <div className={cn("space-y-1.5", monoClassName)}>
           <StructuredValue value={item.input} />
           {item.output !== undefined ? (
             <div className="mt-2">
@@ -233,7 +237,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       ) : null}
 
       {item.type === "handoff" ? (
-        <div className="space-y-1 rounded-md border border-border/45 p-2 text-muted-foreground">
+        <div className="space-y-1 text-muted-foreground">
           <p>
             {item.fromProviderInstanceIds.join(", ")} → {item.toProviderInstanceId}
           </p>
