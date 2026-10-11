@@ -931,6 +931,24 @@ it.effect.each([
 
 it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   describe("process environment", () => {
+    it.effect("does not index thousands of untracked files for a review", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* Effect.forEach(
+          Array.from({ length: 5_001 }, (_, index) => `bulk/${index}.txt`),
+          (file) => writeTextFile(cwd, file, "x\n"),
+          { concurrency: 32, discard: true },
+        );
+        yield* writeTextFile(cwd, "README.md", "changed\n");
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd });
+        assert.isNotEmpty(preview.sources);
+        assert.isTrue(preview.sources.find((source) => source.kind === "working-tree")?.truncated);
+      }),
+    );
+
     it.effect("preserves the caller locale for general Git subprocesses", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

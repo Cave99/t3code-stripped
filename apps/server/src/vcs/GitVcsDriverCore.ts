@@ -57,6 +57,10 @@ const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_METADATA_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+// Every status refresh adds the untracked files to a temporary index, and git add's cost grows
+// much faster than the file count (50k files took about 30 seconds). Past this many, the
+// totals are reported incomplete instead.
+const REVIEW_UNTRACKED_MAX_FILES = 5_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 // Patches the clients render are parsed against git's default a/ and b/ path
 // prefixes. A repository or global diff.noprefix or diff.mnemonicPrefix would
@@ -2526,6 +2530,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const paths = splitNullSeparatedGitStdoutPaths(untracked).filter(
         (candidate) => !input.file || candidate === input.file.path,
       );
+      if (paths.length > REVIEW_UNTRACKED_MAX_FILES) {
+        const tracked = yield* readTrackedDiff("HEAD");
+        return { ...tracked, files: undefined, stdoutTruncated: true };
+      }
       if (paths.length === 0) return yield* readTrackedDiff("HEAD");
       const env = yield* prepareReviewIndex(cwd, paths).pipe(
         Effect.catchTags({
