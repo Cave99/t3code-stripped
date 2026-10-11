@@ -25,6 +25,15 @@ import { resolveServerConfig } from "./config.ts";
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
 
+const minimalDesktopFlags = (baseDir: string) => ({
+  port: Option.some(4888),
+  baseDir: Option.some(baseDir),
+  cwd: Option.none<string>(),
+  bootstrapFd: Option.none<number>(),
+  autoBootstrapProjectFromCwd: Option.none<boolean>(),
+  logWebSocketEvents: Option.none<boolean>(),
+});
+
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
 
 const makeDesktopBootstrap = (
@@ -301,6 +310,36 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       assert.equal(join(baseDir, "userdata"), resolved.stateDir);
       assert.equal(resolved.desktopTelemetryFd, 4);
       assert.equal(resolved.desktopTelemetryControlFd, 5);
+    }),
+  );
+
+  it.effect("carries the desktop's shell environment handoff only when the envelope sets it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-shell-env-" });
+      const resolveWith = Effect.fn(function* (overrides: Partial<DesktopBackendBootstrapValue>) {
+        const fd = yield* openBootstrapFd(makeDesktopBootstrap(overrides));
+        return yield* resolveServerConfig(
+          {
+            ...minimalDesktopFlags(baseDir),
+            bootstrapFd: Option.some(fd),
+          },
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              NetService.layer,
+            ),
+          ),
+        );
+      });
+
+      assert.equal((yield* resolveWith({})).shellEnvironmentPrepared, undefined);
+      assert.equal(
+        (yield* resolveWith({ shellEnvironmentPrepared: true })).shellEnvironmentPrepared,
+        true,
+      );
     }),
   );
 

@@ -319,6 +319,8 @@ export class GitHubCli extends Context.Service<
       readonly limit: number;
       /** The checkout's GitHub host. Without it the lookup is not batched. */
       readonly rateLimitHost?: string;
+      /** Reads with reserve stay interactive; background sweeps share one query. */
+      readonly allowReserve?: boolean;
     }) => Effect.Effect<ReadonlyArray<NormalizedGitHubPullRequestRecord>, GitHubCliError>;
 
     readonly getPullRequest: (input: {
@@ -436,8 +438,17 @@ const HEAD_LOOKUPS_PER_DOCUMENT = 50;
 /**
  * How long a head lookup waits for company. Branch discovery reaches GitHub only after each
  * branch's own git reads, so lookups started together arrive tens of milliseconds apart.
+ * A background sweep's lookups spread over up to ~300ms, and every document costs a point no
+ * matter how few heads it holds, so reads without reserve wait longer.
  */
 const HEAD_LOOKUP_BATCH_WINDOW = "50 millis";
+const BACKGROUND_HEAD_LOOKUP_BATCH_WINDOW = "500 millis";
+/**
+ * Background documents fill up under the longer window, and a failed document fails every head
+ * in it. Fifty `main`-like heads of a hundred pull requests each took up to ~10s, GitHub's own
+ * processing limit; twenty-five took ~7s.
+ */
+const BACKGROUND_HEAD_LOOKUPS_PER_DOCUMENT = 25;
 /** A full document is 5,000 rows of well under 2 KB each. */
 const HEAD_LOOKUP_MAX_OUTPUT_BYTES = 16_000_000;
 const RATE_LIMIT_READING = "query { rateLimit { cost limit remaining resetAt } }";
@@ -451,6 +462,7 @@ class PullRequestsByHeadRead extends Request.Class<
     readonly headRefName: string;
     readonly state: PullRequestListState;
     readonly limit: number;
+    readonly allowReserve: boolean;
   },
   ReadonlyArray<NormalizedGitHubPullRequestRecord>,
   GitHubCliError
@@ -840,6 +852,7 @@ export const make = Effect.gen(function* () {
         request.host,
         request.owner,
         request.name,
+        request.allowReserve,
         Context.getOrElse(context, PinnedGitHubCredential, () => null)?.credentialFingerprint ??
           null,
         Context.getOrElse(context, SourceControlRateLimit.CredentialScope, () => ""),
@@ -863,7 +876,7 @@ export const make = Effect.gen(function* () {
         cwd,
         host,
         document: query.document,
-        allowReserve: false,
+        allowReserve: first.request.allowReserve,
         run: (document) =>
           executeRaw({
             cwd,
@@ -908,9 +921,13 @@ export const make = Effect.gen(function* () {
         ),
       );
     },
-  }).pipe(
+  }).pipe(RequestResolver.batchN(HEAD_LOOKUPS_PER_DOCUMENT));
+  const interactiveHeadResolver = headResolver.pipe(
     RequestResolver.setDelay(HEAD_LOOKUP_BATCH_WINDOW),
-    RequestResolver.batchN(HEAD_LOOKUPS_PER_DOCUMENT),
+  );
+  const backgroundHeadResolver = headResolver.pipe(
+    RequestResolver.batchN(BACKGROUND_HEAD_LOOKUPS_PER_DOCUMENT),
+    RequestResolver.setDelay(BACKGROUND_HEAD_LOOKUP_BATCH_WINDOW),
   );
 
   const listPullRequestsByHead: GitHubCli["Service"]["listPullRequestsByHead"] = Effect.fn(
@@ -928,6 +945,7 @@ export const make = Effect.gen(function* () {
     if (host === undefined || repository === null) {
       return yield* listPullRequestsWithCli(input);
     }
+    const allowReserve = input.allowReserve ?? (yield* AllowGitHubReserve);
     return yield* Effect.request(
       new PullRequestsByHeadRead({
         cwd: input.cwd,
@@ -937,8 +955,9 @@ export const make = Effect.gen(function* () {
         headRefName: input.headSelector,
         state: input.state,
         limit: Math.min(Math.max(Math.trunc(input.limit), 1), 100),
+        allowReserve,
       }),
-      headResolver,
+      allowReserve ? interactiveHeadResolver : backgroundHeadResolver,
     );
   });
 

@@ -503,7 +503,7 @@ const makeServerLayer = Layer.unwrap(
     const runtimeStateParked = yield* Deferred.make<void>();
     const routesReady = yield* Deferred.make<void>();
 
-    yield* fixPath();
+    yield* fixPath({ shellEnvironmentPrepared: config.shellEnvironmentPrepared });
 
     const httpListeningLayer = Layer.effectDiscard(
       Effect.gen(function* () {

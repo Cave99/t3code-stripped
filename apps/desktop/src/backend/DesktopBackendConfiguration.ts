@@ -198,6 +198,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       t3Home: environment.baseDir,
       host: backendExposure.bindHost,
       desktopBootstrapToken: input.bootstrapToken,
+      // DesktopApp installs the shell environment into process.env before any
+      // backend starts, and this child extends it (extendEnv below).
+      shellEnvironmentPrepared: true,
       desktopTelemetryFd: 4,
       desktopTelemetryControlFd: 5,
       ...Option.match(input.resourceMonitorPath, {

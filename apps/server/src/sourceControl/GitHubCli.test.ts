@@ -252,7 +252,7 @@ describe("GitHubCli.listPullRequestsByHead", () => {
       ? processOutput(remoteOutput)
       : { ...processOutput(""), exitCode: ChildProcessSpawner.ExitCode(1) };
 
-  it.effect("reads heads on one repository in one GraphQL document", () =>
+  it.effect("reads a background sweep's staggered heads in one GraphQL document", () =>
     Effect.gen(function* () {
       const documents: Array<{ query: string; variables: Record<string, unknown> }> = [];
       mockRun.mockImplementation((input) =>
@@ -268,20 +268,23 @@ describe("GitHubCli.listPullRequestsByHead", () => {
         }),
       );
       const gh = yield* GitHubCli.GitHubCli;
-      const lookups = yield* Effect.all(
-        ["feature/a", "feature/b"].map((headSelector) =>
-          gh.listPullRequestsByHead({
+      const lookup = (headSelector: string) =>
+        gh
+          .listPullRequestsByHead({
             cwd: "/repo",
             headSelector,
             state: "all",
             limit: 100,
             rateLimitHost: "github.com",
-          }),
-        ),
-        { concurrency: "unbounded" },
-      ).pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
-      const [first, second] = yield* Fiber.join(lookups);
+          })
+          .pipe(Effect.forkChild);
+      // Each branch's own git reads come first, so a sweep's lookups arrive spread out.
+      const firstLookup = yield* lookup("feature/a");
+      yield* TestClock.adjust("200 millis");
+      const secondLookup = yield* lookup("feature/b");
+      yield* TestClock.adjust("300 millis");
+      const first = yield* Fiber.join(firstLookup);
+      const second = yield* Fiber.join(secondLookup);
       assert.deepStrictEqual(
         first?.map((pr) => [pr.number, pr.state, pr.headRepositoryNameWithOwner]),
         [[7, "merged", "acme/web"]],
@@ -297,6 +300,44 @@ describe("GitHubCli.listPullRequestsByHead", () => {
         h1: "feature/b",
         s1: ["OPEN", "CLOSED", "MERGED"],
       });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("caps a background document at twenty-five heads", () =>
+    Effect.gen(function* () {
+      const headCounts: Array<number> = [];
+      mockRun.mockImplementation((input) =>
+        Effect.sync(() => {
+          if (input.command === "git") return git(input);
+          const variables = decodeRequest(input.stdin ?? "").variables;
+          headCounts.push(Object.keys(variables).filter((key) => /^h\d+$/.test(key)).length);
+          const repository = Object.fromEntries(
+            Object.keys(variables)
+              .filter((key) => /^h\d+$/.test(key))
+              .map((key) => [key, { nodes: [] }]),
+          );
+          return jsonOutput({ data: { repository } });
+        }),
+      );
+      const gh = yield* GitHubCli.GitHubCli;
+      const lookups = yield* Effect.all(
+        Array.from({ length: 26 }, (_, index) =>
+          gh.listPullRequestsByHead({
+            cwd: "/repo",
+            headSelector: `feature/${index}`,
+            state: "all",
+            limit: 100,
+            rateLimitHost: "github.com",
+          }),
+        ),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust("500 millis");
+      yield* Fiber.join(lookups);
+      assert.deepStrictEqual(
+        headCounts.toSorted((a, b) => a - b),
+        [1, 25],
+      );
     }).pipe(Effect.provide(layer)),
   );
 
@@ -388,7 +429,7 @@ describe("GitHubCli.listPullRequestsByHead", () => {
         ),
         { concurrency: "unbounded" },
       ).pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
+      yield* TestClock.adjust("500 millis");
       const errors = yield* Fiber.join(lookups);
       assert.deepStrictEqual(
         errors.map((error) => error._tag),
