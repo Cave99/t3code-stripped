@@ -22,7 +22,6 @@ export function withTerminalOutputWindow(
           if (
             message._tag === "Request" &&
             (message.tag === WS_METHODS.terminalAttach ||
-              message.tag === WS_METHODS.terminalObserve ||
               message.tag === WS_METHODS.subscribeTerminalEvents)
           ) {
             const key = `${clientId}:${message.id}`;

@@ -605,6 +605,7 @@ it.effect("fails the run when its ownership check cannot be read before calling 
     const testLayer = RunExecutionService.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
+          McpAppModelContext.layerEmpty,
           Layer.mock(CheckpointService.CheckpointServiceV2)({ captureBaseline: () => Effect.void }),
           Layer.mock(EventSink.EventSinkV2)({
             writeIfRunCurrent: (input) =>

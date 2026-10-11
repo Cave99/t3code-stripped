@@ -15,6 +15,7 @@ import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
+import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -103,6 +104,7 @@ it.effect("parks automatic pull until activation without delaying command readin
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ shutdown: Effect.void }),
         Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({ runOnce: Effect.never }),
+        Layer.mock(Orchestrator.OrchestratorV2)({ recoverDelegatedTasks: Effect.void }),
         Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
           publish: (event) => Effect.succeed({ ...event, sequence: 1 }),
         }),
@@ -133,7 +135,7 @@ it.effect("parks automatic pull until activation without delaying command readin
             }),
         }),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({
-          launch: () => Effect.dieMessage("auto-pull test never launches threads"),
+          launch: () => Effect.die(new Error("auto-pull test never launches threads")),
         }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({
           statusDetails: (root) =>
