@@ -31,10 +31,15 @@ export function ThreadDetailsCard({
         container: canvas.container,
         chat: canvas.layout.chat,
         frame: null,
+        topInset: canvas.detailsCardTopInset,
       })
     : null;
   const placement = canvas
-    ? resolveThreadDetailsCardLayout({ container: canvas.container, ...canvas.layout })
+    ? resolveThreadDetailsCardLayout({
+        container: canvas.container,
+        ...canvas.layout,
+        topInset: canvas.detailsCardTopInset,
+      })
     : null;
   const mode = placement ? "inline" : "popover";
   const inlineOpen = useRightPanelStore((state) =>
@@ -142,7 +147,7 @@ export function ThreadDetailsCard({
           alignOffset={0}
           collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}
           side="bottom"
-          sideOffset={0}
+          sideOffset={canvas?.detailsCardTopInset ?? 0}
           variant="panel"
           padding="none"
         >

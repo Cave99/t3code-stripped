@@ -141,6 +141,14 @@ const DEFAULT_BINDINGS = compile([
     command: "themeEditor.toggle",
   },
   {
+    shortcut: modShortcut("f"),
+    command: "chat.find",
+    whenAst: whenAnd(
+      whenNot(whenIdentifier("terminalFocus")),
+      whenNot(whenIdentifier("previewFocus")),
+    ),
+  },
+  {
     shortcut: modShortcut("m", { shiftKey: true }),
     command: "modelPicker.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
@@ -1511,6 +1519,34 @@ describe("Usage shortcuts", () => {
       resolveShortcutCommand(shortcut, DEFAULT_RESOLVED_KEYBINDINGS, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("find shortcuts", () => {
+  it("routes the shared shortcut to the focused diff and leaves terminals and previews alone", () => {
+    const chord = event({ key: "f", metaKey: true });
+    const resolve = (context: Record<string, boolean>) =>
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context,
+      });
+    assert.equal(resolve({}), "chat.find");
+    assert.equal(resolve({ diffFocus: true }), "diff.find");
+    assert.equal(resolve({ diffFocus: true, terminalFocus: true }), null);
+    assert.equal(resolve({ diffFocus: true, previewFocus: true }), null);
+  });
+
+  it("respects a custom diff find binding", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([{ key: "mod+h", command: "diff.find", when: "diffFocus" }]),
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "h", metaKey: true }), bindings, {
+        platform: "MacIntel",
+        context: { diffFocus: true },
+      }),
+      "diff.find",
     );
   });
 });

@@ -1,5 +1,8 @@
 import type { PreviewMiniPlayerFrame } from "../preview/previewMiniPlayerLayout";
 
+/** Inset of the card from the canvas edges; the find bar shares it to line up. */
+export const THREAD_DETAILS_CARD_GAP = 12;
+
 export function resolveThreadDetailsCardDensity(
   height: number,
   content: { full: number; compact: number },
@@ -15,27 +18,31 @@ export function resolveThreadDetailsCardLayout({
   chat,
   frame,
   overlapsDetailsCard = false,
+  topInset = 0,
 }: {
   container: { width: number; height: number };
   chat: { left: number; width: number };
   frame: PreviewMiniPlayerFrame | null;
   overlapsDetailsCard?: boolean;
+  /** Space taken above the card, such as the open find bar. */
+  topInset?: number;
 }) {
-  const gap = 12;
+  const gap = THREAD_DETAILS_CARD_GAP;
   const width = Math.min(312, container.width - chat.left - chat.width - gap * 2);
   if (width < 240) return null;
   const x = container.width - width - gap;
+  const y = gap + topInset;
   // Resizing consumes the height above the player. Dragging first tries to
   // clear the full card and folds it only when there is no readable placement.
   const height =
     overlapsDetailsCard && frame && frame.x + frame.width > x - gap && frame.x < x + width + gap
-      ? Math.min(container.height - gap * 2, frame.y - gap * 2)
-      : container.height - gap * 2;
+      ? Math.min(container.height - y - gap, frame.y - y - gap)
+      : container.height - y - gap;
   if (height < 160) return null;
   return {
     x,
     width,
-    y: gap,
+    y,
     height,
   } as const;
 }
