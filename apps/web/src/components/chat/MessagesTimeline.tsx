@@ -255,6 +255,7 @@ import {
   formatDayAwareTimestamp,
   formatUpcomingTimestamp,
 } from "../../timestampFormat";
+import { ToolOutputThreadLinks } from "./MarkdownThreadLink";
 import { V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
@@ -5230,7 +5231,12 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               onRollbackCheckpoint={ctx.onRollbackCheckpoint}
             />
           ) : expandedBody ? (
-            <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+            <pre className={toolCallExpandedBodyClassName}>
+              <ToolOutputThreadLinks
+                environmentId={ctx.activeThreadEnvironmentId}
+                text={expandedBody}
+              />
+            </pre>
           ) : null}
         </WorkLogDetails>
       ) : null}

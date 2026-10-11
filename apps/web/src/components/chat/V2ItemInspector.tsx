@@ -11,6 +11,7 @@ import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { Button } from "../ui/button";
 import ChatMarkdown from "../ChatMarkdown";
+import { ToolOutputThreadLinks } from "./MarkdownThreadLink";
 import { resolveExternalWebLinkHref } from "./externalLinkContextMenu";
 
 interface V2ItemInspectorProps {
@@ -26,12 +27,22 @@ interface V2ItemInspectorProps {
   }) => void;
 }
 
-function StructuredValue({ value }: { readonly value: unknown }) {
+function StructuredValue({
+  value,
+  environmentId,
+}: {
+  readonly value: unknown;
+  readonly environmentId?: EnvironmentId;
+}) {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   if (!text) return null;
   return (
     <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-2xs leading-relaxed text-muted-foreground select-text">
-      {text}
+      {environmentId ? (
+        <ToolOutputThreadLinks environmentId={environmentId} text={text ?? ""} />
+      ) : (
+        text
+      )}
     </pre>
   );
 }
@@ -159,6 +170,14 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
             Input
           </p>
           <StructuredValue value={item.input} />
+          {item.output !== undefined ? (
+            <div className="mt-2">
+              <p className="mb-1 text-3xs font-medium tracking-wide uppercase text-muted-foreground">
+                Output
+              </p>
+              <StructuredValue value={item.output} environmentId={props.environmentId} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
