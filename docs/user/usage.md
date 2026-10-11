@@ -30,6 +30,9 @@ Saved prices apply to local history. Edit rates in the table and choose **Save c
 **Reset to automatic** removes an override when you save; you can undo it before saving.
 If saving fails, reconnect and choose **Retry failed saves**.
 
+Use **Maps to** in **Model prices** to fold a preview model ID into its released model.
+Mapped usage uses the target model's prices. Clear the mapping to show the original ID again.
+
 ## Track subscription limits
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
