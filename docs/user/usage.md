@@ -10,6 +10,9 @@ cache savings, model breakdowns, and estimated API-equivalent cost by token type
 subscription bill. **Premium** is the extra cost of Fast and Ultrafast requests.
 Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
+Use the provider filter to choose which providers contribute to costs, tokens, model shares, and limits.
+Your selection is saved across visits.
+
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
 the account's home setting or its `CODEX_HOME` or `CLAUDE_CONFIG_DIR` environment
 variable. Use absolute paths or `~/` paths in the account's environment settings; relative

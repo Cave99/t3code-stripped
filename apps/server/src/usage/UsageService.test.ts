@@ -32,6 +32,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as UsageService from "./UsageService.ts";
 
+const decodeUnknownJsonString = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 function claudeLine(id: number, outputTokens: number, model = "claude-fable-5"): string {
@@ -105,9 +106,6 @@ const serviceLayers = (input: {
     Layer.provideMerge(
       Layer.succeed(HostProcessEnvironment, {
         HOME: input.home,
-        GROK_HOME: NodePath.join(input.home, "grok"),
-        OPENCODE_DATA_DIR: NodePath.join(input.home, "opencode"),
-        ANTIGRAVITY_DATA_DIR: NodePath.join(input.home, "antigravity"),
         XDG_CONFIG_HOME: NodePath.join(input.home, "config"),
         APPDATA: NodePath.join(input.home, "config"),
         ...input.environment,
@@ -155,6 +153,44 @@ function totalOutputTokens(summary: { buckets: readonly { totals: { outputTokens
 }
 
 describe("UsageService", () => {
+  it.live("returns usage before a blocked cache write and drains it before restart", () =>
+    Effect.gen(function* () {
+      const { transcript, home, settings } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+      yield* Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const writeStarted = yield* Deferred.make<void>();
+        const allowWrite = yield* Deferred.make<void>();
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(FileSystem.FileSystem, {
+            ...fs,
+            writeFileString: (filePath, contents, options) =>
+              filePath.includes("usage-scan-cache-v5.json.")
+                ? Deferred.succeed(writeStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(allowWrite)),
+                    Effect.andThen(fs.writeFileString(filePath, contents, options)),
+                  )
+                : fs.writeFileString(filePath, contents, options),
+          }),
+        );
+        yield* Effect.gen(function* () {
+          const summary = yield* service.readSummary(WINDOW);
+          yield* Deferred.await(writeStarted);
+          // The summary answered even though its durable cache cannot finish yet.
+          assert.strictEqual(totalOutputTokens(summary), 5);
+          yield* Deferred.succeed(allowWrite, undefined);
+          yield* service.awaitPersisted;
+          yield* Effect.promise(() => NodeFSP.rm(transcript));
+          const restarted = yield* UsageService.make;
+          assert.deepStrictEqual((yield* restarted.readSummary(WINDOW)).buckets, summary.buckets);
+        }).pipe(Effect.ensuring(Deferred.succeed(allowWrite, undefined)));
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(serviceLayers({ prefix: "usage-service-background-write", home, settings })),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live.each([
     { explicitDefault: true, label: "explicit" },
     { explicitDefault: false, label: "legacy" },
@@ -193,6 +229,9 @@ describe("UsageService", () => {
           const service = yield* UsageService.make;
           return yield* service.readSummary(WINDOW);
         }).pipe(
+          // Scoped inside the state directory, so pending cache writes land
+          // before it is removed.
+          Effect.scoped,
           Effect.provide(
             serviceLayers({
               prefix: "usage-managed-accounts",
@@ -398,6 +437,7 @@ describe("UsageService", () => {
             environmentProjects,
           );
         }).pipe(
+          Effect.scoped,
           Effect.provide(
             serviceLayers({
               prefix: "usage-service-home-refresh-test",
@@ -498,6 +538,7 @@ describe("UsageService", () => {
         const restored = yield* service.readSummary(WINDOW);
         assert.deepStrictEqual(restored.buckets, original.buckets);
       }).pipe(
+        Effect.scoped,
         Effect.provide(
           serviceLayers({ prefix: "usage-service-price-overrides-test", home, settings }),
         ),
@@ -552,9 +593,11 @@ describe("UsageService", () => {
             appended.buckets.reduce((sum, bucket) => sum + bucket.totals.uncachedInputTokens, 0),
             20,
           );
+          yield* service.awaitPersisted;
           const restarted = yield* UsageService.make;
           const restored = yield* restarted.readSummary(WINDOW);
           assert.deepStrictEqual(restored.buckets, appended.buckets);
+          yield* restarted.awaitPersisted;
           yield* Effect.promise(() => NodeFSP.rm(transcript));
           const afterCleanup = yield* UsageService.make;
           assert.deepStrictEqual(
@@ -562,6 +605,7 @@ describe("UsageService", () => {
             appended.buckets,
           );
         }).pipe(
+          Effect.scoped,
           Effect.provide(
             serviceLayers({
               prefix: "usage-service-large-record-test",
@@ -569,6 +613,101 @@ describe("UsageService", () => {
               settings,
               ratesDocument: {
                 "claude-fable-5": { input_cost_per_token: 1e-5, output_cost_per_token: 5e-5 },
+              },
+            }),
+          ),
+        );
+      }).pipe(Effect.scoped),
+  );
+
+  it.live(
+    "upgrades a v4 cache: reprices live Codex tiers, keeps deleted rollouts, leaves v4 intact",
+    () =>
+      Effect.gen(function* () {
+        const { home, settings } = yield* setup;
+        const sessions = NodePath.join(home, "codex", "sessions");
+        const rollout = (sessionId: string, outputTokens: number) =>
+          [
+            { type: "session_meta", payload: { id: sessionId } },
+            { type: "turn_context", payload: { model: "gpt-6-astra" } },
+            {
+              type: "event_msg",
+              payload: {
+                type: "thread_settings_applied",
+                thread_settings: { service_tier: "ultrafast" },
+              },
+            },
+            {
+              type: "event_msg",
+              timestamp: "2026-08-01T10:00:00Z",
+              payload: {
+                type: "token_count",
+                info: { last_token_usage: { input_tokens: 0, output_tokens: outputTokens } },
+              },
+            },
+          ]
+            .map((line) => encodeUnknownJsonString(line))
+            .join("\n") + "\n";
+        const live = NodePath.join(sessions, "live.jsonl");
+        const deleted = NodePath.join(sessions, "deleted.jsonl");
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(sessions, { recursive: true });
+          await NodeFSP.writeFile(live, rollout("live", 10));
+          await NodeFSP.writeFile(deleted, rollout("deleted", 20));
+        });
+
+        yield* Effect.gen(function* () {
+          const { stateDir } = yield* ServerConfig.ServerConfig;
+          const cachePath = NodePath.join(stateDir, "usage-scan-cache-v5.json");
+          const legacyPath = NodePath.join(stateDir, "usage-scan-cache.json");
+          const first = yield* UsageService.make;
+          yield* first.readSummary(WINDOW);
+          yield* first.awaitPersisted;
+
+          // Rewrite the cache as a v4 server left it: every Codex record at
+          // speed 0 (standard), and no tier in the reducer state.
+          const legacy = yield* Effect.promise(async () => {
+            const document = decodeUnknownJsonString(await NodeFSP.readFile(cachePath, "utf8")) as {
+              files: Record<string, { r: unknown[][]; cs: { speed?: unknown } }>;
+            };
+            for (const file of Object.values(document.files)) {
+              file.r = file.r.map((row) => [...row.slice(0, 10), 0]);
+              delete file.cs.speed;
+            }
+            const text = encodeUnknownJsonString({ ...document, version: 4 });
+            await NodeFSP.writeFile(legacyPath, text);
+            await NodeFSP.rm(cachePath);
+            await NodeFSP.rm(deleted);
+            return text;
+          });
+
+          const summary = yield* (yield* UsageService.make).readSummary(WINDOW);
+          // The live rollout re-parses at the ultrafast rate (10 x 6); the
+          // deleted one keeps its saved v4 usage at the standard rate (20 x 1).
+          assert.strictEqual(totalOutputTokens(summary), 30);
+          assert.strictEqual(
+            summary.buckets.reduce((sum, bucket) => sum + bucket.costUsd, 0),
+            80,
+          );
+          // A v4 server sharing this state directory still finds its own cache.
+          assert.strictEqual(
+            yield* Effect.promise(() => NodeFSP.readFile(legacyPath, "utf8")),
+            legacy,
+          );
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(
+            serviceLayers({
+              prefix: "usage-service-v4-upgrade-test",
+              home,
+              settings,
+              ratesDocument: {
+                "gpt-6-astra": {
+                  input_cost_per_token: 0,
+                  output_cost_per_token: 1,
+                  input_cost_per_token_ultrafast: 0,
+                  output_cost_per_token_ultrafast: 6,
+                },
               },
             }),
           ),
@@ -596,6 +735,7 @@ describe("UsageService", () => {
         assert.deepStrictEqual(deleted.buckets, first.buckets);
         assert.deepStrictEqual(deleted.sources, first.sources);
 
+        yield* service.awaitPersisted;
         const restarted = yield* UsageService.make;
         const restored = yield* restarted.readSummary(WINDOW);
         assert.deepStrictEqual(restored.buckets, first.buckets);
@@ -606,6 +746,7 @@ describe("UsageService", () => {
         const moved = yield* restarted.readSummary(WINDOW);
         assert.deepStrictEqual(moved.buckets, first.buckets);
         assert.strictEqual(moved.sources[0]?.distinctSessions, 1);
+        yield* restarted.awaitPersisted;
 
         const replacementProjects = NodePath.join(home, "replacement-projects");
         yield* Effect.promise(() => NodeFSP.mkdir(replacementProjects));
@@ -653,6 +794,9 @@ describe("UsageService", () => {
         assert.deepStrictEqual(outsideWindow.buckets, []);
         assert.strictEqual(outsideWindow.sources[0]?.distinctSessions, 0);
       }).pipe(
+        // Scoped inside the state directory, so pending cache writes land
+        // before it is removed.
+        Effect.scoped,
         Effect.provide(
           serviceLayers({
             prefix: "usage-service-cleanup-test",
@@ -698,9 +842,11 @@ describe("UsageService", () => {
         const saved = yield* service.readSummary(WINDOW);
         assert.deepStrictEqual(saved.buckets, live.buckets);
         assert.deepStrictEqual(saved.sources, live.sources);
+        yield* service.awaitPersisted;
         const restored = yield* (yield* UsageService.make).readSummary(WINDOW);
         assert.deepStrictEqual(restored.buckets, live.buckets);
       }).pipe(
+        Effect.scoped,
         Effect.provide(serviceLayers({ prefix: "usage-service-copy-order-test", home, settings })),
       );
     }).pipe(Effect.scoped),
@@ -732,6 +878,7 @@ describe("UsageService", () => {
           );
           assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 12);
         }).pipe(
+          Effect.scoped,
           Effect.provide(
             serviceLayers({ prefix: "usage-service-stale-read-test", home, settings }),
           ),
@@ -778,6 +925,7 @@ describe("UsageService", () => {
           );
           assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 12);
         }).pipe(
+          Effect.scoped,
           Effect.provide(serviceLayers({ prefix: "usage-service-late-read-test", home, settings })),
         );
       }).pipe(Effect.scoped),
@@ -874,6 +1022,7 @@ describe("UsageService", () => {
         assert.strictEqual(original.buckets[0]?.costUsd, 0);
         assert.closeTo(updated.buckets[0]?.costUsd ?? -1, 0.00006, 1e-12);
       }).pipe(
+        Effect.scoped,
         Effect.provide(serviceLayers({ prefix: "usage-service-price-race-test", home, settings })),
       );
     }).pipe(Effect.scoped),

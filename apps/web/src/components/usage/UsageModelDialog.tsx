@@ -20,6 +20,7 @@ import {
   cacheHitRate,
   costPerMillionTokens,
   costTypeSegments,
+  modelShare,
   speedCostSegments,
   tokenTypeSegments,
 } from "./usageBreakdown";
@@ -64,6 +65,7 @@ export function UsageModelDialog({
   const providers = useMemo(() => [model.provider], [model.provider]);
   const presentation = PROVIDER_PRESENTATION[model.provider];
   const costUnknown = isModelCostUnknown(model);
+  const share = modelShare(model, metric);
   const hitRate = cacheHitRate(model);
   const perMillion = costPerMillionTokens(model);
   const stats = [
@@ -92,7 +94,9 @@ export function UsageModelDialog({
           </div>
           <DialogDescription>
             {presentation.label}
-            {costUnknown ? "" : ` · ${formatPercent(model.costShare)} of cost`}
+            {share === null
+              ? ""
+              : ` · ${formatPercent(share)} of ${metric === "tokens" ? "tokens" : "cost"}`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

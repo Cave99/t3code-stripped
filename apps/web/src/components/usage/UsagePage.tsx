@@ -141,11 +141,18 @@ export function UsagePage() {
   );
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
-  const { merged, environments, selectedEnvironments, isPending, isPartial, refresh } = useUsage(
-    window,
-    selectedEnvironmentIds,
-    hiddenProviders,
-  );
+  const {
+    merged: answeredUsage,
+    environments,
+    selectedEnvironments,
+    shown,
+    isPartial,
+    refresh,
+  } = useUsage(window, selectedEnvironmentIds, hiddenProviders);
+  const merged = shown?.merged ?? answeredUsage;
+  const shownWindow = shown?.window ?? window;
+  const shownHourly = shownWindow.resolution === "hour";
+  const showingKept = shown !== null && shown.window !== window;
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const sourceMessages = [
     ...new Set(
@@ -154,8 +161,7 @@ export function UsagePage() {
           environment.summary?.sources.flatMap((source) =>
             source.message &&
             !hiddenProviders.has(source.fingerprint.provider) &&
-            (source.status === "partial" ||
-              source.status === "failed")
+            (source.status === "partial" || source.status === "failed")
               ? [source.message]
               : [],
           ) ?? [],
@@ -167,21 +173,21 @@ export function UsagePage() {
   });
 
   const days = useMemo(
-    () => enumerateDays(window.sinceDay, window.untilDay),
-    [window.sinceDay, window.untilDay],
+    () => enumerateDays(shownWindow.sinceDay, shownWindow.untilDay),
+    [shownWindow.sinceDay, shownWindow.untilDay],
   );
   const hours = useMemo(
     () =>
-      window.sinceTime === undefined || window.untilTime === undefined
+      shownWindow.sinceTime === undefined || shownWindow.untilTime === undefined
         ? []
-        : enumerateHourStarts(window.sinceTime, window.untilTime),
-    [window.sinceTime, window.untilTime],
+        : enumerateHourStarts(shownWindow.sinceTime, shownWindow.untilTime),
+    [shownWindow.sinceTime, shownWindow.untilTime],
   );
   // Newest first: the window can run 90 periods, so the interesting end
   // belongs at the top of the table.
   const breakdownPeriods = useMemo<readonly (DailyTotals | HourlyTotals)[]>(
-    () => (isPast24Hours ? merged.hourly : merged.daily).toReversed(),
-    [isPast24Hours, merged.daily, merged.hourly],
+    () => (shownHourly ? merged.hourly : merged.daily).toReversed(),
+    [shownHourly, merged.daily, merged.hourly],
   );
   const breakdownModels = useMemo(
     () =>
@@ -309,9 +315,9 @@ export function UsagePage() {
   }, [showingLimits, connectedLimitsEnvironments]);
 
   const windowLabel =
-    isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
-      ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
-      : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
+    shownHourly && shownWindow.sinceTime !== undefined && shownWindow.untilTime !== undefined
+      ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone)}`
+      : `${formatDayShort(shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-2 xl:flex">
       <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="col-span-2 min-w-0">
@@ -477,10 +483,16 @@ export function UsagePage() {
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
               />
-            ) : isPending ? (
+            ) : shown === null ? (
               <UsageSkeleton />
             ) : (
-              <>
+              <div
+                aria-busy={showingKept || isRefreshing}
+                className={cn(
+                  "flex flex-col gap-6 transition-opacity",
+                  showingKept && "opacity-40 delay-150",
+                )}
+              >
                 {sourceMessages.map((message) => (
                   <p key={message} className="mb-4 text-sm text-muted-foreground">
                     {message}
@@ -592,9 +604,9 @@ export function UsagePage() {
                       hours={hours}
                       hourly={merged.hourly}
                       metric={metric}
-                      referenceTime={window.untilTime}
-                      resolution={isPast24Hours ? "hour" : "day"}
-                      timeZone={window.timeZone}
+                      referenceTime={shownWindow.untilTime}
+                      resolution={shownHourly ? "hour" : "day"}
+                      timeZone={shownWindow.timeZone}
                     />
                   </div>
                 </section>
@@ -784,7 +796,7 @@ export function UsagePage() {
                             >
                               <td className="py-2 text-foreground">
                                 {"hourStart" in period
-                                  ? formatHourShort(period.hourStart, window.timeZone)
+                                  ? formatHourShort(period.hourStart, shownWindow.timeZone)
                                   : formatDayShort(period.day)}
                               </td>
                               {activeProviders.map((provider) => (
@@ -808,12 +820,12 @@ export function UsagePage() {
                     </table>
                   )}
                 </section>
-              </>
+              </div>
             )}
           </WorkspacePageContainer>
         </ScrollArea>
       </div>
-      {selectedModel !== undefined && !showingLimits ? (
+      {selectedModel !== undefined && !showingLimits && !showingKept ? (
         <UsageModelDialog
           model={selectedModel}
           environments={selectedEnvironments}
@@ -821,9 +833,9 @@ export function UsagePage() {
           chartWindow={{
             days,
             hours,
-            resolution: isPast24Hours ? "hour" : "day",
-            timeZone: window.timeZone,
-            referenceTime: window.untilTime,
+            resolution: shownHourly ? "hour" : "day",
+            timeZone: shownWindow.timeZone,
+            referenceTime: shownWindow.untilTime,
           }}
           onSetPrice={() => {
             setSelectedModelKey(null);

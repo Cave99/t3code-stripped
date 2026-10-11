@@ -242,12 +242,11 @@ export class UsageAggregator {
     return true;
   }
 
-  /** The target's own rate applies, so a provider-specific `rateModel` is dropped. */
+  /** Mapped records aggregate and price under the target model. */
   #mapModel(record: UsageRecord): UsageRecord {
     const model = this.#options.modelAliases?.get(record.model);
     if (model === undefined) return record;
-    const { rateModel: _rateModel, ...rest } = record;
-    return { ...rest, model };
+    return { ...record, model };
   }
 
   /**

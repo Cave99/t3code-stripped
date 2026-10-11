@@ -525,6 +525,19 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("replaces and clears model mappings without changing other models", () => {
+    const current = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      usageModelAliases: { preview: "released", other: "other-model" },
+    });
+    const replaced = applyServerSettingsPatch(current, {
+      usageModelAliases: { preview: "new-model" },
+    });
+    expect(replaced.usageModelAliases).toEqual({ preview: "new-model", other: "other-model" });
+    const cleared = applyServerSettingsPatch(replaced, { usageModelAliases: { preview: null } });
+    expect(cleared.usageModelAliases).toEqual({ other: "other-model" });
+    expect(current.usageModelAliases.preview).toBe("released");
+  });
+
   it("replaces and removes individual usage prices without clobbering other models", () => {
     const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
     const current = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {

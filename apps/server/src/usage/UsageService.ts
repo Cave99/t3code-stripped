@@ -8,8 +8,6 @@
  * `(size, mtime)`. A cold 30-day scan of ~1.4 GB lands around 2-3 seconds; warm
  * scans only reparse files that changed, and a file that merely grew resumes
  * from its cached parse position so only the appended bytes are read.
- * SQLite readers query live databases each scan so WAL writes remain visible.
- *
  * @module UsageService
  */
 import * as NodeOS from "node:os";
@@ -35,6 +33,8 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -44,6 +44,7 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import * as ServerConfig from "../config.ts";
+import { writeFileStringAtomically } from "../atomicWrite.ts";
 import { expandHomePath } from "../pathExpansion.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
@@ -83,8 +84,11 @@ const RATES_REFRESH_FLOOR_MS = 60 * 1000;
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
 const MAX_HOURLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** Longest window the UI offers, plus slack. Older entries are pruned. */
-const CACHE_RETENTION_DAYS = 90;
+/**
+ * The longest window the UI offers, 90 days, plus its `MTIME_SLACK_MS`, rounded
+ * up. Older entries are pruned.
+ */
+const CACHE_RETENTION_DAYS = 92;
 
 /** Transcripts parsed at once. More gains little once the disk stays busy. */
 const TRANSCRIPT_READ_CONCURRENCY = 4;
@@ -406,25 +410,46 @@ export const make = Effect.gen(function* () {
   // in one file would corrupt it.
   const persistLock = yield* Semaphore.make(1);
 
-  const persistScanCache = Effect.fn("UsageService.persistScanCache")(function* () {
-    if (!cacheDirty) return;
-    // Cleared before encoding, so a scan that changes the cache while this
-    // write is in flight marks it dirty again. A failed write restores the
-    // flag, so the next scan retries instead of leaving disk stale.
-    cacheDirty = false;
-    yield* Effect.sync(() =>
-      writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
-    ).pipe(
-      Effect.flatMap((serialized) => fileSystem.writeFileString(scanCachePath, serialized)),
-      // A cache we cannot write is a slower next start, not a failed read.
-      Effect.catchCause(() =>
-        Effect.sync(() => {
-          cacheDirty = true;
-        }),
-      ),
-      persistLock.withPermit,
-    );
-  });
+  // The dirty flag is cleared before encoding, so a change while the write is
+  // in flight marks it dirty again. A failed write restores the flag, so the
+  // next persist retries instead of leaving disk stale. A cache we cannot
+  // write is a slower next start, not a failed read.
+  const persistScanCache = Effect.gen(function* () {
+    if (cacheDirty) {
+      cacheDirty = false;
+      yield* Effect.sync(() =>
+        writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
+      ).pipe(
+        Effect.flatMap((contents) =>
+          writeFileStringAtomically({ filePath: scanCachePath, contents }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          ),
+        ),
+        Effect.catchCause(() =>
+          Effect.sync(() => {
+            cacheDirty = true;
+          }),
+        ),
+      );
+    }
+  }).pipe(persistLock.withPermit, Effect.withSpan("UsageService.persistScanCache"));
+
+  const pendingPersists = new Set<Fiber.Fiber<void>>();
+  /** Writes dirty caches in the background, after the summary that dirtied them answers. */
+  const schedulePersist = Effect.forkDetach(persistScanCache).pipe(
+    Effect.map((fiber) => {
+      pendingPersists.add(fiber);
+      fiber.addObserver(() => pendingPersists.delete(fiber));
+    }),
+  );
+  /** Waits for every write scheduled so far, as a restart would need. */
+  const awaitPersisted = Effect.suspend(() => Fiber.awaitAll([...pendingPersists])).pipe(
+    Effect.asVoid,
+  );
+  // A write still running when the service shuts down finishes first, so the
+  // next start does not lose the last scan.
+  yield* Effect.addFinalizer(() => awaitPersisted);
 
   /**
    * Parses one transcript, reusing the cached result when it is unchanged.
@@ -535,9 +560,7 @@ export const make = Effect.gen(function* () {
         scanned.push({ provider, dir, volumeId, files: null });
         continue;
       }
-      const files = yield* Effect.promise(() =>
-        listTranscriptFiles(dir, windowStartMs),
-      );
+      const files = yield* Effect.promise(() => listTranscriptFiles(dir, windowStartMs));
       // A cold parse waits on disk reads, so a few files in flight read
       // close to twice as fast. Results keep walk order.
       const read = yield* Effect.forEach(
@@ -666,7 +689,7 @@ export const make = Effect.gen(function* () {
 
     for (const [
       index,
-      { provider, dir, volumeId, files, status, message, action, hostId: sourceHostId },
+      { provider, dir, volumeId, files, status, message, hostId: sourceHostId },
     ] of scannedDirs.entries()) {
       let scannedFiles = 0;
       let skippedFiles = 0;
@@ -721,7 +744,6 @@ export const make = Effect.gen(function* () {
 
     const pruned = pruneScanCache(fileCache, retentionCutoffMs);
     if (pruned > 0) cacheDirty = true;
-    yield* persistScanCache();
 
     const aggregated = aggregator.finish();
     const readAt = yield* DateTime.now;
@@ -773,9 +795,12 @@ export const make = Effect.gen(function* () {
         inflightScans.set(key, created);
         // Detached so one departing client cannot tear the scan out from under
         // the fibers awaiting it; a finished scan warms the cache either way.
+        // The cache write is registered before the waiters resume, so they
+        // can await it, but its fiber starts after they have the summary.
         yield* scanSummary(input, settings).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => inflightScans.delete(key)).pipe(
+              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
               Effect.andThen(Deferred.done(created, exit)),
             ),
           ),
@@ -789,7 +814,9 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates } as const;
+  // `awaitPersisted` is outside the service interface: tests use it to restart
+  // against what a previous instance wrote.
+  return { readSummary, refreshRates, awaitPersisted } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

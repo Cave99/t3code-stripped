@@ -262,7 +262,7 @@ describe("UsageAggregator", () => {
       modelAliases: resolveModelAliases({ "example-preview": "claude-fable-5" }),
     });
     aggregator.add(record());
-    aggregator.add(record({ model: "example-preview", rateModel: "example-preview-high" }));
+    aggregator.add(record({ model: "example-preview" }));
     const result = aggregator.finish();
 
     expect(result.buckets).toHaveLength(1);
