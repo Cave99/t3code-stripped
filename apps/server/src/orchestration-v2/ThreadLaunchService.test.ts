@@ -557,7 +557,7 @@ it.effect.each([" /COMPACT ", "/logout"])(
     }),
 );
 
-it.effect("keeps native maintenance commands out of steering and restart messages", () =>
+it.effect("keeps native maintenance and goal commands out of steering", () =>
   Effect.gen(function* () {
     const harness = makeHarness();
     yield* Effect.gen(function* () {
@@ -565,6 +565,18 @@ it.effect("keeps native maintenance commands out of steering and restart message
       const threads = yield* ThreadManagement.ThreadManagementService;
       const outbox = yield* EffectOutbox.EffectOutboxV2;
       for (const scenario of [
+        {
+          name: "goal-steer",
+          first: "Fix the parser",
+          next: "/goal all parser tests pass",
+          mode: "steer_active",
+        },
+        {
+          name: "goal-clear-steer",
+          first: "Fix the parser",
+          next: " /goal clear ",
+          mode: "steer_active",
+        },
         {
           name: "compact-steer",
           first: "Fix the parser",
@@ -628,7 +640,11 @@ it.effect("keeps native maintenance commands out of steering and restart message
           .pipe(Effect.flip);
         assert.include(
           String(failure.cause).toLowerCase(),
-          scenario.name.includes("logout") ? "sign" : "context compaction",
+          scenario.name.includes("goal")
+            ? "goal commands"
+            : scenario.name.includes("logout")
+              ? "sign"
+              : "context compaction",
         );
         const after = yield* threads.getThreadProjection(launched.threadId);
         assert.deepEqual(after.messages, before.messages);

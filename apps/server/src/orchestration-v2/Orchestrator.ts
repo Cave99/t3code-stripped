@@ -15,6 +15,7 @@ import {
   type ChatAttachment,
   CommandId,
   isProviderNativeSubagentThread,
+  latestProviderTurnForAttempt,
   MessageId,
   type ModelSelection,
   OrchestrationV2Command,
@@ -339,6 +340,14 @@ export function isNativeMaintenanceCommand(message: {
   );
 }
 
+/** A native `/goal` command. It changes the provider's goal, so it never steers a running turn. */
+function isGoalCommand(message: {
+  readonly text: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+}): boolean {
+  return message.attachments.length === 0 && /^\/goal(?:\s|$)/u.test(message.text.trim());
+}
+
 const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
 
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
@@ -531,7 +540,7 @@ function providerTurnForRun(
   }
 
   return (
-    projection.providerTurns.find((turn) => turn.runAttemptId === run.activeAttemptId) ??
+    latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
     projection.providerTurns.find((turn) => {
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
       return attempt?.providerTurnId === turn.id;
@@ -3450,6 +3459,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : "Signing out must run as a separate turn. Queue it or wait for the active turn to finish.",
         });
       }
+      if (isGoalCommand(input)) {
+        return yield* new OrchestratorDispatchError({
+          commandId: input.command.commandId,
+          commandType: input.command.type,
+          cause:
+            "Goal commands must run as a separate turn. Queue it or wait for the active turn to finish.",
+        });
+      }
       const targetMessage = input.projection.messages.find(
         (message) => message.id === targetRun.userMessageId,
       );
@@ -4312,10 +4329,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (dispatchMode.type === "steer_active") {
         const targetRunId = dispatchMode.targetRunId;
         const target = projection.runs.find((run) => run.id === targetRunId);
-        const turn = projection.providerTurns.find(
-          (candidate) =>
-            candidate.runAttemptId === target?.activeAttemptId &&
-            candidate.nodeId === target?.rootNodeId,
+        const turn = latestProviderTurnForAttempt(
+          projection.providerTurns.filter((candidate) => candidate.nodeId === target?.rootNodeId),
+          target?.activeAttemptId,
         );
         // The client may still show a running turn while its completion is being
         // projected. Preserve the submission as a new turn when steering is too late.
@@ -5218,9 +5234,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const sourceProviderTurnId =
         sourceProjection === null || sourceRun === null || sourceRun.activeAttemptId === null
           ? undefined
-          : (sourceProjection.providerTurns.find(
-              (candidate) => candidate.runAttemptId === sourceRun.activeAttemptId,
-            )?.id ??
+          : (latestProviderTurnForAttempt(sourceProjection.providerTurns, sourceRun.activeAttemptId)
+              ?.id ??
             sourceProjection.attempts.find(
               (candidate) => candidate.id === sourceRun.activeAttemptId,
             )?.providerTurnId ??
