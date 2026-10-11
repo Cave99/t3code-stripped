@@ -179,7 +179,9 @@ the snooze. Enable **Snooze limited threads** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-Use **Agents** to follow work delegated to subagents.
+Use **Agents** to follow work delegated to subagents. Stop an active delegated
+agent or a Claude native subagent from its entry to end that agent’s work while
+its parent continues.
 
 Subagent threads started by the agent can't take messages; message the parent
 thread instead. When such a subagent needs an approval or an answer, the parent

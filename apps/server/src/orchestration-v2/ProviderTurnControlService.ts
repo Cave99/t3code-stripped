@@ -1,6 +1,7 @@
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
   MessageId,
+  type NodeId,
   ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
@@ -12,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as NodeTimersPromises from "node:timers/promises";
 
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -42,6 +44,7 @@ const isProviderTurnControlError = Schema.is(ProviderTurnControlError);
 
 export interface ProviderTurnControlServiceV2Shape {
   readonly interrupt: (input: {
+    readonly subagent?: { readonly id: NodeId; readonly nativeTaskId: string };
     readonly threadId: ThreadId;
     readonly providerSessionId: ProviderSessionId;
     readonly providerThreadId: ProviderThreadId;
@@ -176,6 +179,21 @@ export const layer: Layer.Layer<
             ? loaded.session
             : yield* sessions.get(input.providerSessionId);
           if (Option.isNone(session)) return;
+          if (input.subagent !== undefined) {
+            if (session.value.stopSubagent === undefined) {
+              return yield* new ProviderTurnControlError({
+                threadId: input.threadId,
+                operation: "interrupt",
+                providerTurnId: input.providerTurnId,
+                cause: "The provider does not support stopping a native subagent.",
+              });
+            }
+            yield* session.value.stopSubagent({
+              providerThread: loaded.providerThread,
+              nativeTaskId: input.subagent.nativeTaskId,
+            });
+            return;
+          }
           // A settled turn reaches its adapter too: only the adapter knows
           // whether it still runs work for the thread, and each one either
           // stops it or reports there is nothing left to stop. Background work
@@ -185,6 +203,19 @@ export const layer: Layer.Layer<
             providerTurnId: loaded.providerTurn.id,
             requestRuntimeRestart: true,
           });
+          // Give native terminal ingestion time to finish before the Stop
+          // follow-up repairs a run whose provider no longer reports on it.
+          const deadline = performance.now() + 2_000;
+          while (loaded.providerTurn.status === "running" && performance.now() < deadline) {
+            const current = yield* projections.getProviderControlContext(input.threadId, input);
+            if (
+              current.providerTurn?.status !== "running" &&
+              current.attempt?.status !== "running"
+            ) {
+              break;
+            }
+            yield* Effect.promise(() => NodeTimersPromises.setTimeout(10));
+          }
         }).pipe(
           Effect.mapError((cause) =>
             isProviderTurnControlError(cause)
