@@ -780,12 +780,13 @@ const make = Effect.gen(function* () {
           runId: input.runId,
         });
       }
+      // A plain interrupt, not a Stop: queued runs still proceed afterwards.
+      // Only thread.stop fans out to run.interrupt with holdQueue.
       const dispatch = yield* orchestrator.dispatch({
         type: "run.interrupt",
         commandId: input.commandId,
         threadId: input.threadId,
         runId: interruptibleRun.id,
-        holdQueue: true,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
       });
       return { type: "interrupt_requested", run: interruptibleRun, dispatch } as const;

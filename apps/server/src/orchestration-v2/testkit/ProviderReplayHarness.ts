@@ -2,6 +2,7 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
+import { CommandId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -425,6 +426,23 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         getThreadProjection: orchestrator.getThreadProjection,
         recoverDelegatedTask: orchestrator.recoverDelegatedTask,
         delegatedTaskResultPending: orchestrator.delegatedTaskResultPending,
+        // Stop ends delegated tasks the same way the live service does: each
+        // app-owned child thread gets its own stop command.
+        stopDelegatedTasks: (input) =>
+          Effect.gen(function* () {
+            const { subagents } = yield* orchestrator.getThreadRecords(input.threadId, [
+              "subagents",
+            ]);
+            for (const task of subagents) {
+              if (task.origin !== "app_owned" || task.childThreadId === null) continue;
+              yield* orchestrator.dispatch({
+                type: "thread.stop",
+                commandId: CommandId.make(`${input.commandId}:stop:${task.childThreadId}`),
+                threadId: task.childThreadId,
+                ...(input.reason === undefined ? {} : { reason: input.reason }),
+              });
+            }
+          }),
       });
     }),
   ).pipe(Layer.provide(orchestratorProvided));
