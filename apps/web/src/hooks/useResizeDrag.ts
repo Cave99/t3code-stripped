@@ -121,5 +121,12 @@ export function useResizeDrag<T extends HTMLElement>(
     onPointerUp: (event: PointerEvent<T>) => end(event, true),
     onPointerCancel: (event: PointerEvent<T>) => end(event, false),
     onLostPointerCapture: (event: PointerEvent<T>) => end(event, false),
+    // Bounds can change mid-drag (the window resized); re-clamp the active
+    // width so its painted inline width stays inside them.
+    refresh() {
+      const active = drag.current;
+      if (!active) return;
+      active.width = active.session.resize(active.width);
+    },
   };
 }
