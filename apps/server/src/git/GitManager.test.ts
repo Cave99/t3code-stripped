@@ -1236,6 +1236,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 url: "https://github.com/pingdotgg/t3code/pull/216",
                 baseRefName: "main",
                 headRefName: "feature/saved-branch",
+                headRefOid: "a".repeat(40),
                 state: "OPEN",
                 updatedAt: "2026-04-03T15:00:00Z",
               },
@@ -1255,6 +1256,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         url: "https://github.com/pingdotgg/t3code/pull/216",
         baseRef: "main",
         headRef: "feature/saved-branch",
+        headSha: "a".repeat(40),
         state: "open",
         closedAt: null,
         mergedAt: null,
@@ -1537,6 +1539,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 url: "https://github.com/pingdotgg/codething-mvp/pull/220",
                 baseRefName: "main",
                 headRefName: "feature/shared-pr-cache",
+                headRefOid: "a".repeat(40),
                 state: "MERGED",
                 updatedAt: "2026-04-07T15:00:00Z",
               },
@@ -1548,6 +1551,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 url: "https://github.com/pingdotgg/codething-mvp/pull/221",
                 baseRefName: "main",
                 headRefName: "feature/shared-pr-cache",
+                headRefOid: "b".repeat(40),
                 state: "OPEN",
                 updatedAt: "2026-04-08T15:00:00Z",
               },
@@ -1564,6 +1568,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(status.pr?.state).toBe("merged");
       expect(pullRequest?.state).toBe("merged");
+      expect(pullRequest?.headSha).toBe("a".repeat(40));
       expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(1);
       const refreshed = yield* manager.branchPullRequest(
         { cwd: repoDir, branch: "feature/shared-pr-cache" },
@@ -1572,6 +1577,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(refreshed).toMatchObject({
         number: 221,
         state: "open",
+        headSha: "b".repeat(40),
         repositoryKey: "github.com/pingdotgg/codething-mvp",
       });
       expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(2);

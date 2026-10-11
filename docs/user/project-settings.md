@@ -22,7 +22,7 @@ again.
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,
 a model-selected semantic prefix such as `feat/` or `fix/`, or custom instructions
-for the complete name. The static prefix defaults to `t3code/`; a trailing slash is
+for the complete name. The static prefix defaults to `t3/`; a trailing slash is
 optional, and an empty prefix adds nothing. Invalid characters in a static prefix
 are replaced with hyphens. Custom instructions are appended to
 the naming prompt and can specify issue IDs, namespaces, and casing.
@@ -56,6 +56,19 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Retry workspace preparation
+
+If fetching, checking out a worktree, or a blocking setup action fails, fix the cause and choose
+**Retry** on the failed preparation in the thread. T3 Code retries the original preparation and
+starts the waiting agent when it succeeds. An already-created worktree is reused.
+
+## Worktree location
+
+New worktrees go in the `worktrees` folder of the T3 home directory. To put them somewhere else,
+such as another drive, set **Settings → Storage → Worktree location** to an absolute path like
+`D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
+are, and cleanup covers both the default folder and the custom one.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on this machine. Policies are off by
@@ -68,15 +81,22 @@ captures and log retention remain machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after merging, or when they
 have no commits beyond the default branch. Only T3-managed worktrees are eligible. Active
-sessions, shared worktrees, uncommitted changes, and ignored files other than `node_modules`
-prevent removal. Branches and thread history stay; starting another turn recreates the checkout.
-Merge cleanup requires the commits to be included in the remote default branch, so squash merges
-may need the inactivity rule instead.
+sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
+to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
+files such as `.env` and build output. **Any local files** also protects ignored files other than
+`node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
+ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+Merge cleanup requires a merged pull request whose commits are included in the remote default
+branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
+branch and the worktree is still at the pull request's last commit.
 
 Enable **Delete worktrees with deleted threads** to remove safe worktrees after their last
 thread is deleted, including archived threads and worktrees left by earlier deletions. The
 server waits for sessions and terminals to stop and retries skipped worktrees after restart.
 Existing prompts for deleting a worktree manually remain available when this policy is off.
+
+Choose **Delete now** to run the enabled rules immediately. The latest results show which
+worktrees were removed or kept and why, plus any failures.
 
 Browser captures and rotated logs have separate retention periods. Expired capture links stop
 working. Current logs, message attachments, and browser profiles are kept.
