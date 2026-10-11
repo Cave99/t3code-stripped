@@ -17,13 +17,29 @@ describe("compileClaudeModelSelection", () => {
   it("compiles context, effort, and settings together", () => {
     expect(
       compileClaudeModelSelection(
-        selection("claude-fable-5", [
+        selection("claude-opus-4-6", [
           { id: "contextWindow", value: "1m" },
+          { id: "effort", value: "max" },
+          { id: "fastMode", value: true },
+        ]),
+      ),
+    ).toMatchObject({
+      apiModelId: "claude-opus-4-6[1m]",
+      effort: "max",
+      settings: { fastMode: true },
+    });
+  });
+
+  it("ignores old context-window choices for fixed 1M Claude models", () => {
+    expect(
+      compileClaudeModelSelection(
+        selection("claude-fable-5", [
+          { id: "contextWindow", value: "200k" },
           { id: "effort", value: "ultracode" },
         ]),
       ),
     ).toMatchObject({
-      apiModelId: "claude-fable-5[1m]",
+      apiModelId: "claude-fable-5",
       effort: "xhigh",
       settings: { ultracode: true },
     });
