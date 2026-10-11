@@ -56,7 +56,9 @@ export type T3McpToolSummaryAction =
   | "unlink-pr"
   | "list-prs"
   | "browser"
-  | "device";
+  | "device"
+  | "html-preview"
+  | "html-render";
 
 export interface T3McpToolDefinition {
   readonly displayName: string;
@@ -272,6 +274,8 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "attachment-discard",
   ),
   t3_thread_send_attachments: tool(["Send", "Sending", "Sent", "attachments"], "attachment-send"),
+  html_preview: tool(["Preview", "Previewing", "Previewed", "an HTML page"], "html-preview"),
+  html_render: tool(["Render", "Rendering", "Rendered", "an HTML page"], "html-render"),
 };
 
 /**
@@ -313,6 +317,12 @@ function resolveT3McpToolName(value: string): string | null {
   const prefixed = /^(?:mcp[-_]{1,2})?t3[-_ ]?code(?:__|[-_.:/ ])(?<tool>.+)$/i.exec(label);
   const candidate = prefixed?.groups?.tool ?? label;
   return Object.hasOwn(T3_MCP_TOOLS, candidate) ? candidate : null;
+}
+
+/** The bare T3 tool name (`html_render`) for any provider's spelling of it. */
+export function resolveT3McpToolId(toolName: string | null | undefined): string | null {
+  const name = toolName == null ? null : resolveT3McpToolName(toolName);
+  return name !== null && Object.hasOwn(T3_MCP_TOOLS, name) ? name : null;
 }
 
 export function resolveT3McpToolDefinition(
