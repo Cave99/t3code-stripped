@@ -6,8 +6,12 @@ Open **Usage** from the sidebar or the command palette, or press `mod+u` when th
 ## Understand your usage
 
 **Usage** combines Codex and Claude Code history on this machine. It shows token use,
-cache savings, model breakdowns, and estimated API-equivalent cost. These estimates are not your
-subscription bill.
+cache savings, model breakdowns, and estimated API-equivalent cost by token type and speed. These estimates are not your
+subscription bill. **Premium** is the extra cost of Fast and Ultrafast requests.
+Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
+
+Use the provider filter to choose which providers contribute to costs, tokens, model shares, and limits.
+Your selection is saved across visits.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
 the account's home setting or its `CODEX_HOME` or `CLAUDE_CONFIG_DIR` environment
@@ -28,6 +32,9 @@ blank; enter `0` for free tokens.
 Saved prices apply to local history. Edit rates in the table and choose **Save changes**.
 **Reset to automatic** removes an override when you save; you can undo it before saving.
 If saving fails, reconnect and choose **Retry failed saves**.
+
+Use **Maps to** in **Model prices** to fold a preview model ID into its released model.
+Mapped usage uses the target model's prices. Clear the mapping to show the original ID again.
 
 ## Track subscription limits
 

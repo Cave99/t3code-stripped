@@ -352,6 +352,23 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("persists model mappings and clears them from the settings file", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const readPersisted = fileSystem
+          .readFileString(serverConfig.settingsPath)
+          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))));
+        yield* serverSettings.updateSettings({ usageModelAliases: { preview: "released" } });
+        assert.deepStrictEqual((yield* readPersisted).usageModelAliases, { preview: "released" });
+        yield* serverSettings.updateSettings({ usageModelAliases: { preview: null } });
+        assert.deepStrictEqual((yield* readPersisted).usageModelAliases, {});
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("persists custom usage prices and removes them from the settings file", () =>
     Effect.scoped(
       Effect.gen(function* () {

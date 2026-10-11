@@ -74,7 +74,15 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart } from "./UsageProviderChart";
-import { sortModelsByTokens } from "./usageBreakdown";
+import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
+import { UsageShareBar } from "./UsageShareBar";
+import {
+  costTypeSegments,
+  modelShare,
+  sortModelsByTokens,
+  speedCostSegments,
+  tokenTypeSegments,
+} from "./usageBreakdown";
 import {
   METRIC_OPTIONS,
   WINDOW_OPTIONS,
@@ -123,21 +131,37 @@ export function UsagePage() {
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
+  const [priceDialog, setPriceDialog] = useState<{ readonly model?: string } | null>(null);
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
+  const hiddenProviders = useMemo(
+    () => new Set(preferences.hiddenProviders),
+    [preferences.hiddenProviders],
+  );
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
-  const { merged, environments, selectedEnvironments, isPending, isPartial, refresh } = useUsage(
-    window,
-    selectedEnvironmentIds,
-  );
+  const {
+    merged: answeredUsage,
+    environments,
+    selectedEnvironments,
+    shown,
+    isPartial,
+    refresh,
+  } = useUsage(window, selectedEnvironmentIds, hiddenProviders);
+  const merged = shown?.merged ?? answeredUsage;
+  const shownWindow = shown?.window ?? window;
+  const shownHourly = shownWindow.resolution === "hour";
+  const showingKept = shown !== null && shown.window !== window;
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const sourceMessages = [
     ...new Set(
       selectedEnvironments.flatMap(
         (environment) =>
           environment.summary?.sources.flatMap((source) =>
-            source.message && (source.status === "partial" || source.status === "failed")
+            source.message &&
+            !hiddenProviders.has(source.fingerprint.provider) &&
+            (source.status === "partial" || source.status === "failed")
               ? [source.message]
               : [],
           ) ?? [],
@@ -149,21 +173,21 @@ export function UsagePage() {
   });
 
   const days = useMemo(
-    () => enumerateDays(window.sinceDay, window.untilDay),
-    [window.sinceDay, window.untilDay],
+    () => enumerateDays(shownWindow.sinceDay, shownWindow.untilDay),
+    [shownWindow.sinceDay, shownWindow.untilDay],
   );
   const hours = useMemo(
     () =>
-      window.sinceTime === undefined || window.untilTime === undefined
+      shownWindow.sinceTime === undefined || shownWindow.untilTime === undefined
         ? []
-        : enumerateHourStarts(window.sinceTime, window.untilTime),
-    [window.sinceTime, window.untilTime],
+        : enumerateHourStarts(shownWindow.sinceTime, shownWindow.untilTime),
+    [shownWindow.sinceTime, shownWindow.untilTime],
   );
   // Newest first: the window can run 90 periods, so the interesting end
   // belongs at the top of the table.
   const breakdownPeriods = useMemo<readonly (DailyTotals | HourlyTotals)[]>(
-    () => (isPast24Hours ? merged.hourly : merged.daily).toReversed(),
-    [isPast24Hours, merged.daily, merged.hourly],
+    () => (shownHourly ? merged.hourly : merged.daily).toReversed(),
+    [shownHourly, merged.daily, merged.hourly],
   );
   const breakdownModels = useMemo(
     () =>
@@ -173,13 +197,24 @@ export function UsagePage() {
     [breakdown, merged.models, metric],
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
+  const selectedModel =
+    selectedModelKey === null
+      ? undefined
+      : merged.models.find((model) => `${model.provider}:${model.model}` === selectedModelKey);
+  const breakdownPeak = breakdownModels.reduce(
+    (peak, model) => Math.max(peak, metric === "tokens" ? model.totalTokens : model.costUsd),
+    0,
+  );
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
 
-  const selectWindow = (days: number) => {
-    if (!isUsageWindowDays(days)) return;
-    const nextPreferences = { metric, windowDays: days };
+  const updatePreferences = (patch: Partial<UsagePagePreferences>) => {
+    const nextPreferences = { ...preferences, ...patch };
     setPreferences(nextPreferences);
     saveUsagePagePreferences(nextPreferences);
+  };
+  const selectWindow = (days: number) => {
+    if (!isUsageWindowDays(days)) return;
+    updatePreferences({ windowDays: days });
     setWindowSelection({
       days,
       window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
@@ -187,9 +222,7 @@ export function UsagePage() {
   };
   const selectMetric = (nextMetric: UsageMetric) => {
     if (nextMetric === "limits") setLimitsNow(Date.now());
-    const nextPreferences = { metric: nextMetric, windowDays };
-    setPreferences(nextPreferences);
-    saveUsagePagePreferences(nextPreferences);
+    updatePreferences({ metric: nextMetric });
   };
   const refreshLimits = async (automatic = false, afterPending = false) => {
     try {
@@ -282,9 +315,9 @@ export function UsagePage() {
   }, [showingLimits, connectedLimitsEnvironments]);
 
   const windowLabel =
-    isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
-      ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
-      : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
+    shownHourly && shownWindow.sinceTime !== undefined && shownWindow.untilTime !== undefined
+      ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone)}`
+      : `${formatDayShort(shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-2 xl:flex">
       <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="col-span-2 min-w-0">
@@ -292,7 +325,7 @@ export function UsagePage() {
           <h1>Usage</h1>
         </WorkspaceBreadcrumbItem>
         <WorkspaceBreadcrumbSeparator />
-        <WorkspaceBreadcrumbItem current className="min-w-10">
+        <WorkspaceBreadcrumbItem className="min-w-10 shrink">
           <UsageEnvironmentFilter
             environments={environments}
             selectedEnvironments={selectedEnvironments}
@@ -302,6 +335,14 @@ export function UsagePage() {
             isPartial={isPartial}
             duplicateSources={merged.duplicateSources}
             contractMismatches={merged.contractMismatches}
+            onOpenModelPrices={() => setPriceDialog({})}
+          />
+        </WorkspaceBreadcrumbItem>
+        <WorkspaceBreadcrumbSeparator />
+        <WorkspaceBreadcrumbItem current className="min-w-10">
+          <UsageProviderFilter
+            hiddenProviders={hiddenProviders}
+            onChange={(next) => updatePreferences({ hiddenProviders: next })}
           />
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
@@ -437,11 +478,21 @@ export function UsagePage() {
                   : `Select an environment to see ${showingLimits ? "limits" : "usage"}.`}
               </p>
             ) : showingLimits ? (
-              <UsageLimitsSection selectedEnvironmentIds={selectedEnvironmentIds} now={limitsNow} />
-            ) : isPending ? (
+              <UsageLimitsSection
+                selectedEnvironmentIds={selectedEnvironmentIds}
+                hiddenProviders={hiddenProviders}
+                now={limitsNow}
+              />
+            ) : shown === null ? (
               <UsageSkeleton />
             ) : (
-              <>
+              <div
+                aria-busy={showingKept || isRefreshing}
+                className={cn(
+                  "flex flex-col gap-6 transition-opacity",
+                  showingKept && "opacity-40 delay-150",
+                )}
+              >
                 {sourceMessages.map((message) => (
                   <p key={message} className="mb-4 text-sm text-muted-foreground">
                     {message}
@@ -484,7 +535,8 @@ export function UsagePage() {
                       </span>
                     </div>
 
-                    {[...presentations].some(
+                    {!hiddenProviders.has("codex") &&
+                    [...presentations].some(
                       ([id, presentation]) =>
                         (selectedEnvironmentIds === null || selectedEnvironmentIds.has(id)) &&
                         presentation.serverConfig?.providers.some(usesChatGptSharing),
@@ -552,9 +604,9 @@ export function UsagePage() {
                       hours={hours}
                       hourly={merged.hourly}
                       metric={metric}
-                      referenceTime={window.untilTime}
-                      resolution={isPast24Hours ? "hour" : "day"}
-                      timeZone={window.timeZone}
+                      referenceTime={shownWindow.untilTime}
+                      resolution={shownHourly ? "hour" : "day"}
+                      timeZone={shownWindow.timeZone}
                     />
                   </div>
                 </section>
@@ -575,6 +627,34 @@ export function UsagePage() {
                     />
                   </div>
                 </section>
+
+                {merged.totalTokens > 0 ? (
+                  <section className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
+                    {metric === "tokens" ? (
+                      <UsageShareBar
+                        label="Tokens by type"
+                        segments={tokenTypeSegments(merged)}
+                        format={formatTokens}
+                      />
+                    ) : (
+                      <>
+                        <UsageShareBar
+                          label="Cost by type"
+                          segments={costTypeSegments(merged.categoryCost)}
+                          format={formatUsd}
+                        />
+                        {merged.speedCost.fast + merged.speedCost.ultrafast > 0 ? (
+                          <UsageShareBar
+                            label="Cost by speed"
+                            segments={speedCostSegments(merged.speedCost)}
+                            format={formatUsd}
+                            aside={<SpeedPremium premiumUsd={merged.speedCost.premium} />}
+                          />
+                        ) : null}
+                      </>
+                    )}
+                  </section>
+                ) : null}
 
                 <section className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-3">
@@ -602,55 +682,77 @@ export function UsagePage() {
                   </div>
 
                   {breakdown === "model" ? (
-                    <table className="w-full table-fixed text-sm">
-                      <colgroup>
-                        <col className="w-2/5" />
-                        <col className="w-1/5" />
-                        <col className="w-1/5" />
-                        <col className="w-1/5" />
-                      </colgroup>
+                    <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                          <th className="py-2 font-normal">Model</th>
-                          <th className="py-2 text-right font-normal">Cost</th>
-                          <th className="py-2 text-right font-normal">Share</th>
-                          <th className="py-2 text-right font-normal">Tokens</th>
+                        <tr className="border-b border-border text-right text-xs text-muted-foreground">
+                          <th className="py-2 pr-3 text-left font-normal">#</th>
+                          <th className="w-full py-2 text-left font-normal">Model</th>
+                          <th className="py-2 pl-6 font-normal">Cost</th>
+                          <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
+                          <th className="py-2 pl-6 font-normal">Tokens</th>
                         </tr>
                       </thead>
                       <tbody>
                         {breakdownModels.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                            <td colSpan={5} className="py-6 text-center text-muted-foreground">
                               No activity in this window.
                             </td>
                           </tr>
                         ) : (
-                          breakdownModels.map((model) => (
-                            <tr
-                              key={`${model.provider}:${model.model}`}
-                              className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                            >
-                              <td className="py-2 text-foreground">
-                                <span className="flex items-center gap-2">
-                                  <ProviderMark provider={model.provider} className="size-3.5" />
-                                  {model.model}
-                                </span>
-                              </td>
-                              <td className="py-2 text-right text-foreground tabular-nums">
-                                {isModelCostUnknown(model) ? (
-                                  <span className="text-muted-foreground">Unpriced</span>
-                                ) : (
-                                  formatUsd(model.costUsd)
-                                )}
-                              </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
-                                {isModelCostUnknown(model) ? "—" : formatPercent(model.costShare)}
-                              </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
-                                {formatTokens(model.totalTokens)}
-                              </td>
-                            </tr>
-                          ))
+                          breakdownModels.map((model, index) => {
+                            const key = `${model.provider}:${model.model}`;
+                            const value = metric === "tokens" ? model.totalTokens : model.costUsd;
+                            const share = modelShare(
+                              model,
+                              metric === "tokens" ? "tokens" : "cost",
+                            );
+                            return (
+                              <tr
+                                key={key}
+                                className="relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50 has-focus-visible:bg-muted/50"
+                              >
+                                <td className="py-2.5 pr-3 text-left text-xs">{index + 1}</td>
+                                <td className="py-2.5 text-left whitespace-normal">
+                                  {/* The button's overlay makes the whole row open the model.
+                                      Focus shows as the row's hover fill, not a ring. */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedModelKey(key)}
+                                    className="flex items-center gap-2 text-left text-foreground outline-none after:absolute after:inset-0"
+                                  >
+                                    <ProviderMark provider={model.provider} className="size-3.5" />
+                                    {model.model}
+                                  </button>
+                                  <div aria-hidden className="mt-1.5 h-0.5 max-w-48">
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{
+                                        // A short minimum keeps tiny shares a dash, not a dot.
+                                        width:
+                                          value > 0 && breakdownPeak > 0
+                                            ? `max(0.5rem, ${(value / breakdownPeak) * 100}%)`
+                                            : 0,
+                                        backgroundColor:
+                                          PROVIDER_PRESENTATION[model.provider].color,
+                                      }}
+                                    />
+                                  </div>
+                                </td>
+                                <td className="py-2.5 pl-6 text-foreground">
+                                  {isModelCostUnknown(model) ? (
+                                    <span className="text-muted-foreground">Unpriced</span>
+                                  ) : (
+                                    formatUsd(model.costUsd)
+                                  )}
+                                </td>
+                                <td className="hidden py-2.5 pl-6 sm:table-cell">
+                                  {share === null ? "" : formatPercent(share)}
+                                </td>
+                                <td className="py-2.5 pl-6">{formatTokens(model.totalTokens)}</td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -694,7 +796,7 @@ export function UsagePage() {
                             >
                               <td className="py-2 text-foreground">
                                 {"hourStart" in period
-                                  ? formatHourShort(period.hourStart, window.timeZone)
+                                  ? formatHourShort(period.hourStart, shownWindow.timeZone)
                                   : formatDayShort(period.day)}
                               </td>
                               {activeProviders.map((provider) => (
@@ -718,11 +820,40 @@ export function UsagePage() {
                     </table>
                   )}
                 </section>
-              </>
+              </div>
             )}
           </WorkspacePageContainer>
         </ScrollArea>
       </div>
+      {selectedModel !== undefined && !showingLimits && !showingKept ? (
+        <UsageModelDialog
+          model={selectedModel}
+          environments={selectedEnvironments}
+          metric={metric === "tokens" ? "tokens" : "cost"}
+          chartWindow={{
+            days,
+            hours,
+            resolution: shownHourly ? "hour" : "day",
+            timeZone: shownWindow.timeZone,
+            referenceTime: shownWindow.untilTime,
+          }}
+          onSetPrice={() => {
+            setSelectedModelKey(null);
+            setPriceDialog({ model: selectedModel.model });
+          }}
+          onClose={() => setSelectedModelKey(null)}
+        />
+      ) : null}
+      {priceDialog ? (
+        <UsagePriceOverrides
+          usage={environments}
+          initialSelectedEnvironmentIds={selectedEnvironmentIds}
+          initialModel={priceDialog.model}
+          onOpenChange={(open) => {
+            if (!open) setPriceDialog(null);
+          }}
+        />
+      ) : null}
     </SidebarInset>
   );
 }
@@ -809,6 +940,7 @@ function UsageEnvironmentFilter({
   isPartial,
   duplicateSources,
   contractMismatches,
+  onOpenModelPrices,
 }: {
   readonly environments: readonly EnvironmentUsageStatus[];
   readonly selectedEnvironments: readonly EnvironmentUsageStatus[];
@@ -818,8 +950,8 @@ function UsageEnvironmentFilter({
   readonly isPartial: boolean;
   readonly duplicateSources: readonly string[];
   readonly contractMismatches: MergedUsage["contractMismatches"];
+  readonly onOpenModelPrices: () => void;
 }) {
-  const [modelPricesOpen, setModelPricesOpen] = useState(false);
   const allSelected = selectedEnvironmentIds === null;
   const label = allSelected
     ? "All environments"
@@ -835,121 +967,168 @@ function UsageEnvironmentFilter({
     contractMismatches.length > 0;
 
   return (
-    <>
-      <Menu>
-        <MenuTrigger
-          render={<InlineButton />}
-          className="group/usage-environment min-w-0 max-w-full"
-        >
-          <span className="min-w-0 truncate">{label}</span>
-          <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-            {showUsageStatus && pendingCount > 0 ? (
-              <>
-                <CircleDashedIcon className="size-3.5" aria-hidden />
-                <span className="sr-only">
-                  {pendingCount} {pendingCount === 1 ? "environment" : "environments"} still
-                  scanning
-                  {isPartial ? "; totals are partial" : ""}
-                </span>
-              </>
-            ) : showUsageStatus && hasIssue ? (
-              <CircleAlertIcon
-                className="size-3.5 text-warning-foreground"
-                aria-label="Some environments could not report usage"
-              />
-            ) : (
-              <ChevronDownIcon
-                className="size-3.5 opacity-0 transition-opacity group-hover/usage-environment:opacity-100 group-focus-visible/usage-environment:opacity-100 group-data-popup-open/usage-environment:opacity-100"
-                aria-hidden
-              />
-            )}
-          </span>
-        </MenuTrigger>
-        <MenuPopup align="start">
-          <MenuCheckboxItem
-            checked={allSelected}
-            closeOnClick={false}
-            onCheckedChange={(checked) => onSelectionChange(checked ? null : new Set())}
-          >
-            All environments
-          </MenuCheckboxItem>
-          <MenuSeparator />
-          {environments.map((environment) => {
-            const checked =
-              selectedEnvironmentIds === null ||
-              selectedEnvironmentIds.has(environment.environmentId);
-            const status =
-              environment.error !== null
-                ? "Unavailable"
-                : environment.summary !== null &&
-                    !isCompatibleUsageContractVersion(
-                      environment.summary.contractVersion,
-                      USAGE_CONTRACT_VERSION,
-                    )
-                  ? "Update required"
-                  : environment.summary === null
-                    ? "Scanning…"
-                    : environment.isPending
-                      ? "Refreshing…"
-                      : "Ready";
-            return (
-              <MenuCheckboxItem
-                key={environment.environmentId}
-                checked={checked}
-                closeOnClick={false}
-                onCheckedChange={(nextChecked) => {
-                  const next = new Set(selectedEnvironments.map((entry) => entry.environmentId));
-                  if (nextChecked) next.add(environment.environmentId);
-                  else next.delete(environment.environmentId);
-                  onSelectionChange(next.size === environments.length ? null : next);
-                }}
-              >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="min-w-0 flex-1 truncate">{environment.label}</span>
-                  {showUsageStatus ? (
-                    <span
-                      className={cn(
-                        "shrink-0 text-xs text-muted-foreground",
-                        environment.error !== null && "text-destructive",
-                      )}
-                    >
-                      {status}
-                    </span>
-                  ) : null}
-                </span>
-              </MenuCheckboxItem>
-            );
-          })}
-          {environments.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-muted-foreground">No environments connected.</p>
-          ) : null}
-          {showUsageStatus && isPartial ? (
-            <p className="px-2 py-2 text-xs text-muted-foreground">
-              Totals are partial while selected environments scan.
-            </p>
-          ) : null}
-          {showUsageStatus ? (
-            <UsageCoverageNotice
-              environments={selectedEnvironments}
-              duplicateSources={duplicateSources}
-              contractMismatches={contractMismatches}
+    <Menu>
+      <MenuTrigger render={<InlineButton />} className="group/usage-environment min-w-0 max-w-full">
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+          {showUsageStatus && pendingCount > 0 ? (
+            <>
+              <CircleDashedIcon className="size-3.5" aria-hidden />
+              <span className="sr-only">
+                {pendingCount} {pendingCount === 1 ? "environment" : "environments"} still scanning
+                {isPartial ? "; totals are partial" : ""}
+              </span>
+            </>
+          ) : showUsageStatus && hasIssue ? (
+            <CircleAlertIcon
+              className="size-3.5 text-warning-foreground"
+              aria-label="Some environments could not report usage"
             />
-          ) : null}
-          <MenuSeparator />
-          <MenuItem onClick={() => setModelPricesOpen(true)}>
-            <SlidersHorizontalIcon aria-hidden />
-            Model prices
-          </MenuItem>
-        </MenuPopup>
-      </Menu>
-      {modelPricesOpen ? (
-        <UsagePriceOverrides
-          usage={environments}
-          initialSelectedEnvironmentIds={selectedEnvironmentIds}
-          onOpenChange={setModelPricesOpen}
+          ) : (
+            <ChevronDownIcon
+              className="size-3.5 opacity-0 transition-opacity group-hover/usage-environment:opacity-100 group-focus-visible/usage-environment:opacity-100 group-data-popup-open/usage-environment:opacity-100"
+              aria-hidden
+            />
+          )}
+        </span>
+      </MenuTrigger>
+      <MenuPopup align="start">
+        <MenuCheckboxItem
+          checked={allSelected}
+          closeOnClick={false}
+          onCheckedChange={(checked) => onSelectionChange(checked ? null : new Set())}
+        >
+          All environments
+        </MenuCheckboxItem>
+        <MenuSeparator />
+        {environments.map((environment) => {
+          const checked =
+            selectedEnvironmentIds === null ||
+            selectedEnvironmentIds.has(environment.environmentId);
+          const status =
+            environment.error !== null
+              ? "Unavailable"
+              : environment.summary !== null &&
+                  !isCompatibleUsageContractVersion(
+                    environment.summary.contractVersion,
+                    USAGE_CONTRACT_VERSION,
+                  )
+                ? "Update required"
+                : environment.summary === null
+                  ? "Scanning…"
+                  : environment.isPending
+                    ? "Refreshing…"
+                    : "Ready";
+          return (
+            <MenuCheckboxItem
+              key={environment.environmentId}
+              checked={checked}
+              closeOnClick={false}
+              onCheckedChange={(nextChecked) => {
+                const next = new Set(selectedEnvironments.map((entry) => entry.environmentId));
+                if (nextChecked) next.add(environment.environmentId);
+                else next.delete(environment.environmentId);
+                onSelectionChange(next.size === environments.length ? null : next);
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="min-w-0 flex-1 truncate">{environment.label}</span>
+                {showUsageStatus ? (
+                  <span
+                    className={cn(
+                      "shrink-0 text-xs text-muted-foreground",
+                      environment.error !== null && "text-destructive",
+                    )}
+                  >
+                    {status}
+                  </span>
+                ) : null}
+              </span>
+            </MenuCheckboxItem>
+          );
+        })}
+        {environments.length === 0 ? (
+          <p className="px-2 py-2 text-xs text-muted-foreground">No environments connected.</p>
+        ) : null}
+        {showUsageStatus && isPartial ? (
+          <p className="px-2 py-2 text-xs text-muted-foreground">
+            Totals are partial while selected environments scan.
+          </p>
+        ) : null}
+        {showUsageStatus ? (
+          <UsageCoverageNotice
+            environments={selectedEnvironments}
+            duplicateSources={duplicateSources}
+            contractMismatches={contractMismatches}
+          />
+        ) : null}
+        <MenuSeparator />
+        <MenuItem onClick={onOpenModelPrices}>
+          <SlidersHorizontalIcon aria-hidden />
+          Model prices
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+/** Provider visibility shared by every tab. Stored as the hidden set. */
+function UsageProviderFilter({
+  hiddenProviders,
+  onChange,
+}: {
+  readonly hiddenProviders: ReadonlySet<UsageProviderKind>;
+  readonly onChange: (hiddenProviders: readonly UsageProviderKind[]) => void;
+}) {
+  const visible = PROVIDER_ORDER.filter((provider) => !hiddenProviders.has(provider));
+  const label =
+    visible.length === PROVIDER_ORDER.length
+      ? "All providers"
+      : visible.length === 0
+        ? "No providers"
+        : visible.length === 1
+          ? PROVIDER_PRESENTATION[visible[0]!].label
+          : `${visible.length} providers`;
+
+  return (
+    <Menu>
+      <MenuTrigger render={<InlineButton />} className="group/usage-provider min-w-0 max-w-full">
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDownIcon
+          className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/usage-provider:opacity-100 group-focus-visible/usage-provider:opacity-100 group-data-popup-open/usage-provider:opacity-100"
+          aria-hidden
         />
-      ) : null}
-    </>
+      </MenuTrigger>
+      <MenuPopup align="start">
+        <MenuCheckboxItem
+          checked={hiddenProviders.size === 0}
+          closeOnClick={false}
+          onCheckedChange={(checked) => onChange(checked ? [] : PROVIDER_ORDER)}
+        >
+          All providers
+        </MenuCheckboxItem>
+        <MenuSeparator />
+        {PROVIDER_ORDER.map((provider) => (
+          <MenuCheckboxItem
+            key={provider}
+            checked={!hiddenProviders.has(provider)}
+            closeOnClick={false}
+            onCheckedChange={(checked) =>
+              onChange(
+                PROVIDER_ORDER.filter((entry) =>
+                  entry === provider ? !checked : hiddenProviders.has(entry),
+                ),
+              )
+            }
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <ProviderMark provider={provider} className="size-3.5" />
+              <span className="truncate">{PROVIDER_PRESENTATION[provider].label}</span>
+            </span>
+          </MenuCheckboxItem>
+        ))}
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -993,15 +1172,16 @@ function UsageSkeleton() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
-          {["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"].map(
-            (label) => (
-              <div key={label} className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <Skeleton className="h-6 w-16" />
-              </div>
-            ),
-          )}
+        <MetricSkeletons
+          labels={["Processed tokens", "Cached input", "Uncached input", "Output", "Cache savings"]}
+        />
+      </section>
+
+      <section className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
+        <div className="flex flex-col gap-2.5">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-2" />
+          <Skeleton className="h-4 w-72" />
         </div>
       </section>
 
@@ -1013,5 +1193,18 @@ function UsageSkeleton() {
         <Skeleton className="h-44" />
       </section>
     </>
+  );
+}
+
+function MetricSkeletons({ labels }: { readonly labels: readonly string[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+      {labels.map((label) => (
+        <div key={label} className="flex flex-col gap-0.5">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <Skeleton className="h-6 w-16" />
+        </div>
+      ))}
+    </div>
   );
 }
