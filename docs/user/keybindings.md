@@ -11,11 +11,12 @@ inserts a new line. This applies to the composer.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
 `mod+Enter` to do the opposite for one message, even when the send shortcut
-requires a modifier. In a new thread, `mod+Alt+Enter` starts the thread in the
-background and opens a fresh composer. Change either shortcut in
-**Settings → Keybindings** under **Composer: Opposite Queue or Steer Action** or
-**Composer: Start in Background**. These bindings take priority over the send
-shortcut. Click the send button to use the configured follow-up behavior.
+requires a modifier. `mod+Alt+Enter` sends, keeps that thread running in the
+background, and opens a fresh new-thread composer. Change these
+shortcuts in **Settings → Keybindings** under **Composer: Opposite Queue or
+Steer Action**, **Composer: Start in Background**, or **Composer: Send and Start
+New Thread**. These bindings take priority over the send shortcut. Click the
+send button to use the configured follow-up behavior.
 
 When an active turn has queued messages, `mod+Shift+Enter` sends the first as a
 steer. Change it under **Queue: Send First Queued Message as Steer** in Keybindings.
@@ -140,6 +141,13 @@ In the desktop app, `mod+w` closes the focused terminal or the active right-pane
 tab. When nothing remains to close, it closes the window. In a browser, `mod+w`
 closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
+
+`mod+shift+t` reopens the last closed tab across the app, including files,
+diffs, pull requests, and browsers, in the order you closed them.
+A browser opens in a fresh session without its old page history. Incognito tabs
+can reopen until you reload or quit the app. This shortcut does not undo deleted work.
+Browsers also use it to reopen browser tabs; choose another binding in Settings
+if the browser takes it first.
 
 Many defaults include `!terminalFocus` so they do not intercept terminal input.
 Keep that condition when remapping them if you want the same behavior.

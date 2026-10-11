@@ -1036,6 +1036,42 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("serves a native macOS app icon as its embedded PNG", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-favicon-icns-",
+      });
+      const screenshotPng = Uint8Array.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0,
+        0x01, 0x00, 0, 0, 0x01, 0x00,
+      ]);
+      const icns = new Uint8Array(8 + 8 + screenshotPng.length);
+      icns.set(new TextEncoder().encode("icns"));
+      new DataView(icns.buffer).setUint32(4, icns.length);
+      icns.set(new TextEncoder().encode("ic07"), 8);
+      new DataView(icns.buffer).setUint32(12, 8 + screenshotPng.length);
+      icns.set(screenshotPng, 16);
+      yield* fileSystem.makeDirectory(path.join(root, "Resources"));
+      yield* fileSystem.writeFile(path.join(root, "Resources", "AppIcon.icns"), icns);
+
+      const result = yield* issueAssetUrl({
+        resource: { _tag: "project-favicon", cwd: root },
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+
+      expect(result.sourcePath).toBe(path.join("Resources", "AppIcon.icns"));
+      const asset = yield* resolveAsset(
+        suffix.slice(0, separatorIndex),
+        suffix.slice(separatorIndex + 1),
+      );
+      expect(asset?.kind === "bytes" ? asset.mimeType : null).toBe("image/png");
+      expect(asset?.kind === "bytes" ? Uint8Array.from(asset.bytes) : null).toEqual(screenshotPng);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("rejects a resolved project favicon with a non-image extension", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
