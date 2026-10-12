@@ -30,7 +30,7 @@ chmod +x "$kit/bin/pnpm"
 
 # Electron fetches its runtime on first require, not at install. Fetch it here
 # so the kit carries it.
-electron=$(cd apps/desktop && node -p "require('electron')")
+electron=$(cd apps/desktop && node -p "require('electron')" | tail -n 1)
 if [ ! -x "$electron" ]; then
   echo "Electron runtime missing at $electron" >&2
   exit 1
