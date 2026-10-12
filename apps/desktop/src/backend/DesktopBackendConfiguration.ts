@@ -237,7 +237,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
           ? {
               T3CODE_PREVIEW_BROWSER: environment.path.join(
                 environment.resourcesPath,
-                "chrome-headless-shell",
+                "preview-browser",
                 environment.platform === "win32"
                   ? "chrome-headless-shell.exe"
                   : "chrome-headless-shell",

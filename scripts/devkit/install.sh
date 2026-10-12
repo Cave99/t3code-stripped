@@ -75,7 +75,7 @@ export PATH="$root/.devkit/bin:\$PATH"
 export pnpm_config_verify_deps_before_run=false
 export pnpm_config_pm_on_fail=ignore
 export ELECTRON_SKIP_BINARY_DOWNLOAD=1
-export T3CODE_PREVIEW_BROWSER="$root/.devkit/chrome-headless-shell/chrome-headless-shell"
+export T3CODE_PREVIEW_BROWSER="$root/.devkit/preview-browser/chrome-headless-shell"
 EOF
 
 # Git hooks are a convenience; skip them quietly if this fails.

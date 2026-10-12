@@ -430,8 +430,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!apps/desktop/prod-resources/windows-server/**/*",
       "!apps/desktop/gnome-extension",
       "!apps/desktop/gnome-extension/**/*",
-      "!apps/desktop/prod-resources/chrome-headless-shell",
-      "!apps/desktop/prod-resources/chrome-headless-shell/**/*",
+      "!apps/desktop/prod-resources/preview-browser",
+      "!apps/desktop/prod-resources/preview-browser/**/*",
     ]);
     assert.equal(WINDOWS_SERVER_RESOURCE_SOURCE_DIR, "apps/desktop/prod-resources/windows-server");
     assert.deepStrictEqual(WINDOWS_SERVER_EXTRA_RESOURCES, [

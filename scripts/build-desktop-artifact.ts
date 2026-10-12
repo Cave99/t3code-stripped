@@ -839,8 +839,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/prod-resources/windows-server/**/*",
   "!apps/desktop/gnome-extension",
   "!apps/desktop/gnome-extension/**/*",
-  "!apps/desktop/prod-resources/chrome-headless-shell",
-  "!apps/desktop/prod-resources/chrome-headless-shell/**/*",
+  "!apps/desktop/prod-resources/preview-browser",
+  "!apps/desktop/prod-resources/preview-browser/**/*",
 ] as const;
 // Windows terminal helpers cannot run on macOS and slow signing and notarization.
 export const MAC_FILE_EXCLUSIONS = [
@@ -923,18 +923,19 @@ export const DESKTOP_EXTRA_RESOURCES = [
     to: "resource-monitor",
   },
 ] as const;
-// Bundled so HTML previews never download a browser at runtime. Universal Mac
-// builds would need both architectures' browsers merged, so they keep the
-// runtime download instead.
 const NODE_PLATFORMS = {
   mac: "darwin",
   linux: "linux",
   win: "win32",
 } as const satisfies Record<typeof BuildPlatform.Type, NodeJS.Platform>;
+// Bundled so HTML previews never download a browser at runtime. Universal Mac
+// builds would need both architectures' browsers merged, so they keep the
+// runtime download instead. The directory must not share the executable's
+// name: codesign then takes it for a bundle and refuses to sign the binary.
 export const PREVIEW_BROWSER_EXTRA_RESOURCES = [
   {
-    from: "apps/desktop/prod-resources/chrome-headless-shell",
-    to: "chrome-headless-shell",
+    from: "apps/desktop/prod-resources/preview-browser",
+    to: "preview-browser",
   },
 ] as const;
 export const LINUX_CAPTURE_EXTRA_RESOURCES = [
@@ -2938,7 +2939,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   if (options.arch !== "universal") {
     yield* Effect.log("[desktop-artifact] Staging HTML preview browser...");
     yield* fetchPreviewBrowser({
-      destination: path.join(stageProdResourcesDir, "chrome-headless-shell"),
+      destination: path.join(stageProdResourcesDir, "preview-browser"),
       platform: NODE_PLATFORMS[options.platform],
       arch: options.arch,
     });

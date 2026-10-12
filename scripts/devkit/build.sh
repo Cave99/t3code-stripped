@@ -37,7 +37,7 @@ if [ ! -x "$electron" ]; then
 fi
 
 # HTML previews run this instead of downloading a browser at runtime.
-node scripts/fetch-preview-browser.ts "$kit/chrome-headless-shell" >/dev/null
+node scripts/fetch-preview-browser.ts "$kit/preview-browser" >/dev/null
 
 lockfile_sha=$(shasum -a 256 pnpm-lock.yaml | cut -d' ' -f1)
 cat >"$kit/manifest" <<EOF
