@@ -26,6 +26,7 @@ import {
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
+  PREVIEW_BROWSER_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
   MAC_FILE_EXCLUSIONS,
   UnsupportedDesktopBuildArchitectureError,
@@ -429,6 +430,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!apps/desktop/prod-resources/windows-server/**/*",
       "!apps/desktop/gnome-extension",
       "!apps/desktop/gnome-extension/**/*",
+      "!apps/desktop/prod-resources/chrome-headless-shell",
+      "!apps/desktop/prod-resources/chrome-headless-shell/**/*",
     ]);
     assert.equal(WINDOWS_SERVER_RESOURCE_SOURCE_DIR, "apps/desktop/prod-resources/windows-server");
     assert.deepStrictEqual(WINDOWS_SERVER_EXTRA_RESOURCES, [
@@ -454,15 +457,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(linux, "asarUnpack");
       assert.deepStrictEqual(win.asar, { smartUnpack: false });
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
-      assert.deepStrictEqual(mac.extraResources, DESKTOP_EXTRA_RESOURCES);
+      assert.deepStrictEqual(mac.extraResources, [
+        ...DESKTOP_EXTRA_RESOURCES,
+        ...PREVIEW_BROWSER_EXTRA_RESOURCES,
+      ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
+        ...PREVIEW_BROWSER_EXTRA_RESOURCES,
         ...LINUX_CAPTURE_EXTRA_RESOURCES,
       ]);
       assert.deepStrictEqual(win.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
+        ...PREVIEW_BROWSER_EXTRA_RESOURCES,
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
       ]);
+      // A universal app would need both architectures' browsers merged, so it
+      // downloads one at runtime instead.
+      const universal = yield* createBuildConfig("mac", "dmg", "1.2.3", false, "universal");
+      assert.deepStrictEqual(universal.extraResources, DESKTOP_EXTRA_RESOURCES);
       assert.deepStrictEqual(win.nsis, { differentialPackage: true });
       // The Claude SDK platform packages and .bin shims never ship.
       assert.deepStrictEqual(WINDOWS_SERVER_ASAR_IGNORE_GLOBS, [

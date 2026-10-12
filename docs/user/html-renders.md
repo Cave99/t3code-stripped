@@ -6,7 +6,7 @@ Pages use your current theme, including custom themes, and follow light and dark
 
 Agents can place local images in a page by file path. C3 Code embeds them when the page is published, so the page keeps working after the original files move or are deleted. Deleting the thread deletes its pages.
 
-Before publishing, agents check their work with screenshots from a small headless browser that C3 Code keeps for itself; it never uses a browser you installed. The first preview on a machine downloads it once (about 120 MB) into C3 Code's data folder, so that preview can take a minute. Pages publish without it.
+Before publishing, agents check their work with screenshots from a small headless browser that C3 Code keeps for itself; it never uses a browser you installed. It ships with the app, so previews work without a network download. Pages publish without it.
 
 ## MCP apps
 

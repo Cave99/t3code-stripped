@@ -1,9 +1,9 @@
 #!/bin/sh
 # Packs this checkout's installed dependencies into an offline dev kit:
 # every workspace node_modules (with Electron's runtime and native modules
-# already built), plus the Node and pnpm that installed them, so their
-# versions and native ABIs match. Run after `pnpm install` on the platform the
-# kit targets. Usage: scripts/devkit/build.sh <output.zip>
+# already built), the Node and pnpm that installed them, so their versions and
+# native ABIs match, and the HTML preview browser. Run after `pnpm install` on
+# the platform the kit targets. Usage: scripts/devkit/build.sh <output.zip>
 set -eu
 
 output=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -35,6 +35,9 @@ if [ ! -x "$electron" ]; then
   echo "Electron runtime missing at $electron" >&2
   exit 1
 fi
+
+# HTML previews run this instead of downloading a browser at runtime.
+node scripts/fetch-preview-browser.ts "$kit/chrome-headless-shell" >/dev/null
 
 lockfile_sha=$(shasum -a 256 pnpm-lock.yaml | cut -d' ' -f1)
 cat >"$kit/manifest" <<EOF

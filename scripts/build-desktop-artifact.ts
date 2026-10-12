@@ -21,6 +21,7 @@ import gnomeCaptureBundle from "../apps/desktop/gnome-extension/bundle.json" wit
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
+import { fetchPreviewBrowser } from "./fetch-preview-browser.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import {
@@ -838,6 +839,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/prod-resources/windows-server/**/*",
   "!apps/desktop/gnome-extension",
   "!apps/desktop/gnome-extension/**/*",
+  "!apps/desktop/prod-resources/chrome-headless-shell",
+  "!apps/desktop/prod-resources/chrome-headless-shell/**/*",
 ] as const;
 // Windows terminal helpers cannot run on macOS and slow signing and notarization.
 export const MAC_FILE_EXCLUSIONS = [
@@ -918,6 +921,20 @@ export const DESKTOP_EXTRA_RESOURCES = [
   {
     from: "apps/desktop/prod-resources/resource-monitor",
     to: "resource-monitor",
+  },
+] as const;
+// Bundled so HTML previews never download a browser at runtime. Universal Mac
+// builds would need both architectures' browsers merged, so they keep the
+// runtime download instead.
+const NODE_PLATFORMS = {
+  mac: "darwin",
+  linux: "linux",
+  win: "win32",
+} as const satisfies Record<typeof BuildPlatform.Type, NodeJS.Platform>;
+export const PREVIEW_BROWSER_EXTRA_RESOURCES = [
+  {
+    from: "apps/desktop/prod-resources/chrome-headless-shell",
+    to: "chrome-headless-shell",
   },
 ] as const;
 export const LINUX_CAPTURE_EXTRA_RESOURCES = [
@@ -2129,6 +2146,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       : {}),
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(arch === "universal" ? [] : PREVIEW_BROWSER_EXTRA_RESOURCES),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
     ],
@@ -2917,6 +2935,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
+  if (options.arch !== "universal") {
+    yield* Effect.log("[desktop-artifact] Staging HTML preview browser...");
+    yield* fetchPreviewBrowser({
+      destination: path.join(stageProdResourcesDir, "chrome-headless-shell"),
+      platform: NODE_PLATFORMS[options.platform],
+      arch: options.arch,
+    });
+  }
 
   // Windows splits dependencies per process: app.asar carries only the
   // desktop main-process externals, while the server bundle's externals live

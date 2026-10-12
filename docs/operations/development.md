@@ -28,8 +28,8 @@ pnpm dev
 
 `scripts/devkit/install.sh path/to/c3-devkit-darwin-arm64.zip` installs a kit downloaded from a
 release instead. The kit contains every workspace `node_modules` from a CI install, including
-Electron's runtime, plus the Node and pnpm that produced it. It also turns off pnpm's
-verify-before-run check, which would otherwise reach the registry. The kit must match
+Electron's runtime, the Node and pnpm that produced it, and the HTML preview browser. It also
+turns off pnpm's verify-before-run check, which would otherwise reach the registry. The kit must match
 `pnpm-lock.yaml`: `.github/workflows/devkit.yml` rebuilds it when dependencies change on `main`, and
 the installer refuses a mismatched kit unless given `--force`. Do not run `pnpm install` with the
 kit; there is no package store to install from.

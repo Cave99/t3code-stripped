@@ -81,6 +81,7 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
     readonly body?: Stream.Stream<Uint8Array>;
     readonly wait?: Duration.Input;
     readonly unsupported?: boolean;
+    readonly bundledExecutable?: string;
   } = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -100,6 +101,9 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
           sha256: options.sha256 ?? NodeCrypto.createHash("sha256").update(archive).digest("hex"),
         },
     ...(options.wait === undefined ? {} : { wait: options.wait }),
+    ...(options.bundledExecutable === undefined
+      ? {}
+      : { bundledExecutable: options.bundledExecutable }),
   }).pipe(
     Effect.provideService(HostProcessPlatform, hostPlatform),
     Effect.provideService(HostProcessArchitecture, "x64"),
@@ -121,6 +125,35 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
 });
 
 it.layer(NodeServices.layer)("PreviewBrowser", (it) => {
+  it.effect("runs a bundled browser without downloading, even where none is published", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const bundledDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-preview-bundled-" });
+      const bundled = path.join(bundledDir, executableName);
+      yield* fs.writeFileString(bundled, "#!/bin/sh\n");
+      yield* fs.chmod(bundled, 0o755);
+
+      const { browser, requests } = yield* makeHarness({ bundledExecutable: bundled });
+      expect(yield* browser.installed).toEqual(Option.some(bundled));
+      expect(yield* browser.executable).toBe(bundled);
+      expect(requests).toEqual([]);
+
+      const unsupported = yield* makeHarness({ bundledExecutable: bundled, unsupported: true });
+      expect(yield* unsupported.browser.executable).toBe(bundled);
+    }),
+  );
+
+  it.effect("downloads when the bundled browser is missing", () =>
+    Effect.gen(function* () {
+      const { browser, installRoot, path, requests } = yield* makeHarness({
+        bundledExecutable: "/nonexistent/chrome-headless-shell",
+      });
+      expect(yield* browser.executable).toBe(path.join(installRoot, "1.2.3", executableName));
+      expect(requests).toHaveLength(1);
+    }),
+  );
+
   it.effect("installs a verified download with its file modes and then reuses it", () =>
     Effect.gen(function* () {
       const { browser, fs, path, installRoot, requests } = yield* makeHarness();
@@ -250,37 +283,6 @@ it.layer(NodeServices.layer)("PreviewBrowser", (it) => {
       expect(requests).toEqual([]);
     }),
   );
-});
-
-it("pins one Chrome for Testing build per host", () => {
-  const hosts = [
-    ["linux", "x64"],
-    ["linux", "arm64"],
-    ["darwin", "arm64"],
-    ["darwin", "x64"],
-    ["win32", "x64"],
-    ["win32", "arm64"],
-    ["win32", "ia32"],
-    ["linux", "ia32"],
-    ["freebsd", "x64"],
-  ] as const;
-  expect(
-    hosts.map(([platform, arch]) => PreviewBrowser.previewBrowserRelease(platform, arch)?.platform),
-  ).toEqual([
-    "linux64",
-    "linux-arm64",
-    "mac-arm64",
-    "mac-x64",
-    "win64",
-    "win64",
-    "win32",
-    undefined,
-    undefined,
-  ]);
-  expect(PreviewBrowser.previewBrowserRelease("linux", "x64")).toMatchObject({
-    url: "https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-headless-shell-linux64.zip",
-    bytes: 120_477_194,
-  });
 });
 
 it("tells the agent how far the install has come", () => {

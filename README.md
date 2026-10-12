@@ -18,9 +18,7 @@ An Electron desktop app for Codex and Claude Code, with a bundled local backend.
 Local operation does not mean offline. Remaining outbound calls include the official provider
 CLIs and GitHub integration, daily LiteLLM prices from `raw.githubusercontent.com`, Google link
 favicons, Open VSX theme search and downloads, Homebrew update checks, Codex reset credits,
-and managed Codex binary downloads from GitHub. The first inline HTML preview downloads a
-pinned, SHA-256-checked Chrome from `storage.googleapis.com`; preview tabs can visit arbitrary
-URLs. See [STRIPPED.md](STRIPPED.md#remaining-cleanup) for details and remaining work.
+and managed Codex binary downloads from GitHub. Preview tabs can visit arbitrary URLs. See [STRIPPED.md](STRIPPED.md#remaining-cleanup) for details and remaining work.
 
 ## Install
 

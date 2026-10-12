@@ -69,11 +69,13 @@ fi
 
 cat >.devkit/env.sh <<EOF
 # Puts the dev kit's Node and pnpm first on PATH. pnpm would otherwise verify
-# (and re-link) dependencies before each run, which needs the registry.
+# (and re-link) dependencies before each run, which needs the registry. HTML
+# previews use the kit's browser instead of downloading one.
 export PATH="$root/.devkit/bin:\$PATH"
 export pnpm_config_verify_deps_before_run=false
 export pnpm_config_pm_on_fail=ignore
 export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+export T3CODE_PREVIEW_BROWSER="$root/.devkit/chrome-headless-shell/chrome-headless-shell"
 EOF
 
 # Git hooks are a convenience; skip them quietly if this fails.

@@ -231,6 +231,19 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       env: {
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
+        // The build bundles the HTML preview browser; the server falls back to
+        // downloading it when this path holds nothing runnable.
+        ...(environment.isPackaged
+          ? {
+              T3CODE_PREVIEW_BROWSER: environment.path.join(
+                environment.resourcesPath,
+                "chrome-headless-shell",
+                environment.platform === "win32"
+                  ? "chrome-headless-shell.exe"
+                  : "chrome-headless-shell",
+              ),
+            }
+          : {}),
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       bootstrap,
