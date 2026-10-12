@@ -2,9 +2,9 @@ name: Release macOS
 
 # Pushing a `c3-v*` tag builds a self-contained C3 Code.app (Electron, the
 # server bundle, and its native modules) for both Mac architectures and
-# attaches the DMGs to a GitHub release. The prefix keeps upstream's `v*` tags,
-# which local clones carry, from ever publishing here. Running it by hand
-# builds the same artifacts without publishing them.
+# attaches the DMGs and the offline dev kit to a GitHub release. The prefix
+# keeps upstream's `v*` tags, which local clones carry, from ever publishing
+# here. Running it by hand builds the same artifacts without publishing them.
 #
 # Builds are signed ad hoc, not with a Developer ID, so the first launch needs
 # the Gatekeeper step in docs/user/install.md.
@@ -85,9 +85,15 @@ jobs:
             release/*.zip
           if-no-files-found: error
 
+  devkit:
+    name: Dev kit
+    uses: ./.github/workflows/devkit.yml
+    permissions:
+      contents: write
+
   publish:
     name: Publish release
-    needs: build
+    needs: [build, devkit]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:

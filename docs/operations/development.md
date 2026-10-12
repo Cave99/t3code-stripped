@@ -15,6 +15,28 @@ the server straight from `apps/server/src/bin.ts` with the host `node`, so nothi
 `packages/shared/src` and restarts on changes. `pnpm dev:server` and `pnpm dev:web` start those
 processes separately; the web app is only the Electron renderer and is not served on its own.
 
+### Offline dev kit
+
+On an Apple Silicon Mac that can clone from GitHub but cannot install npm packages or download
+Electron, install the prebuilt dev kit instead of running `pnpm install`:
+
+```sh
+scripts/devkit/install.sh          # fetches the devkit branch over git
+source .devkit/env.sh              # in every new shell
+pnpm dev
+```
+
+`scripts/devkit/install.sh path/to/c3-devkit-darwin-arm64.zip` installs a kit downloaded from a
+release instead. The kit contains every workspace `node_modules` from a CI install, including
+Electron's runtime, plus the Node and pnpm that produced it. It also turns off pnpm's
+verify-before-run check, which would otherwise reach the registry. The kit must match
+`pnpm-lock.yaml`: `.github/workflows/devkit.yml` rebuilds it when dependencies change on `main`, and
+the installer refuses a mismatched kit unless given `--force`. Do not run `pnpm install` with the
+kit; there is no package store to install from.
+
+The `devkit` branch holds about 500 MB of zip parts in a single, force-pushed commit. A plain
+`git clone` downloads it too; others can use `git clone --single-branch`.
+
 ### State and ports
 
 Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set. The main

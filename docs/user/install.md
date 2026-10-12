@@ -32,6 +32,9 @@ pnpm dev
 `pnpm dev` starts the renderer and Electron, which spawns the server from source. See the
 [development runbook](../operations/development.md) for state locations and checks.
 
+On an Apple Silicon Mac that cannot install npm packages or Electron, use the
+[offline dev kit](../operations/development.md#offline-dev-kit) instead of `pnpm install`.
+
 ## Build a desktop app
 
 ```bash
