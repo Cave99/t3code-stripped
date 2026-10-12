@@ -28,6 +28,14 @@ exec "$bin/node" "$bin/../pnpm/bin/pnpm.mjs" "$@"
 EOF
 chmod +x "$kit/bin/pnpm"
 
+# Electron fetches its runtime on first require, not at install. Fetch it here
+# so the kit carries it.
+electron=$(cd apps/desktop && node -p "require('electron')")
+if [ ! -x "$electron" ]; then
+  echo "Electron runtime missing at $electron" >&2
+  exit 1
+fi
+
 lockfile_sha=$(shasum -a 256 pnpm-lock.yaml | cut -d' ' -f1)
 cat >"$kit/manifest" <<EOF
 commit=$(git rev-parse HEAD)
