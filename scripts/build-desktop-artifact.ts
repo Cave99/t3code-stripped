@@ -2167,7 +2167,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           role: "Viewer",
         },
       ],
-      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      // Without a Developer ID, sign ad hoc: Apple Silicon refuses to launch a
+      // bundle whose seal was broken by packaging. Hardened runtime only
+      // matters for notarization and would reject Electron's framework here.
+      ...(signed
+        ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") }
+        : { identity: "-", hardenedRuntime: false }),
       ...(macPasskeySigning && macEntitlementsPath
         ? {
             provisioningProfile: macPasskeySigning.provisioningProfilePath,

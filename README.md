@@ -22,7 +22,13 @@ and managed Codex binary downloads from GitHub. The first inline HTML preview do
 pinned, SHA-256-checked Chrome from `storage.googleapis.com`; preview tabs can visit arbitrary
 URLs. See [STRIPPED.md](STRIPPED.md#remaining-cleanup) for details and remaining work.
 
-## Quick start
+## Install
+
+On macOS, download the DMG from the [latest release](https://github.com/Cave99/t3code-stripped/releases/latest).
+It bundles everything the app needs; no Node, pnpm, or Electron install. See
+[docs/user/install.md](docs/user/install.md) for the one-time Gatekeeper step.
+
+## Develop
 
 Requires Node 24 and pnpm.
 

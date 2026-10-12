@@ -1,13 +1,28 @@
 # Install C3 Code
 
-Build the desktop app from source. To update it, pull the latest changes and rebuild.
+## macOS download
 
-## Requirements
+Download the DMG for your Mac from the
+[latest release](https://github.com/Cave99/t3code-stripped/releases/latest): `arm64` for Apple
+Silicon, `x64` for Intel. Open it and drag C3 Code to Applications. The app is self-contained:
+Node, pnpm, and Electron are not needed. To update, install a newer release over it.
 
-Node 24 and pnpm. You also need an installed, authenticated provider before starting a
-thread. You can launch the app and configure providers afterwards.
+Releases are not notarized by Apple, so macOS blocks the first launch. Clear the download
+quarantine once after copying the app:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/C3 Code.app"
+```
+
+Alternatively, try to open it once, then choose **Open Anyway** in **System Settings → Privacy &
+Security**. Some managed Macs disallow both; ask IT to allow the app.
+
+You still need an installed, authenticated provider before starting a thread; see
+[Providers](#providers).
 
 ## Run from source
+
+Requires Node 24 and pnpm.
 
 ```bash
 pnpm install
@@ -24,7 +39,8 @@ pnpm build:desktop
 pnpm dist:desktop:dmg      # macOS; see dist:desktop:linux and dist:desktop:win for the others
 ```
 
-Artifacts are unsigned by default and land in `release/`. Platform prerequisites are in the
+Artifacts land in `release/`; macOS builds are signed ad hoc. Pushing a `c3-v*` tag builds and
+publishes the macOS release. Platform prerequisites are in the
 [development runbook](../operations/development.md#desktop-artifacts).
 
 ## Providers

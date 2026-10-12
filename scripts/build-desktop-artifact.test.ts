@@ -252,6 +252,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const unsigned = yield* createBuildConfig("mac", "dmg", "1.0.0", false, "arm64");
       assert.isUndefined((unsigned.mac as Record<string, unknown>).provisioningProfile);
       assert.isUndefined((unsigned.mac as Record<string, unknown>).entitlements);
+      // Unsigned builds still need an ad hoc seal to launch on Apple Silicon.
+      assert.strictEqual((unsigned.mac as Record<string, unknown>).identity, "-");
     }),
   );
 
