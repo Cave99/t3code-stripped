@@ -1,0 +1,6 @@
+commit=eba8c6b1286d620329df4e9004a919d8664fec17
+lockfile_sha256=a71e215458eec71ab21530aa3c351fe25438cdafb4670aa67eadb5e78e728b3c
+build_root=/Users/runner/work/t3code-stripped/t3code-stripped
+node=v24.21.0
+pnpm=11.10.0
+platform=Darwin-arm64
