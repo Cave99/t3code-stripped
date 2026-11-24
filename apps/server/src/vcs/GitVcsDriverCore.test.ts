@@ -3436,6 +3436,65 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 });
 
+describe("pullCurrentBranch", () => {
+  const layerTest = Layer.merge(TestLayer, ServerConfigLayer);
+  const cloneBehindRemote = Effect.gen(function* () {
+    const cwd = yield* makeTmpDir();
+    const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+    const updater = yield* makeTmpDir("git-vcs-driver-updater-");
+    const { initialBranch } = yield* initRepoWithCommit(cwd);
+    yield* git(remote, ["init", "--bare"]);
+    yield* git(cwd, ["remote", "add", "origin", remote]);
+    yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+    yield* git(updater, ["clone", remote, "."]);
+    yield* git(updater, ["config", "user.email", "test@test.com"]);
+    yield* git(updater, ["config", "user.name", "Test"]);
+    yield* writeTextFile(updater, "remote.txt", "remote\n");
+    yield* git(updater, ["add", "remote.txt"]);
+    yield* git(updater, ["commit", "-m", "remote commit"]);
+    yield* git(updater, ["push", "origin", initialBranch]);
+    return {
+      cwd,
+      remote,
+      initialBranch,
+      remoteHead: yield* git(updater, ["rev-parse", "HEAD"]),
+    };
+  });
+
+  const recordingDriver = Effect.gen(function* () {
+    const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const spawnedArgs: Array<ReadonlyArray<string>> = [];
+    const spawner = ChildProcessSpawner.make((command) => {
+      if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args.map(String));
+      return delegate.spawn(command);
+    });
+    const driver = yield* makeGitVcsDriverCore().pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    );
+    return { driver, spawnedArgs };
+  });
+
+  it.effect("fetches only through git pull, not a queued status fetch", () =>
+    Effect.gen(function* () {
+      const { cwd, initialBranch, remoteHead } = yield* cloneBehindRemote;
+      const { driver, spawnedArgs } = yield* recordingDriver;
+
+      const result = yield* driver.pullCurrentBranch(cwd);
+
+      assert.deepEqual(result, {
+        status: "pulled",
+        refName: initialBranch,
+        upstreamRef: `origin/${initialBranch}`,
+      });
+      assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), remoteHead);
+      assert.deepEqual(
+        spawnedArgs.filter((args) => args.includes("fetch")),
+        [],
+      );
+    }).pipe(Effect.provide(layerTest)),
+  );
+});
+
 describe("Windows long path configuration", () => {
   const readGitConfig = Effect.fn("readGitConfig")(function* (
     platform: NodeJS.Platform,

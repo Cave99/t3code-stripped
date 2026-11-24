@@ -2295,7 +2295,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const pullCurrentBranch: GitVcsDriver.GitVcsDriver["Service"]["pullCurrentBranch"] = Effect.fn(
     "pullCurrentBranch",
   )(function* (cwd) {
-    const details = yield* statusDetails(cwd);
+    // `git pull` fetches on its own. The background status fetch would queue Pull behind
+    // other repositories' fetches and then fetch the same remote a second time.
+    const details = yield* readStatusDetailsLocal(cwd);
     const refName = details.branch;
     if (!refName) {
       return yield* new GitCommandError({
@@ -2334,7 +2336,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
 
-    const refreshed = yield* statusDetails(cwd);
+    const refreshed = yield* readStatusDetailsLocal(cwd);
     return {
       status: beforeSha.length > 0 && beforeSha === afterSha ? "skipped_up_to_date" : "pulled",
       refName,
