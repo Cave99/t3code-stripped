@@ -96,10 +96,15 @@ export function threadHasQueuedTurnStart(
   ].every((value) => value === null || value < messageAtMs);
 }
 
+/**
+ * A merged or closed pull request settles the thread unless it was resumed afterwards: the user
+ * wrote to it, or an agent sent it a message through MCP. Runs that background work or a PR
+ * watch started on their own do not count, so they cannot hold a merged thread open.
+ */
 function pullRequestSettles(
   thread: Pick<
-    OrchestrationV2ThreadShell,
-    "createdAt" | "latestUserMessageAt" | "latestRunRequestedAt"
+    ProjectionStore.ProjectionSettlementCandidate,
+    "createdAt" | "latestResumingMessageAt"
   >,
   pullRequest: SettlementPullRequest,
   autoSettleOnMerge: boolean,
@@ -111,8 +116,7 @@ function pullRequestSettles(
   if (terminalAt == null) return false;
   const userAnchorMs = latestMillis([
     toMillis(thread.createdAt),
-    toMillis(thread.latestUserMessageAt),
-    toMillis(thread.latestRunRequestedAt),
+    toMillis(thread.latestResumingMessageAt),
   ]);
   if (userAnchorMs === null) return false;
   const pullRequestAtMs = Date.parse(terminalAt);
@@ -122,7 +126,7 @@ function pullRequestSettles(
 
 /** Cheap checks that run before any source control lookup. */
 export function isAutoSettlementCandidate(
-  thread: ProjectionStore.ProjectionSettlementCandidate,
+  thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestResumingMessageAt">,
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;

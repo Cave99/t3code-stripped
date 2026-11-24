@@ -278,7 +278,10 @@ it.effect.each([
         };
         assert.deepEqual(
           resolveAutoSettlementAt({ ...settings, thread: candidate }),
-          resolveAutoSettlementAt({ ...settings, thread: expected }),
+          resolveAutoSettlementAt({
+            ...settings,
+            thread: { ...expected, latestResumingMessageAt: candidate.latestResumingMessageAt },
+          }),
         );
       }
       assert.equal(
@@ -288,6 +291,58 @@ it.effect.each([
       assert.equal(
         (yield* store.getThread(ThreadId.make("missing")).pipe(Effect.flip))._tag,
         "ProjectionStoreThreadNotFoundError",
+      );
+    }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect.each([
+  ["sql", SqlLayer],
+  ["memory", ProjectionStore.layerMemory],
+] as const)(
+  "%s: the resuming message time counts MCP sends and ignores agent notifications",
+  ([, testLayer]) =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = yield* createThread("agent-woken");
+      yield* createRun(threadId);
+      const message = (
+        id: string,
+        createdBy: "user" | "agent",
+        creationSource: "web" | "mcp" | "provider",
+        at: DateTime.Utc,
+      ) =>
+        store.apply({
+          id: EventId.make(`event:settlement:${id}`),
+          type: "message.updated",
+          threadId,
+          occurredAt: at,
+          payload: {
+            createdBy,
+            creationSource,
+            id: MessageId.make(`message:settlement:${id}`),
+            threadId,
+            runId: null,
+            nodeId: null,
+            role: "user",
+            text: id,
+            attachments: [],
+            streaming: false,
+            createdAt: at,
+            updatedAt: at,
+          },
+        });
+      const written = DateTime.subtract(now, { hours: 2 });
+      const sent = DateTime.subtract(now, { hours: 1 });
+      yield* message("written", "user", "web", written);
+      yield* message("sent", "agent", "mcp", sent);
+      yield* message("notification", "agent", "provider", now);
+
+      const [candidate] = yield* store.getSettlementCandidates(threadId);
+      assert.isDefined(candidate);
+      assert.equal(DateTime.formatIso(candidate.latestUserMessageAt!), DateTime.formatIso(now));
+      assert.equal(
+        DateTime.formatIso(candidate.latestResumingMessageAt!),
+        DateTime.formatIso(sent),
       );
     }).pipe(Effect.provide(testLayer)),
 );
