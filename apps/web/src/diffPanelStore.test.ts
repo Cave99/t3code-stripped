@@ -2,7 +2,11 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, RunId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
+import {
+  selectThreadBranchBaseRef,
+  selectThreadDiffPanelSelection,
+  useDiffPanelStore,
+} from "./diffPanelStore";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
@@ -89,6 +93,22 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");
     useDiffPanelStore.getState().selectGitScope(THREAD_REF, "branch");
 
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "branch", baseRef: "origin/main" });
+  });
+
+  it("reviews a commit against the branch base and returns to the same branch comparison", () => {
+    const store = useDiffPanelStore.getState();
+    store.selectBranchBaseRef(THREAD_REF, "origin/main");
+    store.selectCommit(THREAD_REF, "a".repeat(40));
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "commit", sha: "a".repeat(40), baseRef: "origin/main" });
+
+    store.selectGitScope(THREAD_REF, "unstaged");
+    expect(selectThreadBranchBaseRef(useDiffPanelStore.getState(), THREAD_REF)).toBe("origin/main");
+    store.selectGitScope(THREAD_REF, "branch");
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toEqual({ kind: "branch", baseRef: "origin/main" });
