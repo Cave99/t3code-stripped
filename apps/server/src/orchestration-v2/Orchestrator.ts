@@ -488,8 +488,10 @@ function withPullRequestWatch(
   link: ThreadPullRequestLink,
   watch: ThreadPullRequestWatch | undefined,
 ): ThreadPullRequestLink {
-  const { watch: _previous, ...rest } = link;
-  return watch === undefined ? rest : { ...rest, watch };
+  const { watch: previous, endedWatch, ...rest } = link;
+  if (watch !== undefined) return { ...rest, watch };
+  const ended = previous ?? endedWatch;
+  return ended === undefined ? rest : { ...rest, endedWatch: ended };
 }
 
 /** A legacy single-PR link as a link entry. Re-linking a pull request keeps its watch. */
@@ -499,6 +501,9 @@ function legacyPullRequestLink(
   now: DateTime.Utc,
 ): ThreadPullRequestLink {
   const key = legacyThreadPullRequestKey(linked);
+  const existing = threadPullRequestsOf(thread).find((link) =>
+    threadPullRequestKeysEqual(link, key),
+  );
   return withPullRequestWatch(
     {
       ...key,
@@ -507,8 +512,9 @@ function legacyPullRequestLink(
       linkedAt: DateTime.formatIso(now),
       snapshot: null,
       stack: null,
+      ...(existing?.endedWatch && { endedWatch: existing.endedWatch }),
     },
-    threadPullRequestsOf(thread).find((link) => threadPullRequestKeysEqual(link, key))?.watch,
+    existing?.watch,
   );
 }
 
@@ -3025,6 +3031,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const linked = threadPullRequestsOf(thread);
           const visible = (link: ThreadPullRequestLink) =>
             link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, key);
+          const dismissed = linked.find((link) => threadPullRequestKeysEqual(link, key));
           // A watch started on an unlinked (or dismissed) pull request links it in the same step.
           const links =
             command.type === "thread.pull-request.watch" &&
@@ -3040,6 +3047,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     linkedAt: startedAt,
                     snapshot: null,
                     stack: null,
+                    ...(dismissed?.endedWatch && { endedWatch: dismissed.endedWatch }),
                   },
                 ]
               : linked;
@@ -3059,16 +3067,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     failedChecks: [],
                     passed: false,
                     passedChecks: [],
+                    conflicting: false,
+                    // Watching again must not repeat check or conflict news the last watch told.
+                    ...(existing.endedWatch && {
+                      headSha: existing.endedWatch.headSha,
+                      failedChecks: existing.endedWatch.failedChecks,
+                      passed: existing.endedWatch.passed,
+                      passedChecks: existing.endedWatch.passedChecks,
+                      conflicting: existing.endedWatch.conflicting,
+                    }),
                     remarksThrough: startedAt,
                     remarkIds: [],
-                    conflicting: false,
                     wakes: 0,
                   });
           if (watch === existing.watch && links === linked) return thread;
+          const final =
+            command.type === "thread.pull-request-watch.sync" && watch === undefined
+              ? command.endedWatch
+              : undefined;
           return {
             ...thread,
             pullRequests: links.map((link) =>
-              link === existing ? withPullRequestWatch(link, watch) : link,
+              link === existing
+                ? withPullRequestWatch(final ? { ...link, watch: final } : link, watch)
+                : link,
             ),
             // A user or agent starting or stopping a watch is activity; recorded progress is not.
             updatedAt: command.type === "thread.pull-request.watch" ? now : thread.updatedAt,
