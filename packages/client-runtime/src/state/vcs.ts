@@ -8,6 +8,7 @@ import {
 import { applyGitStatusStreamEvent } from "@t3tools/shared/git";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
@@ -29,6 +30,7 @@ import { followStreamInEnvironment } from "./runtime.ts";
 import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 import {
   invalidateCachedVcsRefs,
+  invalidateCachedVcsRefsIfChanged,
   vcsRefsCacheStateAtom,
   withVcsRefsPersistenceLock,
 } from "./vcsRefInvalidation.ts";
@@ -306,7 +308,12 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.vcsRefreshStatus,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
-      onSettled: invalidateRefs,
+      onSettled: (target, registry, exit) =>
+        invalidateCachedVcsRefsIfChanged(
+          registry,
+          { environmentId: target.environmentId, cwd: target.input.cwd },
+          Exit.isSuccess(exit) ? exit.value.refsDigest : undefined,
+        ),
     }),
     createWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:create-worktree",

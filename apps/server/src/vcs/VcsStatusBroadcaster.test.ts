@@ -78,12 +78,14 @@ function makeTestLayer(state: {
   remoteInvalidationCalls: number;
   remoteStatusRefreshUpstreamValues?: Array<boolean | undefined>;
   backgroundWorkEnabled?: boolean;
+  refSnapshot?: string | null;
 }) {
   return VcsStatusBroadcaster.layer.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provide(makeBackgroundPolicyLayer(() => state.backgroundWorkEnabled !== false)),
     Layer.provide(
       Layer.mock(GitWorkflowService.GitWorkflowService)({
+        readRefSnapshot: () => Effect.sync(() => state.refSnapshot ?? null),
         localStatus: () =>
           Effect.sync(() => {
             state.localStatusCalls += 1;
@@ -166,6 +168,7 @@ describe("VcsStatusBroadcaster", () => {
         ),
         Layer.provide(
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            readRefSnapshot: () => Effect.succeed(null),
             localStatus: () => Effect.succeed(localStatus),
             remoteStatus: () => Effect.succeed(remoteStatus),
             invalidateLocalStatus: () => Effect.void,
@@ -277,6 +280,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () => Effect.succeed(baseLocalStatus),
           remoteStatus: () =>
             Effect.gen(function* () {
@@ -323,6 +327,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () => Effect.succeed(baseLocalStatus),
           remoteStatus: () =>
             Effect.gen(function* () {
@@ -371,6 +376,34 @@ describe("VcsStatusBroadcaster", () => {
       yield* broadcaster.refreshPullRequestStatus("/repo");
       assert.equal(state.remoteStatusCalls, 1);
       assert.equal(state.remoteInvalidationCalls, 0);
+    }).pipe(Effect.provide(makeTestLayer(state)));
+  });
+
+  it.effect("reports a refs digest that changes only when a ref moved", () => {
+    const state: Parameters<typeof makeTestLayer>[0] = {
+      currentLocalStatus: baseLocalStatus,
+      currentRemoteStatus: baseRemoteStatus,
+      localStatusCalls: 0,
+      remoteStatusCalls: 0,
+      localInvalidationCalls: 0,
+      remoteInvalidationCalls: 0,
+      refSnapshot: "refs-a",
+    };
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const first = yield* broadcaster.refreshStatus("/repo");
+      const unmoved = yield* broadcaster.refreshStatus("/repo");
+      state.refSnapshot = "refs-b";
+      const moved = yield* broadcaster.refreshStatus("/repo");
+      state.refSnapshot = null;
+      const unreadable = yield* broadcaster.refreshStatus("/repo");
+
+      assert.isString(first.refsDigest);
+      assert.equal(unmoved.refsDigest, first.refsDigest);
+      assert.isString(moved.refsDigest);
+      assert.notEqual(moved.refsDigest, first.refsDigest);
+      assert.isUndefined(unreadable.refsDigest);
     }).pipe(Effect.provide(makeTestLayer(state)));
   });
 
@@ -430,6 +463,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -540,6 +574,7 @@ describe("VcsStatusBroadcaster", () => {
         Layer.provide(makeBackgroundPolicyLayer(() => true)),
         Layer.provide(
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            readRefSnapshot: () => Effect.succeed(null),
             localStatus: (input) =>
               Effect.sync(() => {
                 seenCwds.push(input.cwd);
@@ -705,6 +740,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -905,6 +941,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => false)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -958,6 +995,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          readRefSnapshot: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;

@@ -742,6 +742,7 @@ export function createEnvironmentRpcCommand<R, ER, TTag extends EnvironmentUnary
         readonly input: EnvironmentRpcInput<TTag>;
       },
       registry: AtomRegistry.AtomRegistry,
+      exit: Exit.Exit<EnvironmentRpcSuccess<TTag>, unknown>,
     ) => Effect.Effect<void, never, R>;
   },
 ) {
@@ -756,7 +757,7 @@ export function createEnvironmentRpcCommand<R, ER, TTag extends EnvironmentUnary
       };
       return (options.execute?.(input) ?? request(options.tag, input)).pipe(
         Effect.tap(() => options.onSuccess?.(target, registry) ?? Effect.void),
-        Effect.ensuring(options.onSettled?.(target, registry) ?? Effect.void),
+        Effect.onExit((exit) => options.onSettled?.(target, registry, exit) ?? Effect.void),
       );
     },
   });

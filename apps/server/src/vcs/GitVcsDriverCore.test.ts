@@ -3677,6 +3677,23 @@ describe("pull and push", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("ref snapshots change when a ref moves, not when the working tree does", () =>
+    Effect.gen(function* () {
+      const { cwd } = yield* cloneBehindRemote;
+      const driver = yield* makeGitVcsDriverCore();
+      const before = yield* driver.readRefSnapshot(cwd);
+      yield* writeTextFile(cwd, "README.md", "# edited\n");
+      assert.isString(before);
+      assert.equal(yield* driver.readRefSnapshot(cwd), before);
+
+      yield* git(cwd, ["fetch", "origin"]);
+      const fetched = yield* driver.readRefSnapshot(cwd);
+      assert.notEqual(fetched, before);
+      yield* git(cwd, ["checkout", "--detach"]);
+      assert.notEqual(yield* driver.readRefSnapshot(cwd), fetched);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("refuses to pull a branch without an upstream", () =>
     Effect.gen(function* () {
       const cwd = yield* makeTmpDir();

@@ -1397,6 +1397,35 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       yield* Cache.invalidate(originExistsCache, cacheKey);
     });
 
+  const readRefSnapshot: GitVcsDriver.GitVcsDriver["Service"]["readRefSnapshot"] = Effect.fn(
+    "GitVcsDriver.readRefSnapshot",
+  )(
+    function* (cwd) {
+      const result = yield* executeGit(
+        "GitVcsDriver.readRefSnapshot",
+        cwd,
+        ["show-ref", "--head"],
+        { allowNonZeroExit: true, maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES },
+      );
+      if (result.exitCode !== 0) return null;
+      const symbolicHead = yield* executeGit(
+        "GitVcsDriver.readRefSnapshot",
+        cwd,
+        ["symbolic-ref", "--quiet", "HEAD"],
+        { allowNonZeroExit: true },
+      );
+      // Exit 1 means detached HEAD; other failures leave the snapshot unknown.
+      if (symbolicHead.exitCode !== 0 && symbolicHead.exitCode !== 1) return null;
+      // Deepening a shallow clone changes ancestry without moving refs.
+      const shallowPath = path.join(yield* resolveGitCommonDir(cwd), "shallow");
+      const shallow = (yield* fileSystem.exists(shallowPath))
+        ? yield* fileSystem.readFileString(shallowPath)
+        : "";
+      return `${result.stdout}\0${symbolicHead.stdout}\0${shallow}`;
+    },
+    Effect.orElseSucceed(() => null),
+  );
+
   const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
     const repositoryPaths = yield* resolveRepositoryPaths(cwd);
     if (repositoryPaths !== null) {
@@ -3882,6 +3911,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetails,
     statusDetailsLocal,
     statusDetailsRemote,
+    readRefSnapshot,
     prepareCommitContext,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),
