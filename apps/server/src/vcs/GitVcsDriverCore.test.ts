@@ -48,7 +48,7 @@ const TestLayer = GitVcsDriver.layer.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-const makeNonRepositoryHandle = () =>
+const makeFailedHandle = (stderr: string) =>
   ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(128)),
@@ -57,11 +57,13 @@ const makeNonRepositoryHandle = () =>
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
     stdout: Stream.empty,
-    stderr: Stream.encodeText(Stream.make("fatal: not a git repository")),
+    stderr: Stream.encodeText(Stream.make(stderr)),
     all: Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
   });
+
+const makeNonRepositoryHandle = () => makeFailedHandle("fatal: not a git repository");
 
 const makeSuccessfulHandle = (stdout: string) =>
   ChildProcessSpawner.makeHandle({
@@ -333,7 +335,7 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
       { args: ["rev-parse", "--git-path", "index"], lcAll: "C" },
       { args: ["status", "--porcelain=2", "--branch"], lcAll: "C" },
       { args: ["rev-parse", "--abbrev-ref", "HEAD"], lcAll: "C" },
-      { args: ["rev-parse", "--git-common-dir"], lcAll: "C" },
+      { args: ["rev-parse", "--git-common-dir", "--show-toplevel"], lcAll: "C" },
     ]);
   }).pipe(Effect.provide(layer));
 });
@@ -622,6 +624,66 @@ it.effect("fails a ref snapshot when for-each-ref exits unsuccessfully", () =>
   ).pipe(Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer)))),
 );
 
+it.effect("a refreshed ref list reads the current branch and repository paths once", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const recordingSpawner = ChildProcessSpawner.make((command) => {
+        if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args.map(String));
+        return delegate.spawn(command);
+      });
+      const driver = yield* makeGitVcsDriverCore().pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, recordingSpawner),
+      );
+      const cwd = yield* makeTmpDir();
+      yield* initRepoWithCommit(cwd).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, driver));
+      yield* git(cwd, ["checkout", "-b", "outside-checkout"]).pipe(
+        Effect.provideService(GitVcsDriver.GitVcsDriver, driver),
+      );
+      spawnedArgs.length = 0;
+
+      // The branch selector's paginated queries send two refreshes at once.
+      const [first, second] = yield* Effect.all(
+        [
+          driver.listRefs({ cwd, refresh: true }),
+          driver.listRefs({ cwd, refresh: true, limit: 1 }),
+        ],
+        { concurrency: 2 },
+      );
+
+      assert.equal(first.refs.find((ref) => ref.current)?.name, "outside-checkout");
+      assert.equal(second.refs.find((ref) => ref.current)?.name, "outside-checkout");
+      assert.equal(spawnedArgs.filter((args) => args[0] === "symbolic-ref").length, 1);
+      assert.equal(spawnedArgs.filter((args) => args[0] === "rev-parse").length, 1);
+    }),
+  ).pipe(Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer)))),
+);
+
+it.effect("lists refs of a bare repository", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const driver = yield* makeGitVcsDriverCore();
+      const source = yield* makeTmpDir();
+      const { initialBranch } = yield* initRepoWithCommit(source).pipe(
+        Effect.provideService(GitVcsDriver.GitVcsDriver, driver),
+      );
+      const bare = yield* makeTmpDir("git-vcs-driver-bare-");
+      yield* git(bare, ["clone", "--bare", source, "."]).pipe(
+        Effect.provideService(GitVcsDriver.GitVcsDriver, driver),
+      );
+
+      const refs = yield* driver.listRefs({ cwd: bare, refresh: true });
+
+      assert.isTrue(refs.isRepo);
+      assert.include(
+        refs.refs.map((ref) => ref.name),
+        initialBranch,
+      );
+    }),
+  ).pipe(Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer)))),
+);
+
 it.effect("marks the current branch when worktree metadata is unavailable", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -635,7 +697,10 @@ it.effect("marks the current branch when worktree metadata is unavailable", () =
             command.args.includes("rev-parse") && command.args.includes("--show-toplevel");
           const isWorktreeList =
             command.args.includes("worktree") && command.args.includes("--porcelain");
-          if (isWorktreeRoot || isWorktreeList) {
+          if (isWorktreeRoot) {
+            return makeFailedHandle("fatal: this operation must be run in a work tree");
+          }
+          if (isWorktreeList) {
             return makeNonRepositoryHandle();
           }
           return yield* delegate.spawn(command);
@@ -3437,7 +3502,10 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 });
 
 describe("pull and push", () => {
-  const layerTest = Layer.merge(TestLayer, ServerConfigLayer);
+  const layerTest = Layer.merge(
+    TestLayer,
+    ServerConfigLayer.pipe(Layer.provide(NodeServices.layer)),
+  );
   const cloneBehindRemote = Effect.gen(function* () {
     const cwd = yield* makeTmpDir();
     const remote = yield* makeTmpDir("git-vcs-driver-remote-");
