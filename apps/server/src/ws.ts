@@ -2499,7 +2499,9 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            // No project-root refresh here: the client awaits vcs.refreshStatus right after, and a
+            // second refresh would queue behind this one and reread an unchanged repository.
+            gitWorkflow.removeWorktree(input),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
