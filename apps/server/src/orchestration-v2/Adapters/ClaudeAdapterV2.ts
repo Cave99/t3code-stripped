@@ -2388,6 +2388,15 @@ function isClaudeActiveSteeringAbortResult(message: SDKResultMessage): boolean {
   );
 }
 
+// A frame that belongs to a root (not subagent) turn the CLI is running.
+function isClaudeRootTurnFrame(message: SDKMessage): boolean {
+  return (
+    (message.type === "system" && message.subtype === "init") ||
+    ((message.type === "user" || message.type === "assistant" || message.type === "stream_event") &&
+      message.parent_tool_use_id == null)
+  );
+}
+
 function isClaudeProviderContinuationTurn(
   input: ProviderAdapter.ProviderAdapterV2TurnInput,
 ): boolean {
@@ -3258,6 +3267,8 @@ export function makeClaudeAdapterV2(
           }
         });
         const requestedContinuations = yield* Ref.make(new Set<string>());
+        // Native threads whose started wake turn a user turn's result also ended.
+        const absorbedWakes = yield* Ref.make(new Set<string>());
         // ExitPlanMode plans whose permission callback fired while the tool's
         // root frames were held for a prompt echo. Each projects when its
         // tool_use frame is handled, in whichever run that frame is routed
@@ -3613,10 +3624,28 @@ export function makeClaudeAdapterV2(
             yield* endClaudeMonitorTasks((_taskId, task) => task.nativeThreadId === nativeThreadId);
           });
 
+        const forgetAbsorbedWake = (nativeThreadId: string) =>
+          Ref.update(absorbedWakes, (current) => {
+            if (!current.has(nativeThreadId)) return current;
+            const updated = new Set(current);
+            updated.delete(nativeThreadId);
+            return updated;
+          });
+
+        // Claude runs one root turn at a time, so a user turn's result also ends a wake turn it
+        // folded in. The continuation replays that wake's buffered frames but gets no result of its own.
+        const markAbsorbedWake = Effect.fnUntraced(function* (nativeThreadId: string) {
+          const messages = (yield* Ref.get(wakeBuffers)).get(nativeThreadId)?.messages ?? [];
+          const lastResult = messages.findLastIndex((entry) => entry.type === "result");
+          if (!messages.slice(lastResult + 1).some(isClaudeRootTurnFrame)) return;
+          yield* Ref.update(absorbedWakes, (current) => new Set(current).add(nativeThreadId));
+        });
+
         // Drop idle wake traffic for a dead native process so it cannot pin
         // session-wide pending work after sibling query replacement.
         const clearWakeStateForNativeThread = (nativeThreadId: string) =>
           Effect.gen(function* () {
+            yield* forgetAbsorbedWake(nativeThreadId);
             yield* clearWakeReports(nativeThreadId);
             yield* Ref.update(wakeBuffers, (current) => {
               if (!current.has(nativeThreadId)) {
@@ -5276,6 +5305,9 @@ export function makeClaudeAdapterV2(
               childThreadId: registered?.childThreadId,
             });
           }
+          if (isClaudeRootTurnFrame(message)) {
+            yield* forgetAbsorbedWake(wakeInput.nativeThreadId);
+          }
           yield* Ref.update(wakeBuffers, (current) => {
             const existing = current.get(wakeInput.nativeThreadId);
             const updated = new Map(current);
@@ -6375,6 +6407,9 @@ export function makeClaudeAdapterV2(
               next.delete(context.providerTurnId);
               return next;
             });
+            if (!isClaudeProviderContinuationTurn(context.input)) {
+              yield* markAbsorbedWake(liveQuery.nativeThreadId);
+            }
             const usageLimited =
               context.authenticationFailureMessage === undefined &&
               (context.rejectedRateLimitTypes.size > 0 || context.latestAssistantRateLimited) &&
@@ -7284,6 +7319,8 @@ export function makeClaudeAdapterV2(
               updated.delete(nativeThreadId);
               return updated;
             });
+            const wakeAbsorbed = (yield* Ref.get(absorbedWakes)).has(nativeThreadId);
+            yield* forgetAbsorbedWake(nativeThreadId);
             if (drained.length === 0) {
               // Spurious continuation (buffer already lost with a recycled
               // session, or a duplicate request): settle immediately instead
@@ -7319,7 +7356,7 @@ export function makeClaudeAdapterV2(
             const hasNativeWakeFrame = drained.some(
               (entry) => entry.type === "user" || entry.type === "assistant",
             );
-            if (hasOpaqueTaskNotification && !hasNativeWakeFrame) {
+            if (wakeAbsorbed || (hasOpaqueTaskNotification && !hasNativeWakeFrame)) {
               const completedAt = yield* DateTime.now;
               yield* finalizeActiveTurn({ context, status: "completed", completedAt });
             }
