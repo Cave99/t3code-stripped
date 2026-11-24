@@ -3436,7 +3436,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 });
 
-describe("pullCurrentBranch", () => {
+describe("pull and push", () => {
   const layerTest = Layer.merge(TestLayer, ServerConfigLayer);
   const cloneBehindRemote = Effect.gen(function* () {
     const cwd = yield* makeTmpDir();
@@ -3533,6 +3533,32 @@ describe("pullCurrentBranch", () => {
         upstreamRef: `origin/${initialBranch}`,
       });
       assert.equal(yield* git(cwd, ["rev-parse", "HEAD"]), remoteHead);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("pushes without scanning the working tree", () =>
+    Effect.gen(function* () {
+      const { cwd, remote, initialBranch } = yield* cloneBehindRemote;
+      yield* git(cwd, ["pull", "--ff-only"]);
+      yield* writeTextFile(cwd, "local.txt", "local\n");
+      yield* git(cwd, ["add", "local.txt"]);
+      yield* git(cwd, ["commit", "-m", "local commit"]);
+      const localHead = yield* git(cwd, ["rev-parse", "HEAD"]);
+      const { driver, spawnedArgs } = yield* recordingDriver;
+
+      const result = yield* driver.pushCurrentBranch(cwd, null);
+
+      assert.deepEqual(result, {
+        status: "pushed",
+        branch: initialBranch,
+        upstreamBranch: `origin/${initialBranch}`,
+        setUpstream: false,
+      });
+      assert.equal(yield* git(remote, ["rev-parse", initialBranch]), localHead);
+      assert.deepEqual(
+        spawnedArgs.filter((args) => args.includes("status") || args.includes("--numstat")),
+        [],
+      );
     }).pipe(Effect.provide(layerTest)),
   );
 
