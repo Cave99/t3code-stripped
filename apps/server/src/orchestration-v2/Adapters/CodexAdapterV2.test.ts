@@ -1377,6 +1377,30 @@ describe("CodexAdapterV2 skill mentions", () => {
   });
 });
 
+describe("CodexAdapterV2 thread load model selection", () => {
+  // Resume discards Codex's pinned effort, so an effort change must not reload the thread.
+  it("ignores reasoning effort and keeps other options", () => {
+    const base = { instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID, model: "gpt-5.4" };
+    assert.deepEqual(
+      CodexAdapterV2.normalizeCodexThreadLoadModelSelection({
+        ...base,
+        options: [{ id: "reasoningEffort", value: "high" }],
+      }),
+      base,
+    );
+    assert.deepEqual(
+      CodexAdapterV2.normalizeCodexThreadLoadModelSelection({
+        ...base,
+        options: [
+          { id: "reasoningEffort", value: "low" },
+          { id: "serviceTier", value: "priority" },
+        ],
+      }),
+      { ...base, options: [{ id: "serviceTier", value: "priority" }] },
+    );
+  });
+});
+
 describe("CodexAdapterV2 background command detail", () => {
   it("summarizes command, exit code, and output tail", () => {
     assert.equal(
