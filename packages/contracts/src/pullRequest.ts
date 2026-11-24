@@ -148,6 +148,11 @@ export const PullRequestCheckStatus = Schema.Literals([
 export type PullRequestCheckStatus = typeof PullRequestCheckStatus.Type;
 
 export const PullRequestCheck = Schema.Struct({
+  /**
+   * Not a check: it stands for ones the host could not list, such as workflow runs awaiting
+   * approval when that read fails, so nothing waits on it or counts it as passing.
+   */
+  placeholder: Schema.optional(Schema.Boolean),
   name: TrimmedNonEmptyString,
   status: PullRequestCheckStatus,
   description: Schema.NullOr(Schema.String),

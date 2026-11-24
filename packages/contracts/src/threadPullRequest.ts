@@ -114,8 +114,15 @@ export const ThreadPullRequestWatch = Schema.Struct({
   passedChecks: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-  /** Checks still pending when required ones passed early, owed one wake once all settle. */
+  /**
+   * Marks one wake owed once every check has finished: the checks still pending when the required
+   * ones passed early, or the failed ones while a failure keeps the required ones from passing.
+   */
   owedChecks: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** Approval holds keyed by workflow run URL, or check name when no run URL is known. */
+  awaitingApproval: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** The agent was told checks await approval on this head, so later ones stay quiet. */
+  approvalAnnounced: Schema.optional(Schema.Boolean),
   /** Remarks from others created up to this host time were reported. */
   remarksThrough: IsoDateTime,
   /** Remarks created exactly at `remarksThrough` that were reported, so a late one still counts. */
@@ -128,6 +135,11 @@ export const ThreadPullRequestWatch = Schema.Struct({
    * none did. Null once either happened; absent on watches saved before it existed.
    */
   checksAwaitedSince: Schema.optional(Schema.NullOr(IsoDateTime)),
+  /**
+   * Whether the host was still running checks on the head at the last read; absent on watches
+   * not read since it existed.
+   */
+  checksPending: Schema.optional(Schema.Boolean),
 });
 export type ThreadPullRequestWatch = typeof ThreadPullRequestWatch.Type;
 
