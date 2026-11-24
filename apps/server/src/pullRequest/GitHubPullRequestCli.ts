@@ -110,6 +110,7 @@ import {
   VIEWER_PERMISSIONS_GRAPHQL_QUERY,
   decodeViewerPermissionsJson,
   decodeWorkflowRunApprovalsJson,
+  decodeUnfinishedWorkflowRunsJson,
   type GitHubBaseComparison,
   type GitHubPullRequestActivity,
   type GitHubPullRequestHead,
@@ -596,6 +597,14 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly headBranch: string;
       readonly headRepositoryOwner: string;
       readonly isCrossRepository: true;
+    }) => Effect.Effect<ReadonlyArray<GitHubWorkflowRunApproval>, GitHubPullRequestCliError>;
+
+    /** The head's workflow runs that have not finished, the latest 100. */
+    readonly listUnfinishedWorkflowRuns: (input: {
+      readonly cwd: string;
+      readonly repository: string;
+      readonly host: string;
+      readonly headSha: string;
     }) => Effect.Effect<ReadonlyArray<GitHubWorkflowRunApproval>, GitHubPullRequestCliError>;
 
     /**
@@ -1810,6 +1819,32 @@ export const make = Effect.gen(function* () {
         { concurrency: 2 },
       ).pipe(Effect.map(([, runs]) => runs));
 
+  const listUnfinishedWorkflowRuns: GitHubPullRequestCli["Service"]["listUnfinishedWorkflowRuns"] =
+    (input) =>
+      github
+        .execute({
+          cwd: input.cwd,
+          args: [
+            "run",
+            "list",
+            ...repositoryArgs(input),
+            "--commit",
+            input.headSha,
+            "--limit",
+            "100",
+            "--json",
+            "databaseId,workflowName,url,status",
+          ],
+        })
+        .pipe(
+          Effect.flatMap((result) => {
+            const decoded = decodeUnfinishedWorkflowRunsJson(result.stdout.trim());
+            return Result.isSuccess(decoded)
+              ? Effect.succeed(decoded.success)
+              : Effect.fail(workflowApprovalReadError(input.cwd, decoded.failure));
+          }),
+        );
+
   // One `gh pr view` either way; asking for the detail fields costs nothing extra and hands
   // the thread overview its author, diff stat, review decision and checks in the same read.
   const viewPullRequestSummary = (input: PullRequestSummaryRead) =>
@@ -2222,6 +2257,7 @@ export const make = Effect.gen(function* () {
       });
     },
     listWorkflowRunsRequiringApproval,
+    listUnfinishedWorkflowRuns,
 
     getPullRequestStack: (input) => {
       const { owner, name } = parseRepositorySelector(input.repository);

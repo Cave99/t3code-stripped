@@ -478,6 +478,7 @@ describe("gitHubViewerPermissions", () => {
               comments: [],
               commits: [],
             }),
+          listUnfinishedWorkflowRuns: () => Effect.succeed([]),
           listWorkflowRunsRequiringApproval: () =>
             Effect.succeed([
               {
@@ -544,6 +545,7 @@ it.effect(
           Layer.mock(GitHubPullRequestCli.GitHubPullRequestCli)({
             getPullRequestDetail: () =>
               Effect.succeed({ ...openDetail, comparison: { behindBy: 2, viewerCanUpdate: true } }),
+            listUnfinishedWorkflowRuns: () => Effect.succeed([]),
             listWorkflowRunsRequiringApproval: () =>
               Effect.succeed([{ id: 123, name: "tests", url: "https://example.com/runs/123" }]),
           }),
@@ -568,7 +570,17 @@ it.effect(
     }),
 );
 
-it.effect("does not classify same-repository gates as fork workflow approvals", () =>
+const sameRepositoryChecks = [
+  { name: "CodeRabbit", status: "skipped" as const, description: null, url: null },
+  {
+    name: "lint",
+    status: "pending" as const,
+    description: null,
+    url: "https://github.com/acme/web/actions/runs/201/job/1",
+  },
+];
+
+it.effect("adds unstarted same-repository workflow runs as pending, not as approvals", () =>
   Effect.gen(function* () {
     const provider = yield* make;
     const detail = yield* provider.getChangeRequest({
@@ -579,13 +591,28 @@ it.effect("does not classify same-repository gates as fork workflow approvals", 
     });
 
     expect(detail.workflowApprovalsRequired).toBe(0);
-    expect(detail.checks).toEqual([]);
+    expect(detail.checks).toEqual([
+      ...sameRepositoryChecks,
+      {
+        name: "CI",
+        status: "pending",
+        description: "This workflow run has not finished.",
+        url: "https://github.com/acme/web/actions/runs/202",
+      },
+    ]);
   }).pipe(
     Effect.provide(
       Layer.mock(GitHubPullRequestCli.GitHubPullRequestCli)({
         revalidateChecks: (_input, read) => read,
-        getPullRequestDetail: () => Effect.succeed({ ...openDetail, isCrossRepository: false }),
+        getPullRequestDetail: () =>
+          Effect.succeed({ ...openDetail, isCrossRepository: false, checks: sameRepositoryChecks }),
         getPullRequestBaseComparison: () => Effect.succeed({ behindBy: 0, viewerCanUpdate: true }),
+        // Run 201 is represented by its running job; run 202 is queued before any job exists.
+        listUnfinishedWorkflowRuns: () =>
+          Effect.succeed([
+            { id: 201, name: "Lint", url: "https://github.com/acme/web/actions/runs/201" },
+            { id: 202, name: "CI", url: "https://github.com/acme/web/actions/runs/202" },
+          ]),
         listWorkflowRunsRequiringApproval: () =>
           Effect.die("same-repository pull requests must not probe fork workflow approvals"),
         getViewerAccess: () =>
@@ -626,6 +653,7 @@ it.effect("keeps an unsafe workflow approval scope visible as unknown", () =>
         revalidateChecks: (_input, read) => read,
         getPullRequestDetail: () => Effect.succeed(openDetail),
         getPullRequestBaseComparison: () => Effect.succeed({ behindBy: 0, viewerCanUpdate: true }),
+        listUnfinishedWorkflowRuns: () => Effect.succeed([]),
         listWorkflowRunsRequiringApproval: () =>
           Effect.fail(
             new GitHubPullRequestCli.GitHubWorkflowApprovalRefusedError({
@@ -670,6 +698,7 @@ it.effect("propagates workflow discovery rate limits", () =>
         revalidateChecks: (_input, read) => read,
         getPullRequestDetail: () => Effect.succeed(openDetail),
         getPullRequestBaseComparison: () => Effect.succeed({ behindBy: 0, viewerCanUpdate: true }),
+        listUnfinishedWorkflowRuns: () => Effect.succeed([]),
         listWorkflowRunsRequiringApproval: () =>
           Effect.fail(
             new GitHubCli.GitHubCliRateLimitError({

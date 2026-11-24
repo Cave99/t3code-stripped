@@ -418,6 +418,7 @@ const RawWorkflowRunApprovalSchema = Schema.Struct({
   databaseId: Schema.Int,
   workflowName: Schema.optional(Schema.NullOr(Schema.String)),
   url: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const RawPullRequestHeadSchema = Schema.Struct({
@@ -2202,6 +2203,32 @@ export function decodeWorkflowRunApprovalsJson(
       name: trimmed(run.workflowName) ?? `Workflow run ${run.databaseId}`,
       url: trimmed(run.url),
     })),
+  );
+}
+
+// Approval-gated runs (action_required) are read separately as action-required checks.
+const UNFINISHED_WORKFLOW_RUN_STATUSES = new Set([
+  "requested",
+  "queued",
+  "pending",
+  "waiting",
+  "in_progress",
+]);
+
+/** Workflow runs GitHub has not finished, which may have no check runs on the head yet. */
+export function decodeUnfinishedWorkflowRunsJson(
+  raw: string,
+): Result.Result<ReadonlyArray<GitHubWorkflowRunApproval>, DecodeFailure> {
+  const decoded = decodeWorkflowRunApprovals(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  return Result.succeed(
+    decoded.success
+      .filter((run) => UNFINISHED_WORKFLOW_RUN_STATUSES.has(run.status?.toLowerCase() ?? ""))
+      .map((run) => ({
+        id: run.databaseId,
+        name: trimmed(run.workflowName) ?? `Workflow run ${run.databaseId}`,
+        url: trimmed(run.url),
+      })),
   );
 }
 

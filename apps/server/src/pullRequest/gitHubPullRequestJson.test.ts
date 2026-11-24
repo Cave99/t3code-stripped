@@ -26,6 +26,7 @@ import {
   decodeReviewThreadsJson,
   decodeViewerPermissionsJson,
   decodeWorkflowRunApprovalsJson,
+  decodeUnfinishedWorkflowRunsJson,
   reviewThreadConversation,
   REVIEW_THREADS_GRAPHQL_QUERY,
   pullRequestCoreGraphQlQuery,
@@ -2144,5 +2145,26 @@ describe("pull request watch fingerprints", () => {
     expect(replied.remarks).not.toBe(before.remarks);
     // A pull request GitHub had no answer for is left for a full read.
     expect(decode(null, pullRequest(base)).has(0)).toBe(false);
+  });
+});
+
+describe("unfinished workflow run decoding", () => {
+  it("keeps only runs GitHub has not finished, including queued ones without jobs", () => {
+    const runs = expectSuccess(
+      decodeUnfinishedWorkflowRunsJson(
+        JSON.stringify([
+          { databaseId: 1, workflowName: "CI", url: "https://x/runs/1", status: "queued" },
+          { databaseId: 2, workflowName: "Lint", url: "https://x/runs/2", status: "in_progress" },
+          { databaseId: 3, workflowName: "Done", url: "https://x/runs/3", status: "completed" },
+          {
+            databaseId: 4,
+            workflowName: "Gate",
+            url: "https://x/runs/4",
+            status: "action_required",
+          },
+        ]),
+      ),
+    );
+    expect(runs.map((run) => run.id)).toEqual([1, 2]);
   });
 });
