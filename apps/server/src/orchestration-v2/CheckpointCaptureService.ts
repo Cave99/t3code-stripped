@@ -67,17 +67,15 @@ export const layer: Layer.Layer<
     }) {
       const { run, rootNode, scope, providerThread, readyCheckpointOrdinals } =
         yield* projections.getCheckpointCaptureContext(input.threadId, input);
-      // A stopped run is already terminal. Its checkpoint is the rollback point
-      // for the message after it, so capture leaves its status alone.
-      const stopped = run?.status === "interrupted" || run?.status === "cancelled";
+      // Runs settle when their provider turn ends, before this capture, so it only attaches the
+      // checkpoint. A `waiting` run was persisted before that change and still settles here.
+      const legacyWaiting = run?.status === "waiting";
+      const settled =
+        run?.status === "completed" || run?.status === "interrupted" || run?.status === "cancelled";
 
       // The effect is at-least-once. A settled run with a checkpoint proves
       // that an earlier execution committed its result.
-      if (
-        run !== undefined &&
-        run.checkpointId !== null &&
-        (run.status === "completed" || stopped)
-      ) {
+      if (run !== undefined && run.checkpointId !== null && settled) {
         return;
       }
       // Rollback shares this effect lane, so it can only land before a capture
@@ -89,7 +87,7 @@ export const layer: Layer.Layer<
 
       if (
         run === undefined ||
-        (run.status !== "waiting" && !stopped) ||
+        (!legacyWaiting && !settled) ||
         rootNode === undefined ||
         scope === undefined ||
         rootNode.checkpointScopeId !== scope.id ||
@@ -99,7 +97,7 @@ export const layer: Layer.Layer<
           threadId: input.threadId,
           runId: input.runId,
           scopeId: input.scopeId,
-          cause: "The persisted checkpoint capture target is incomplete or no longer waiting.",
+          cause: "The persisted checkpoint capture target is incomplete or was discarded.",
         });
       }
 
@@ -128,7 +126,7 @@ export const layer: Layer.Layer<
         appRunOrdinal: run.ordinal,
         capturedAt,
       });
-      // Match RunExecutionService: capture loaded the waiting run before
+      // Match RunExecutionService: capture loaded the settled run before
       // materializing baselines. Omit delegatedCompletion so a newer cohort
       // write during capture is not overwritten by this stale snapshot
       // (ProjectionStore preserves the field when absent from the payload).
@@ -206,16 +204,16 @@ export const layer: Layer.Layer<
             nodeId: rootNode.id,
             providerInstanceId: run.providerInstanceId,
             occurredAt: capturedAt,
-            payload: stopped
-              ? { ...runWithoutDelegatedCompletion, checkpointId: checkpoint.id }
-              : {
+            payload: legacyWaiting
+              ? {
                   ...runWithoutDelegatedCompletion,
                   status: "completed",
                   completedAt: capturedAt,
                   checkpointId: checkpoint.id,
-                },
+                }
+              : { ...runWithoutDelegatedCompletion, checkpointId: checkpoint.id },
           },
-          ...(stopped
+          ...(!legacyWaiting
             ? []
             : [
                 {

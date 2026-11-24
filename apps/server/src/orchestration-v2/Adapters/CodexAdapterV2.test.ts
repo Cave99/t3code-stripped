@@ -4014,7 +4014,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           });
           const waiting = yield* orchestrator.streamDomainEvents.pipe(
             Stream.filter(
-              (event) => event.type === "run.updated" && event.payload.status === "waiting",
+              (event) => event.type === "run.updated" && event.payload.status === "completed",
             ),
             Stream.runHead,
             Effect.forkChild({ startImmediately: true }),
@@ -4142,9 +4142,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           });
           const settled = yield* orchestrator.streamDomainEvents.pipe(
             Stream.filter(
-              (event) =>
-                event.type === "run.updated" &&
-                (event.payload.status === "waiting" || event.payload.status === "completed"),
+              (event) => event.type === "run.updated" && event.payload.status === "completed",
             ),
             Stream.runHead,
             Effect.forkChild({ startImmediately: true }),

@@ -363,8 +363,11 @@ const waitForIdle = Effect.fn("ProviderSwitchTest.waitForIdle")(function* (
   for (let attempt = 0; attempt < 1_000; attempt += 1) {
     const projection = yield* orchestrator.getThreadProjection(targetThreadId);
     if (
+      // A run completes before its turn-end checkpoint capture; idle waits for both.
       projection.runs.every(
-        (run) => !["queued", "starting", "running", "waiting"].includes(run.status),
+        (run) =>
+          !["queued", "starting", "running", "waiting"].includes(run.status) &&
+          !(run.status === "completed" && run.checkpointId === null),
       )
     ) {
       return projection;

@@ -548,6 +548,15 @@ function delegatedTaskTerminalStatus(
   }
 }
 
+function latestStartedRun(runs: ReadonlyArray<OrchestrationV2Run>): OrchestrationV2Run | undefined {
+  return runs
+    .filter((run) => run.status !== "queued")
+    .reduce<OrchestrationV2Run | undefined>(
+      (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+      undefined,
+    );
+}
+
 function nextQueuedRun(
   projection: Pick<OrchestrationV2ThreadProjection, "runs" | "messages">,
 ): OrchestrationV2Run | undefined {
@@ -868,6 +877,42 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
   // Command decisions need control records, not historical assistant/tool output.
   // Handoff preparation explicitly reads its history after choosing a strategy.
+  // A run completes when its provider turn ends, before its turn-end checkpoint capture. Queued
+  // turns advance when the capture commits and repeats the run update, behind it on the lane.
+  const awaitsCheckpointCapture = (run: OrchestrationV2Run) =>
+    run.status !== "completed" || run.checkpointId !== null
+      ? Effect.succeed(false)
+      : effectOutbox.get(`effect:checkpoint.capture:${run.id}`).pipe(
+          Effect.map(
+            Option.exists((effect) => effect.status === "pending" || effect.status === "running"),
+          ),
+          Effect.orElseSucceed(() => false),
+        );
+
+  // Commands decide as if the latest run were still `waiting` until its turn-end capture commits:
+  // the capture keeps the thread's effect lane, and steers and queued turns line up behind it.
+  const holdRunAwaitingCapture = (projection: OrchestrationV2ThreadProjection) =>
+    Effect.gen(function* () {
+      const latest = latestStartedRun(projection.runs);
+      if (latest === undefined || !(yield* awaitsCheckpointCapture(latest))) return projection;
+      return {
+        ...projection,
+        runs: projection.runs.map((run) =>
+          run.id === latest.id ? { ...run, status: "waiting" as const, completedAt: null } : run,
+        ),
+      };
+    });
+
+  // The latest stable run is the one with a checkpoint. Waits for a just-completed run's capture,
+  // so a fork or merge-back right after a turn starts from that turn.
+  const awaitLatestRunCapture = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const { runs } = yield* projectionStore.getThreadRecords(threadId, ["runs"]);
+      const latest = latestStartedRun(runs);
+      if (latest === undefined || !(yield* awaitsCheckpointCapture(latest))) return;
+      yield* effectOutbox.awaitSettled(`effect:checkpoint.capture:${latest.id}`);
+    }).pipe(Effect.ignore);
+
   const readCommandProjection = (threadId: ThreadId) =>
     projectionStore
       .getThreadRecords(
@@ -897,6 +942,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           visibleTurnItems: [],
           updatedAt: records.thread.updatedAt,
         })),
+        Effect.flatMap(holdRunAwaitingCapture),
         Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
       );
 
@@ -10540,11 +10586,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   const dispatchWithReceipt = (command: OrchestrationV2ServerCommand) =>
-    threadDispatch.withLock(commandThreadId(command), dispatchWithReceiptEffect(command));
+    Effect.gen(function* () {
+      // Outside the locks the capture's commit takes.
+      if (
+        (command.type === "thread.fork" || command.type === "thread.merge_back") &&
+        command.sourcePoint.type === "latest_stable"
+      ) {
+        yield* awaitLatestRunCapture(command.sourceThreadId);
+      }
+      return yield* threadDispatch.withLock(
+        commandThreadId(command),
+        dispatchWithReceiptEffect(command),
+      );
+    });
 
   const handleTerminalRun = (stored: OrchestrationV2StoredEvent) =>
     Effect.gen(function* () {
       const threadId = stored.event.threadId;
+      // A completed run's capture repeats its update once it commits; react to that one.
+      if (
+        stored.event.type === "run.updated" &&
+        (yield* awaitsCheckpointCapture(stored.event.payload))
+      ) {
+        return;
+      }
       // finalize writes the parent thread and startNextQueuedRun writes this
       // thread, so each takes its own thread's lock, sequentially and never
       // nested: dispatchDelegatedTaskRequest already writes child events
