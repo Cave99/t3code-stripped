@@ -869,6 +869,28 @@ describe("ClaudeAdapterV2 context usage", () => {
     });
   });
 
+  it("counts missing, negative, or non-finite usage fields as zero", () => {
+    const usage = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+      {
+        input_tokens: 1_200,
+        cache_creation_input_tokens: Number.NaN,
+        cache_read_input_tokens: -5,
+        output_tokens: undefined,
+      },
+      CLAUDE_TEST_MODEL_SELECTION,
+      "2026-08-29T00:03:00.000Z",
+    );
+    assert.deepEqual(usage, {
+      usedTokens: 1_200,
+      maxTokens: 200_000,
+      inputTokens: 1_200,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+      updatedAt: "2026-08-29T00:03:00.000Z",
+    });
+  });
+
   it("reports the prompt cache TTL the response wrote", () => {
     const ttlFor = (cache_creation: {
       ephemeral_1h_input_tokens: number;
@@ -3670,6 +3692,65 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "interrupted");
         assert.equal(closes, 1);
         assert.lengthOf(harness.terminalEvents(), 1);
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("completes a turn whose assistant snapshots carry empty or null usage", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-empty-usage"),
+            text: "Continue.",
+            attachments: [],
+          }),
+        );
+        // Some Anthropic-compatible proxies send `usage: {}`, `usage: null`, or partial usage.
+        const snapshot = (uuid: string, usage: unknown) =>
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              model: "claude-sonnet-4-6",
+              id: `msg_${uuid}`,
+              type: "message",
+              role: "assistant",
+              content: [{ type: "text", text: "Working." }],
+              stop_reason: null,
+              stop_sequence: null,
+              usage,
+            },
+            parent_tool_use_id: null,
+            uuid,
+            session_id: WAKE_NATIVE_SESSION,
+          });
+        yield* Queue.offer(
+          harness.sdkMessages,
+          snapshot("00000000-0000-4000-8000-000000000674", {}),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          snapshot("00000000-0000-4000-8000-000000000675", null),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          snapshot("00000000-0000-4000-8000-000000000676", { input_tokens: 12_500 }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000677", result: "Done." }),
+        );
+        assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
+        const usages = harness.events.flatMap((event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
+            ? [event.providerTurn.tokenUsage.usedTokens]
+            : [],
+        );
+        assert.deepEqual(usages, [0, 12_500]);
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
   );

@@ -156,28 +156,34 @@ function claudePromptCacheTtlMs(
   return undefined;
 }
 
+// Anthropic-compatible proxies can send `usage: {}` or omit fields; count those as zero.
+function claudeUsageTokenCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+}
+
 export function claudeProviderTurnTokenUsage(
   usage: {
-    readonly input_tokens: number;
-    readonly cache_creation_input_tokens?: number | null;
-    readonly cache_read_input_tokens?: number | null;
-    readonly cache_creation?: ClaudeCacheCreation | null;
-    readonly output_tokens: number;
+    readonly input_tokens?: number | null | undefined;
+    readonly cache_creation_input_tokens?: number | null | undefined;
+    readonly cache_read_input_tokens?: number | null | undefined;
+    readonly cache_creation?: ClaudeCacheCreation | null | undefined;
+    readonly output_tokens?: number | null | undefined;
   },
   modelSelection: ModelSelection,
   updatedAt: string,
 ) {
+  const cachedInputTokens = claudeUsageTokenCount(usage.cache_read_input_tokens);
   const inputTokens =
-    usage.input_tokens +
-    (usage.cache_creation_input_tokens ?? 0) +
-    (usage.cache_read_input_tokens ?? 0);
-  const outputTokens = usage.output_tokens;
+    claudeUsageTokenCount(usage.input_tokens) +
+    claudeUsageTokenCount(usage.cache_creation_input_tokens) +
+    cachedInputTokens;
+  const outputTokens = claudeUsageTokenCount(usage.output_tokens);
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
   return {
     usedTokens: inputTokens + outputTokens,
     maxTokens: claudeContextWindow(modelSelection),
     inputTokens,
-    cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+    cachedInputTokens,
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
@@ -5878,7 +5884,7 @@ export function makeClaudeAdapterV2(
           if (message.type === "assistant" && input.replayed !== true) {
             const now = yield* DateTime.now;
             yield* completeProviderRetry(context, now);
-            if (message.parent_tool_use_id === null && message.message.usage !== undefined) {
+            if (message.parent_tool_use_id === null && message.message.usage != null) {
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
                 driver: CLAUDE_PROVIDER,
