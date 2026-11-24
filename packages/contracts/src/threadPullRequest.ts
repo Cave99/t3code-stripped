@@ -114,6 +114,8 @@ export const ThreadPullRequestWatch = Schema.Struct({
   passedChecks: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  /** Checks still pending when required ones passed early, owed one wake once all settle. */
+  owedChecks: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   /** Remarks from others created up to this host time were reported. */
   remarksThrough: IsoDateTime,
   /** Remarks created exactly at `remarksThrough` that were reported, so a late one still counts. */
