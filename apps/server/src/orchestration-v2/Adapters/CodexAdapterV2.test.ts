@@ -1412,6 +1412,16 @@ describe("CodexAdapterV2 background command detail", () => {
     assert.include(detail, "TAIL");
     assert.notInclude(detail, "y".repeat(1001));
   });
+
+  // Codex never answers a turn/start carrying a lone surrogate, which hung the wake.
+  it("keeps the detail well-formed when the cuts split an emoji", () => {
+    const detail = CodexAdapterV2.codexBackgroundCommandDetail({
+      command: `${"c".repeat(199)}🚀`,
+      exitCode: 0,
+      aggregatedOutput: `🚀${"x".repeat(999)}\n`,
+    });
+    assert.isTrue(detail.isWellFormed());
+  });
 });
 
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
