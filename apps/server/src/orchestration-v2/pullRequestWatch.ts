@@ -52,7 +52,8 @@ export function evaluatePullRequestWatch(
   now: number,
 ): PullRequestWatchReport {
   const changes: Array<PullRequestWatchChange> = [];
-  const headSha = detail.headSha ?? null;
+  // A read without a head says nothing about pushes, so it keeps the last known one.
+  const headSha = detail.headSha ?? watch.headSha;
   const headMoved = headSha !== watch.headSha;
 
   // An empty list keeps the last state: a host can answer with one when its check read fails.
@@ -137,12 +138,14 @@ export function evaluatePullRequestWatch(
     ...atLatest.map((remark) => remark.id),
   ];
 
-  if (detail.mergeability === "conflicting" && !watch.conflicting) {
+  // Like a failed check, a conflict a push did not resolve is news for the new head.
+  const toldConflict = !headMoved && watch.conflicting;
+  if (detail.mergeability === "conflicting" && !toldConflict) {
     changes.push({ kind: "conflicting" });
   }
   // "unknown" is GitHub still computing after a push; only a clean answer clears a conflict.
   const conflicting =
-    detail.mergeability === "unknown" ? watch.conflicting : detail.mergeability === "conflicting";
+    detail.mergeability === "unknown" ? toldConflict : detail.mergeability === "conflicting";
 
   const commentsOnly = changes.length > 0 && changes.every((change) => change.kind === "remarks");
   const progress = headMoved || (changes.length > 0 && !commentsOnly);
