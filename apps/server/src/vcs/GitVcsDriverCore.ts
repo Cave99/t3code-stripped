@@ -2471,20 +2471,25 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const prepareReviewIndex = Effect.fn("prepareReviewIndex")(function* (
     cwd: string,
     untrackedPaths: ReadonlyArray<string>,
+    isolated: boolean,
   ) {
     const [stagedDeletionsStdout, indexValue] = yield* Effect.all(
       [
-        runGitStdoutWithOptions(
-          "GitVcsDriver.readUnifiedWorkingTreeReviewDiff.stagedDeletions",
-          cwd,
-          ["diff", "--cached", "--name-only", "--diff-filter=D", "-z", "HEAD", "--"],
-          { allowNonZeroExit: true, maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES },
-        ),
-        runGitStdout("GitVcsDriver.readUnifiedWorkingTreeReviewDiff.indexPath", cwd, [
-          "rev-parse",
-          "--git-path",
-          "index",
-        ]),
+        isolated
+          ? Effect.succeed("")
+          : runGitStdoutWithOptions(
+              "GitVcsDriver.readUnifiedWorkingTreeReviewDiff.stagedDeletions",
+              cwd,
+              ["diff", "--cached", "--name-only", "--diff-filter=D", "-z", "HEAD", "--"],
+              { allowNonZeroExit: true, maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES },
+            ),
+        isolated
+          ? Effect.succeed("")
+          : runGitStdout("GitVcsDriver.readUnifiedWorkingTreeReviewDiff.indexPath", cwd, [
+              "rev-parse",
+              "--git-path",
+              "index",
+            ]),
       ],
       { concurrency: 2 },
     );
@@ -2492,23 +2497,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const pathsToAdd = untrackedPaths.filter((relativePath) => !stagedDeletions.has(relativePath));
     if (pathsToAdd.length === 0) return undefined;
 
-    const indexPath = path.isAbsolute(indexValue.trim())
-      ? indexValue.trim()
-      : path.resolve(cwd, indexValue.trim());
-    const tempIndexPath = yield* fileSystem.makeTempFileScoped({
-      prefix: `t3code-review-index-${process.pid}-`,
-    });
-    const indexExists = yield* fileSystem.exists(indexPath);
-    if (indexExists) {
-      const { mtime } = yield* fileSystem.stat(indexPath);
-      yield* fileSystem.copyFile(indexPath, tempIndexPath);
-      // Node FileSystem.stat truncates bigint timestamps to milliseconds before creating its Date.
-      // Flooring preserves the source second without making preceding-second files racy.
-      const indexTime = Option.isSome(mtime)
-        ? Math.max(0, Math.floor(mtime.value.getTime() / 1000))
-        : 0;
-      yield* fileSystem.utimes(tempIndexPath, indexTime, indexTime);
-    }
+    const prefix = `t3code-review-index-${process.pid}-`;
+    // The pathspec excludes every other entry, so an index holding only the added paths diffs
+    // the same as a copy of the real one. Git reads the missing file as an empty index.
+    const tempIndexPath = isolated
+      ? path.join(yield* fileSystem.makeTempDirectoryScoped({ prefix }), "index")
+      : yield* fileSystem.makeTempFileScoped({ prefix });
     const env = { GIT_INDEX_FILE: tempIndexPath } satisfies NodeJS.ProcessEnv;
     const tempIndexConfig = [
       "-c",
@@ -2516,15 +2510,32 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       "-c",
       "splitIndex.sharedIndexExpire=never",
     ];
-    if (!indexExists) {
-      yield* executeGit("GitVcsDriver.review.emptyIndex", cwd, ["read-tree", "--empty"], { env });
+    if (!isolated) {
+      const indexPath = path.isAbsolute(indexValue.trim())
+        ? indexValue.trim()
+        : path.resolve(cwd, indexValue.trim());
+      const indexExists = yield* fileSystem.exists(indexPath);
+      if (indexExists) {
+        const { mtime } = yield* fileSystem.stat(indexPath);
+        yield* fileSystem.copyFile(indexPath, tempIndexPath);
+        // Node FileSystem.stat truncates bigint timestamps to milliseconds before creating its
+        // Date. Flooring preserves the source second without making preceding-second files racy.
+        const indexTime = Option.isSome(mtime)
+          ? Math.max(0, Math.floor(mtime.value.getTime() / 1000))
+          : 0;
+        yield* fileSystem.utimes(tempIndexPath, indexTime, indexTime);
+      } else {
+        yield* executeGit("GitVcsDriver.review.emptyIndex", cwd, ["read-tree", "--empty"], {
+          env,
+        });
+      }
+      yield* executeGit(
+        "GitVcsDriver.readUnifiedWorkingTreeReviewDiff.expandSplitIndex",
+        cwd,
+        [...tempIndexConfig, "update-index", "--no-split-index"],
+        { env },
+      );
     }
-    yield* executeGit(
-      "GitVcsDriver.readUnifiedWorkingTreeReviewDiff.expandSplitIndex",
-      cwd,
-      [...tempIndexConfig, "update-index", "--no-split-index"],
-      { env },
-    );
     yield* executeGit(
       "GitVcsDriver.readUnifiedWorkingTreeReviewDiff.addUntracked",
       cwd,
@@ -2636,11 +2647,35 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     });
     const readDirty = Effect.gen(function* () {
       if (input.file?.sourceKind === "branch-range") return yield* readTrackedDiff(null);
-      const untracked = yield* executeGit(
-        "GitVcsDriver.review.listUntracked",
-        cwd,
-        ["ls-files", "--others", "--exclude-standard", "-z", "--", ...pathArgs],
-        { maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES },
+      // Only the untracked path itself in the pathspec: a rename's tracked previous path needs
+      // its real index entry.
+      const isolated = input.file !== undefined && pathArgs.length === 1;
+      const listUntracked = (withTree: boolean) =>
+        executeGit(
+          "GitVcsDriver.review.listUntracked",
+          cwd,
+          [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            ...(withTree ? ["--with-tree=HEAD"] : []),
+            "-z",
+            "--",
+            ...pathArgs,
+          ],
+          { maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES, allowNonZeroExit: withTree },
+        );
+      // An isolated index skips prepareReviewIndex's staged-deletion read, so --with-tree drops
+      // them here. It fails only without a HEAD, where nothing can be a staged deletion.
+      const untracked = yield* (
+        isolated
+          ? listUntracked(true).pipe(
+              Effect.filterOrElse(
+                (result) => result.exitCode === 0,
+                () => listUntracked(false),
+              ),
+            )
+          : listUntracked(false)
       ).pipe(
         Effect.catchIf(
           (error) => error.outputLength === undefined,
@@ -2659,7 +2694,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         return { ...tracked, files: undefined, stdoutTruncated: true };
       }
       if (paths.length === 0) return yield* readTrackedDiff("HEAD");
-      const env = yield* prepareReviewIndex(cwd, paths).pipe(
+      const env = yield* prepareReviewIndex(cwd, paths, isolated).pipe(
         Effect.catchTags({
           PlatformError: (cause) =>
             Effect.fail(

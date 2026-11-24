@@ -1507,10 +1507,51 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
         const diff = preview.sources.find((source) => source.kind === "working-tree")?.diff ?? "";
+        const single = yield* driver.getReviewDiffPreview({
+          cwd,
+          file: { path: "removed.txt", previousPath: null, sourceKind: "working-tree" },
+        });
 
-        assert.include(diff, "deleted file mode");
-        assert.include(diff, "-remove me");
-        assert.notInclude(diff, "new file mode");
+        for (const text of [diff, single.sources[0]!.diff]) {
+          assert.include(text, "deleted file mode");
+          assert.include(text, "-remove me");
+          assert.notInclude(text, "new file mode");
+        }
+      }),
+    );
+
+    it.effect("reads one untracked file's patch without copying the Git index", () =>
+      Effect.gen(function* () {
+        const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const spawnedArgs: Array<ReadonlyArray<string>> = [];
+        const recordingSpawner = ChildProcessSpawner.make((command) => {
+          if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args.map(String));
+          return delegate.spawn(command);
+        });
+        const driver = yield* makeGitVcsDriverCore().pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, recordingSpawner),
+          Effect.provide(ServerConfigLayer),
+        );
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd).pipe(
+          Effect.provideService(GitVcsDriver.GitVcsDriver, driver),
+        );
+        yield* writeTextFile(cwd, "README.md", "# tracked change\n");
+        yield* writeTextFile(cwd, "untracked.txt", "untracked\n");
+        spawnedArgs.length = 0;
+
+        const single = yield* driver.getReviewDiffPreview({
+          cwd,
+          file: { path: "untracked.txt", previousPath: null, sourceKind: "working-tree" },
+        });
+
+        const [source] = single.sources;
+        assert.deepStrictEqual(source!.files, [
+          { path: "untracked.txt", previousPath: null, additions: 1, deletions: 0 },
+        ]);
+        assert.include(source!.diff, "+++ b/untracked.txt");
+        assert.notInclude(source!.diff, "README.md");
+        assert.isFalse(spawnedArgs.some((args) => args.includes("--no-split-index")));
       }),
     );
 
@@ -1743,6 +1784,12 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         ]);
         assert.include(dirty.diff, "b/staged.txt");
         assert.include(dirty.diff, "b/untracked.txt");
+        const single = yield* driver.getReviewDiffPreview({
+          cwd,
+          file: { path: "untracked.txt", previousPath: null, sourceKind: "working-tree" },
+        });
+        assert.deepStrictEqual(single.sources[0]!.files, dirty.files!.slice(1));
+        assert.include(single.sources[0]!.diff, "b/untracked.txt");
       }),
     );
 
