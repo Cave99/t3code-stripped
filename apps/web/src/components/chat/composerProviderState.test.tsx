@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
+  ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
   type ServerProviderModel,
@@ -11,8 +12,7 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+  resolveComposerTraitsInput,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
 
@@ -373,23 +373,31 @@ describe("trait controls fastMode display", () => {
   });
 });
 
-describe("provider traits render guards", () => {
-  it("returns null when no thread target is provided", () => {
-    const models = modelWith([
+describe("resolveComposerTraitsInput", () => {
+  const args = {
+    provider: PROVIDER,
+    instanceId: ProviderInstanceId.make("codex"),
+    model: MODEL,
+    models: modelWith([
       selectDescriptor("effort", [{ id: "high", label: "High", isDefault: true }]),
-    ]);
-    const args = {
-      provider: PROVIDER,
-      model: MODEL,
-      models,
-      modelOptions: undefined,
-      prompt: "",
-      onPromptChange: () => {},
-      planModeEnabled: true,
-    };
+      booleanDescriptor("fastMode", true),
+    ]),
+    modelOptions: undefined,
+    prompt: "",
+    onPromptChange: () => {},
+    planModeEnabled: true,
+  };
 
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+  it("returns null when no thread target is provided", () => {
+    expect(resolveComposerTraitsInput(args)).toBeNull();
+  });
+
+  it("applies the composer's implicit defaults so a pick writes what a send would", () => {
+    const draftId = "draft-1" as Parameters<typeof resolveComposerTraitsInput>[0]["draftId"];
+    expect(resolveComposerTraitsInput({ ...args, draftId })).toMatchObject({
+      draftId,
+      modelOptions: selections(["fastMode", false]),
+    });
   });
 });
 

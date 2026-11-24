@@ -34,7 +34,10 @@ lowest, and decrease wraps from the lowest level to the highest.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
-model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
+model search. The model picker also lists the selected model's effort levels beside
+the models: Right at the end of the search moves to the highlighted model's levels,
+and Left comes back. Choosing a model keeps the picker open on its effort, and
+`mod+shift+e` opens the picker on the effort levels. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
 search. These provider shortcuts can also be changed in Settings.
 
 These shortcuts run inside the focused desktop window. `mod` uses Command

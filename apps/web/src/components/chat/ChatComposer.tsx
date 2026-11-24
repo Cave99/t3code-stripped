@@ -99,6 +99,7 @@ import {
   useComposerMenuProps,
   isInsideCollapsedComposerControls,
   isInsideRestingComposerControlScope,
+  markOpenToEffort,
 } from "./composerEventScope";
 import {
   type ComposerFileAttachment,
@@ -259,6 +260,7 @@ import {
 } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { ComposerEffortColumn, describeComposerEffort } from "./ComposerModelEffort";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -284,8 +286,7 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+  resolveComposerTraitsInput,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
@@ -2876,7 +2877,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+  const composerTraitsInput = resolveComposerTraitsInput({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
@@ -2888,20 +2889,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
   });
-  const providerTraitsPickerInput = {
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-    planModeEnabled: settings.planModeEnabled,
-    isComposerOwned: true,
-  } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -5302,25 +5289,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
     : expandedControlsLayout.iconOnlyBlockCount;
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
-  });
+  // Effort lives in the model picker: its trigger names the level and its popup docks the levels.
+  const composerEffort = describeComposerEffort(
+    composerTraitsInput,
+    composerControlsCollapsed ? "xs" : "sm",
+  );
   const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
-              </>
-            ),
-          },
-        ]
-      : []),
     {
       id: "mode",
       content: (
@@ -5424,11 +5398,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         triggerClassName={
           composerControlsCollapsed
             ? cn(
-                "min-w-13 shrink text-xs!",
+                "group/model-trigger min-w-13 shrink text-xs!",
                 !showInlineRestingControls &&
-                  "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
+                  "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-suffix]]:hidden",
               )
-            : "-ms-2.5 min-w-13"
+            : "group/model-trigger -ms-2.5 min-w-13"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -5450,9 +5424,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         getModelDisabledReason={getModelDisabledReason}
         onInstanceModelChange={(instanceId, model) => {
           setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
+          // The picker stays open on the new model's effort, so focus stays in the popup.
+          onProviderModelSelect(instanceId, model, { focusComposer: false });
         }}
         onOpenProviderSetup={onOpenProviderSetup}
+        triggerSuffix={composerEffort.suffix}
+        triggerDetail={composerEffort.detail}
+        triggerShortcuts="composer.effort"
+        effortColumn={<ComposerEffortColumn traits={composerTraitsInput} />}
       />
 
       <>
@@ -5494,9 +5473,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
           />
@@ -6363,6 +6339,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         );
         if (!trigger) return;
         trigger.focus({ preventScroll: true });
+        if (command === "composer.effort") markOpenToEffort(trigger);
         trigger.click();
       },
       compactContext: compactThreadContext,

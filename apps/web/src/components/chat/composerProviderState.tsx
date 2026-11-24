@@ -12,17 +12,10 @@ import {
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
-import type { ReactNode } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import type { ComposerControlSize } from "./ComposerControl";
-import {
-  getReasoningTraitStep,
-  shouldRenderTraitsControls,
-  TraitsMenuContent,
-  TraitsPicker,
-} from "./TraitsPicker";
+import { getReasoningTraitStep, type TraitsSelectionInput } from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -44,21 +37,17 @@ export type ComposerProviderState = {
   modelPickerIconClassName?: string;
 };
 
-type TraitsRenderInput = {
+type ComposerTraitsTarget = {
   provider: ProviderDriverKind;
-  instanceId?: ProviderInstanceId;
-  threadRef?: ScopedThreadRef;
-  draftId?: DraftId;
+  instanceId: ProviderInstanceId;
+  threadRef?: ScopedThreadRef | undefined;
+  draftId?: DraftId | undefined;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
   planModeEnabled: boolean;
-  size?: ComposerControlSize;
-  hidden?: boolean;
-  triggerClassName?: string;
-  isComposerOwned?: boolean;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -198,71 +187,22 @@ export function getComposerReasoningStep(input: {
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
-  const {
-    provider,
-    instanceId,
-    threadRef,
-    draftId,
-    model,
-    models,
-    modelOptions,
-    prompt,
-    onPromptChange,
-    planModeEnabled,
-    size,
-    hidden,
-    triggerClassName,
-    isComposerOwned,
-  } = input;
-  const hasTarget = threadRef !== undefined || draftId !== undefined;
-  const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
-    models,
-    model,
-    provider,
-    modelOptions,
-    planModeEnabled,
+/**
+ * The composer's traits input with the model's implicit defaults applied, so a pick writes what
+ * the composer would send. Null without a draft or thread to persist to.
+ */
+export function resolveComposerTraitsInput(
+  input: ComposerTraitsTarget,
+): TraitsSelectionInput | null {
+  const { threadRef, draftId, ...rest } = input;
+  const { selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.planModeEnabled,
   );
-  if (
-    !hasTarget ||
-    !shouldRenderTraitsControls({
-      provider,
-      models,
-      model,
-      modelOptions: resolvedModelOptions,
-      prompt,
-      planModeEnabled,
-    })
-  ) {
-    return null;
-  }
-  return (
-    <Component
-      provider={provider}
-      {...(instanceId ? { instanceId } : {})}
-      models={models}
-      {...(threadRef ? { threadRef } : {})}
-      {...(draftId ? { draftId } : {})}
-      model={model}
-      modelOptions={resolvedModelOptions}
-      prompt={prompt}
-      onPromptChange={onPromptChange}
-      planModeEnabled={planModeEnabled}
-      {...(size !== undefined ? { size } : {})}
-      {...(hidden !== undefined ? { hidden } : {})}
-      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
-      {...(isComposerOwned ? { isComposerOwned } : {})}
-    />
-  );
-}
-
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input);
-}
-
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsPicker, input);
+  const persistence = threadRef ? { threadRef } : draftId ? { draftId } : null;
+  if (!persistence) return null;
+  return { ...rest, ...persistence, modelOptions: selections };
 }

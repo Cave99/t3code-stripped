@@ -50,3 +50,18 @@ export function isInsideRestingComposerControlScope(target: EventTarget | null):
       isInsideComposerFloatingLayer(target))
   );
 }
+
+/**
+ * composer.effort marks the model picker trigger it opens; the picker then moves focus to the
+ * selected effort level once its popup is open.
+ */
+export function markOpenToEffort(trigger: HTMLElement): void {
+  trigger.dataset.openToEffort = "true";
+}
+
+/** Reads and clears the mark `markOpenToEffort` left. */
+export function takeOpenToEffort(trigger: HTMLElement | null): boolean {
+  if (!trigger?.dataset.openToEffort) return false;
+  delete trigger.dataset.openToEffort;
+  return true;
+}
