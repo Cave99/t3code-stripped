@@ -2295,10 +2295,52 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const pullCurrentBranch: GitVcsDriver.GitVcsDriver["Service"]["pullCurrentBranch"] = Effect.fn(
     "pullCurrentBranch",
   )(function* (cwd) {
-    // `git pull` fetches on its own. The background status fetch would queue Pull behind
-    // other repositories' fetches and then fetch the same remote a second time.
-    const details = yield* readStatusDetailsLocal(cwd);
-    const refName = details.branch;
+    // Only the branch and its upstream are needed, never a working tree scan. `git pull`
+    // fetches on its own, so the background status fetch is skipped too: it would queue Pull
+    // behind other repositories' fetches and then fetch the same remote a second time.
+    const [refName, currentUpstreamRef] = yield* Effect.all(
+      [
+        runGitStdout(
+          "GitVcsDriver.pullCurrentBranch.branch",
+          cwd,
+          ["symbolic-ref", "--quiet", "--short", "HEAD"],
+          true,
+        ).pipe(Effect.map((stdout) => stdout.trim() || null)),
+        runGitStdout(
+          "GitVcsDriver.pullCurrentBranch.upstream",
+          cwd,
+          ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+          true,
+        ).pipe(
+          Effect.map((stdout) => {
+            const value = stdout.trim();
+            return value.length > 0 && value !== "@{upstream}" ? value : null;
+          }),
+        ),
+      ],
+      { concurrency: 2 },
+    );
+    let upstreamRef = currentUpstreamRef;
+    // `@{upstream}` needs the tracking ref, which an unborn branch's first pull has not fetched.
+    if (upstreamRef === null && refName) {
+      const head = yield* executeGit(
+        "GitVcsDriver.pullCurrentBranch.head",
+        cwd,
+        ["rev-parse", "--verify", "--quiet", "HEAD"],
+        { allowNonZeroExit: true },
+      );
+      if (head.exitCode !== 0) {
+        const [configuredRemote, mergeRef] = yield* Effect.all([
+          readConfigValue(cwd, `branch.${refName}.remote`),
+          readConfigValue(cwd, `branch.${refName}.merge`),
+        ]);
+        const mergeBranch = mergeRef?.replace(/^refs\/heads\//, "");
+        if (configuredRemote && mergeBranch) {
+          upstreamRef =
+            configuredRemote === "." ? mergeBranch : `${configuredRemote}/${mergeBranch}`;
+        }
+      }
+    }
     if (!refName) {
       return yield* new GitCommandError({
         ...gitCommandContext({
@@ -2309,7 +2351,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         detail: "Cannot pull from detached HEAD.",
       });
     }
-    if (!details.hasUpstream) {
+    if (upstreamRef === null) {
       return yield* new GitCommandError({
         ...gitCommandContext({
           operation: "GitVcsDriver.pullCurrentBranch",
@@ -2336,11 +2378,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
 
-    const refreshed = yield* readStatusDetailsLocal(cwd);
     return {
       status: beforeSha.length > 0 && beforeSha === afterSha ? "skipped_up_to_date" : "pulled",
       refName,
-      upstreamRef: refreshed.upstreamRef,
+      upstreamRef,
     };
   });
 
