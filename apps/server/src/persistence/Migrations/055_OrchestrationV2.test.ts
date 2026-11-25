@@ -14,7 +14,7 @@ layer("055_OrchestrationV2", (it) => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
         // 58 is reserved for a change on another branch that must land before this one ships.
-        [...Array.from({ length: 57 }, (_, index) => index + 1), 59],
+        [...Array.from({ length: 57 }, (_, index) => index + 1), 59, 60],
       );
     }),
   );
@@ -31,6 +31,7 @@ layer("055_OrchestrationV2", (it) => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "McpAppModelContext"],
         [59, "SettledLeafNodeIndex"],
+        [60, "TurnItemMessageOrdinalIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -55,6 +56,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 56, name: "RemoveRedundantProjectionIndexes" },
         { migration_id: 57, name: "McpAppModelContext" },
         { migration_id: 59, name: "SettledLeafNodeIndex" },
+        { migration_id: 60, name: "TurnItemMessageOrdinalIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

@@ -311,4 +311,34 @@ it.layer(TestLayer)("ProjectionStoreV2 long threads", (it) => {
       );
     }),
   );
+
+  it.effect("orders a long thread's messages through the message ordinal index", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const runs = 30;
+      const threadId = yield* seedLongThread({ suffix: "message-ordinals", runs });
+
+      const { statements, tracer } = traceSqlStatements();
+      const { messages } = yield* store
+        .getThreadRecords(threadId, ["messages"])
+        .pipe(Effect.withTracer(tracer));
+      assert.deepEqual(
+        messages.map((message) => String(message.id)),
+        Array.from({ length: runs }, (_, index) => [
+          `message:message-ordinals:${index + 1}:user`,
+          `message:message-ordinals:${index + 1}:assistant`,
+        ]).flat(),
+      );
+
+      const ordinalRead = statements.find((statement) => statement.includes("MIN(ordinal)"));
+      assert.isDefined(ordinalRead);
+      const plan = yield* queryPlan(ordinalRead!);
+      assert.isTrue(
+        plan.some((detail) =>
+          detail.includes("orchestration_v2_projection_turn_items_message_ordinal_idx"),
+        ),
+        plan.join("\n"),
+      );
+    }),
+  );
 });

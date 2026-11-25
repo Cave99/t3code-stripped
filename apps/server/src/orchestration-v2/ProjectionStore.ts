@@ -3231,10 +3231,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         // A metadata read must preserve message ordering without decoding tool output.
         const messageOrdinals = new Map<string, number>();
         if (fields !== undefined && fields.includes("messages") && messages.length > 1) {
+          // Migration 60 indexes exactly this expression, type list and json_valid term: changing
+          // any, even the IN order, silently drops the index. A long-thread test asserts the plan.
           const rows = yield* sql<{ message_id: string; ordinal: number }>`
             SELECT json_extract(payload_json, '$.messageId') AS message_id, MIN(ordinal) AS ordinal
             FROM orchestration_v2_projection_turn_items
             WHERE thread_id = ${threadId} AND type IN ('user_message', 'assistant_message')
+              AND json_valid(payload_json)
             GROUP BY json_extract(payload_json, '$.messageId')
           `;
           for (const row of rows) messageOrdinals.set(row.message_id, row.ordinal);
