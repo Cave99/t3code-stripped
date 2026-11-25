@@ -467,7 +467,8 @@ it.effect("keeps a branch's base cached while only other refs' commits move", ()
       yield* git(cwd, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"]);
       yield* driver.statusDetailsLocal(cwd);
       assert.equal(lookups(), 1);
-      yield* git(cwd, ["branch", "master"]);
+      // Any new branch name; not `master`, which is the initial branch where git defaults to it.
+      yield* git(cwd, ["branch", "release"]);
       yield* driver.statusDetailsLocal(cwd);
       assert.equal(lookups(), 1);
       // Deleting a packed ref rewrites packed-refs without touching a loose file.
