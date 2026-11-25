@@ -96,6 +96,12 @@ export const T3ProjectFile = Schema.Struct({
         'How new worktrees populate git submodules: "recursive" (the default) initializes nested submodules too, "top-level" initializes only those declared by this repository, and "none" leaves every submodule empty for a setup script to handle. A project or environment setting in C3 Code overrides this.',
     }),
   ),
+  ignoreRepositories: Schema.optionalKey(
+    Schema.Array(Schema.String).annotate({
+      description:
+        "Repositories inside the project folder that C3 Code should leave out of the project, as paths relative to it, such as vendor/big. They are then not reviewed on their own.",
+    }),
+  ),
   scripts: Schema.optionalKey(
     Schema.Array(T3ProjectFileScript)
       .annotate({

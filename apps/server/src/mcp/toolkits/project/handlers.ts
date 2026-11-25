@@ -17,7 +17,9 @@ function projectFailure(error: Project.ProjectServiceError) {
       ? "The project was not found."
       : error._tag === "ProjectConflictError"
         ? "The workspace is already registered to a project."
-        : "The project is not empty; force=true is required to delete it.";
+        : error._tag === "ProjectInvalidError"
+          ? error.detail
+          : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
 
@@ -164,6 +166,7 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
         // reject what this mode would otherwise drop silently.
         if (
           input.scripts !== undefined ||
+          input.trackedFolders !== undefined ||
           input.createWorkspaceRootIfMissing !== undefined ||
           input.defaultModelSelection !== undefined
         )

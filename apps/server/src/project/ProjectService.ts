@@ -1,18 +1,24 @@
 import {
   CommandId,
   type OrchestrationProjectShell,
+  PROJECT_TRACKED_FOLDERS_MAX,
   ProjectId,
   type Project,
   type ProjectCreatePayload,
+  type ProjectTrackedFolder,
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -31,6 +37,13 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
+import {
+  discoverFolders,
+  isWithinRoot,
+  mergeProjectFolders,
+  projectFolders,
+  sameProjectFolders,
+} from "../workspace/WorkspaceFolders.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export interface ProjectCreateInput extends ProjectCreatePayload {
@@ -41,6 +54,9 @@ export interface ProjectCreateInput extends ProjectCreatePayload {
 export interface ProjectUpdateInput extends ProjectUpdatePayload {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
+  /** Added to, and removed by path from, the list the project has when the update commits. */
+  readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder> | undefined;
+  readonly untrackFolders?: ReadonlyArray<string> | undefined;
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
@@ -82,6 +98,16 @@ export class ProjectNotEmptyError extends Schema.TaggedError<ProjectNotEmptyErro
   }
 }
 
+/** A change the project's rules refuse: the caller's input is wrong, nothing failed. */
+export class ProjectInvalidError extends Schema.TaggedError<ProjectInvalidError>()(
+  "ProjectInvalidError",
+  { projectId: ProjectId, detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export class ProjectOperationError extends Schema.TaggedError<ProjectOperationError>()(
   "ProjectOperationError",
   {
@@ -107,6 +133,7 @@ export type ProjectServiceError =
   | ProjectNotFoundError
   | ProjectConflictError
   | ProjectNotEmptyError
+  | ProjectInvalidError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -144,6 +171,8 @@ export class ProjectService extends Context.Service<
   }
 >()("t3/project/ProjectService") {}
 
+const FOLDER_SYNC_INTERVAL_MS = 30_000;
+
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -153,6 +182,9 @@ export const make = Effect.gen(function* () {
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const scope = yield* Effect.scope;
   // Commands for one project run in order. Commands that claim a workspace root
   // also hold that root, so two projects cannot both claim it.
   const projectLocks = yield* makeKeyedSerialExecutor<ProjectId>();
@@ -172,12 +204,49 @@ export const make = Effect.gen(function* () {
     autoPull: row.autoPull,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
+    trackedFolders: row.trackedFolders,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
   });
 
+  // Clients read `trackedFolders` off the project, so the stored list is brought back in step
+  // with the disk when a project is read, at most this often. Server work reads the disk itself.
+  const folderSyncDue = new Map<ProjectId, number>();
+  const syncFolders = Effect.fn("ProjectService.syncFolders")(function* (
+    row: ProjectStore.ProjectRow,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    if ((folderSyncDue.get(row.projectId) ?? 0) > now) return;
+    folderSyncDue.set(row.projectId, now + FOLDER_SYNC_INTERVAL_MS);
+    const discovered = yield* discoverFolders(row.workspaceRoot).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    if (sameProjectFolders(mergeProjectFolders(discovered, row.trackedFolders), row.trackedFolders))
+      return;
+    const command = {
+      type: "project.meta.update",
+      commandId: CommandId.make(`project-folders:${row.projectId}:${now}`),
+      projectId: row.projectId,
+    } as const;
+    // `row` was read before the scan: an update since then may have added or removed a folder.
+    yield* commit(command, (current) => {
+      if (current?.deletedAt !== null || current.workspaceRoot !== row.workspaceRoot)
+        return Effect.succeed(null);
+      const trackedFolders = mergeProjectFolders(discovered, current.trackedFolders);
+      return Effect.succeed(
+        sameProjectFolders(trackedFolders, current.trackedFolders)
+          ? null
+          : { ...command, trackedFolders },
+      );
+    });
+  });
+
   const hydrate = Effect.fn("ProjectService.hydrate")(function* (row: ProjectStore.ProjectRow) {
+    if (row.deletedAt === null) {
+      yield* syncFolders(row).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(scope));
+    }
     const enrichment =
       row.deletedAt === null
         ? yield* projectEnrichment.getAvailable(row.workspaceRoot)
@@ -215,17 +284,84 @@ export const make = Effect.gen(function* () {
         ),
       );
 
+  // A folder may be missing from disk: it shows as missing until it is restored or removed.
+  const withDiscovered = (workspaceRoot: string, added: ReadonlyArray<ProjectTrackedFolder>) =>
+    projectFolders({ workspaceRoot, trackedFolders: added }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+
+  const normalizeTrackedFolders = (
+    projectId: ProjectId,
+    workspaceRoot: string,
+    folders: ReadonlyArray<ProjectTrackedFolder>,
+    known: ReadonlyArray<ProjectTrackedFolder> = [],
+  ) => {
+    const invalid = (detail: string) => Effect.fail(new ProjectInvalidError({ projectId, detail }));
+    const normalized: Array<ProjectTrackedFolder> = [];
+    // The server finds the repositories inside the project folder itself; callers add the rest.
+    for (const folder of folders.filter((entry) => entry.discovered !== true)) {
+      if (!path.isAbsolute(folder.path)) {
+        return invalid(`Tracked folder '${folder.path}' must be an absolute path.`);
+      }
+      const folderPath = path.resolve(folder.path);
+      if (isWithinRoot(path, workspaceRoot, folderPath)) {
+        return invalid(
+          folderPath === workspaceRoot
+            ? "The project's own folder is always part of it; track other folders."
+            : `Tracked folder '${folderPath}' contains the project's own folder.`,
+        );
+      }
+      if (normalized.some((existing) => existing.path === folderPath)) {
+        return invalid(`Tracked folder '${folderPath}' is listed twice.`);
+      }
+      normalized.push({ path: folderPath, name: folder.name });
+    }
+    if (normalized.length > PROJECT_TRACKED_FOLDERS_MAX) {
+      return invalid(
+        `A project tracks at most ${PROJECT_TRACKED_FOLDERS_MAX} added folders; ${normalized.length} were given.`,
+      );
+    }
+    // Only a folder being added has to be there: one already tracked may have gone missing since.
+    return Effect.forEach(
+      normalized.filter((folder) => !known.some((existing) => existing.path === folder.path)),
+      (folder) =>
+        fileSystem.stat(folder.path).pipe(
+          Effect.map((info) => info.type === "Directory"),
+          Effect.orElseSucceed(() => false),
+          Effect.flatMap((isFolder) =>
+            isFolder ? Effect.void : invalid(`'${folder.path}' is not a folder on this machine.`),
+          ),
+        ),
+      { discard: true },
+    ).pipe(Effect.andThen(withDiscovered(workspaceRoot, normalized)));
+  };
+
   /**
    * Plan one command against rows read under its locks, then commit its event or
    * its rejection. A reused command id resolves to the receipt it already has.
+   * `refine` decides the command from the row as it is under the project's lock; null commits
+   * nothing. It must keep the command's type and workspace root, which pick the locks.
    */
-  const commit = Effect.fn("ProjectService.commit")(function* (command: ProjectCommand) {
-    const { projectId } = command;
+  const commit = Effect.fn("ProjectService.commit")(function* (
+    initial: ProjectCommand,
+    refine?: (
+      current: ProjectStore.ProjectRow | undefined,
+    ) => Effect.Effect<ProjectCommand | null, ProjectServiceError>,
+  ) {
+    const { projectId } = initial;
     const dispatchError = (cause: unknown) =>
       new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
-    const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
+    const workspaceRoot = initial.type === "project.delete" ? undefined : initial.workspaceRoot;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
+      let command = initial;
+      if (refine !== undefined) {
+        const refined = yield* Effect.exit(refine(project));
+        if (Exit.isFailure(refined)) return { refused: refined.cause };
+        if (refined.value === null) return null;
+        command = refined.value;
+      }
       const workspaceOwner =
         workspaceRoot === undefined
           ? undefined
@@ -252,17 +388,18 @@ export const make = Effect.gen(function* () {
           acceptedAt: now,
           event: planned.success,
         });
-        return receipt;
+        return { receipt };
       }
-      return yield* eventSink.commitRejectedProjectCommand({
+      const receipt = yield* eventSink.commitRejectedProjectCommand({
         commandId: command.commandId,
         projectId,
         commandType: command.type,
         rejectedAt: now,
         error: encodeProjectCommandRejection(planned.failure),
       });
+      return { receipt };
     });
-    const receipt = yield* projectLocks
+    const outcome = yield* projectLocks
       .withLock(
         projectId,
         workspaceRoot === undefined
@@ -270,9 +407,12 @@ export const make = Effect.gen(function* () {
           : workspaceLocks.withLock(workspaceRoot, planAndCommit),
       )
       .pipe(Effect.mapError(dispatchError));
-    if (receipt.projectId !== projectId || receipt.commandType !== command.type) {
+    if (outcome === null) return;
+    if ("refused" in outcome) return yield* Effect.failCause(outcome.refused);
+    const { receipt } = outcome;
+    if (receipt.projectId !== projectId || receipt.commandType !== initial.type) {
       return yield* dispatchError(
-        `Command ${command.commandId} was already used by ${receipt.commandType} for ${receipt.projectId}.`,
+        `Command ${initial.commandId} was already used by ${receipt.commandType} for ${receipt.projectId}.`,
       );
     }
     // A retried command re-plans against the state it already produced, so its
@@ -341,6 +481,11 @@ export const make = Effect.gen(function* () {
         workspaceRoot: input.workspaceRoot,
         createIfMissing: input.createWorkspaceRootIfMissing ?? false,
       });
+      const trackedFolders = yield* normalizeTrackedFolders(
+        input.projectId,
+        workspaceRoot,
+        input.trackedFolders ?? [],
+      );
       yield* commit({
         type: "project.create",
         commandId: input.commandId,
@@ -348,6 +493,7 @@ export const make = Effect.gen(function* () {
         title: input.title,
         workspaceRoot,
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        trackedFolders,
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
@@ -368,7 +514,7 @@ export const make = Effect.gen(function* () {
               projectId: input.projectId,
               workspaceRoot: input.workspaceRoot,
             });
-      yield* commit({
+      const command = {
         type: "project.meta.update",
         commandId: input.commandId,
         projectId: input.projectId,
@@ -384,7 +530,46 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
-      });
+      } as const;
+      // Checked against the row under the lock: an update that ran meanwhile may have moved the
+      // project's folder or changed what it tracks.
+      yield* commit(
+        command,
+        Effect.fnUntraced(function* (current) {
+          if (current === undefined || current.deletedAt !== null) return command;
+          const root = command.workspaceRoot ?? current.workspaceRoot;
+          // Moving the project's folder re-checks the folders it keeps tracking.
+          const untracked = new Set(
+            (input.untrackFolders ?? []).map((entry) => path.resolve(entry)),
+          );
+          const tracking = input.trackFolders ?? [];
+          if (
+            input.trackedFolders === undefined &&
+            untracked.size === 0 &&
+            tracking.length === 0 &&
+            root === current.workspaceRoot
+          )
+            return command;
+          const listed: ReadonlyArray<ProjectTrackedFolder> =
+            input.trackedFolders ?? current.trackedFolders;
+          const kept = listed.filter(
+            (folder) => folder.discovered !== true && !untracked.has(path.resolve(folder.path)),
+          );
+          const trackedFolders = yield* normalizeTrackedFolders(
+            input.projectId,
+            root,
+            [
+              ...kept,
+              ...tracking.filter(
+                (folder) =>
+                  !kept.some((entry) => path.resolve(entry.path) === path.resolve(folder.path)),
+              ),
+            ],
+            current.trackedFolders,
+          );
+          return { ...command, trackedFolders };
+        }),
+      );
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
       }
