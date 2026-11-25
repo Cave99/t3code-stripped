@@ -133,6 +133,8 @@ export const layer: Layer.Layer<
         providerThread.providerSessionId === null ||
         checkpoint === undefined ||
         scope === undefined ||
+        // A repository's checkpoints follow the thread's; they are not a place to rewind to.
+        typeof scope.repositoryPath === "string" ||
         checkpoint.scopeId !== scope.id ||
         checkpoint.status !== "ready"
       ) {
@@ -263,16 +265,38 @@ export const layer: Layer.Layer<
               providerThreadTurns,
             });
       if (input.restoreFiles !== false) yield* checkpoints.restore({ scope, checkpoint });
-      const staleCheckpoints = projection.checkpoints.filter(
+      const repositoryScopeIds = new Set(
+        projection.checkpointScopes.flatMap((candidate) =>
+          typeof candidate.repositoryPath === "string" ? [candidate.id] : [],
+        ),
+      );
+      const staleScopeCheckpoints = projection.checkpoints.filter(
         (candidate) =>
           candidate.scopeId === scope.id &&
           candidate.appRunOrdinal !== null &&
           candidate.appRunOrdinal > targetOrdinal &&
           candidate.status === "ready",
       );
-      if (staleCheckpoints.length > 0) {
-        yield* checkpoints.deleteStaleRefs({ scope, checkpoints: staleCheckpoints });
+      // Repository checkpoints carry no app run ordinal; theirs is the run's ordinal. They are
+      // not restored, since the project's repositories are shared with its other local threads,
+      // but the discarded runs' records go stale with the thread's own.
+      const staleCheckpoints = [
+        ...staleScopeCheckpoints,
+        ...projection.checkpoints.filter(
+          (candidate) =>
+            repositoryScopeIds.has(candidate.scopeId) &&
+            candidate.ordinalWithinScope > targetOrdinal &&
+            candidate.status === "ready",
+        ),
+      ];
+      if (staleScopeCheckpoints.length > 0) {
+        yield* checkpoints.deleteStaleRefs({ scope, checkpoints: staleScopeCheckpoints });
       }
+      yield* checkpoints.discardRepositorySnapshots({
+        rootScope: scope,
+        thread: projection.thread,
+        ordinals: runsToRollback.map((run) => run.ordinal),
+      });
 
       const now = yield* DateTime.now;
       const makeEvent = <Event extends OrchestrationV2DomainEvent>(event: Omit<Event, "id">) =>

@@ -223,13 +223,17 @@ const ProjectionCheckpointContext = Schema.Struct({
       runId,
       kind,
       cwd,
+      // SQLite reads an absent JSON key as null.
+      label: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      repositoryPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
     })),
   ),
   checkpoints: Schema.Array(
     OrchestrationV2CheckpointJsonSchema.mapFields(
-      ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+      ({ scopeId, runId, ordinalWithinScope, appRunOrdinal, status, ref }) => ({
         scopeId,
         runId,
+        ordinalWithinScope,
         appRunOrdinal,
         status,
         ref,
@@ -247,6 +251,12 @@ interface ProjectionCheckpointCaptureContext {
   readonly scope: OrchestrationV2CheckpointScope | undefined;
   readonly providerThread: OrchestrationV2ProviderThread | undefined;
   readonly readyCheckpointOrdinals: ReadonlyArray<number>;
+  /** What resolves the tracked folders the thread reaches. */
+  readonly thread: Pick<OrchestrationV2AppThread, "projectId" | "worktreePath"> | undefined;
+  /** Every repository scope the thread has recorded so far. */
+  readonly repositoryScopes: ReadonlyArray<OrchestrationV2CheckpointScope>;
+  /** Repository scopes whose baseline for this run is already recorded. */
+  readonly repositoryScopesWithBaseline: ReadonlyArray<CheckpointScopeId>;
 }
 
 /** Exact durable targets used by interrupt, restart, and steering effects. */
@@ -3186,7 +3196,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             SELECT payload_json FROM orchestration_v2_projection_checkpoint_scopes
             WHERE thread_id = ${threadId}
               AND (run_id IN (SELECT value FROM json_each(${cohortRunIds}))
-                OR node_id IN (SELECT value FROM json_each(${cohortNodeIds})))
+                OR node_id IN (SELECT value FROM json_each(${cohortNodeIds}))
+                -- A repository scope names the run that first used it; every later run's
+                -- checkpoints still need its label.
+                OR kind = 'manual')
             ORDER BY ordinal_within_parent ASC, scope_id ASC
           `,
           fields !== undefined && !fields.includes("checkpoints")
@@ -4569,13 +4582,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             `,
               sql`
               SELECT scope_id AS id, run_id AS "runId", kind,
-                json_extract(payload_json, '$.cwd') AS cwd
+                json_extract(payload_json, '$.cwd') AS cwd,
+                json_extract(payload_json, '$.label') AS label,
+                json_extract(payload_json, '$.repositoryPath') AS "repositoryPath"
               FROM orchestration_v2_projection_checkpoint_scopes
               WHERE thread_id = ${threadId}
               ORDER BY ordinal_within_parent ASC, scope_id ASC
             `,
               sql`
               SELECT scope_id AS "scopeId", run_id AS "runId",
+                ordinal_within_scope AS "ordinalWithinScope",
                 app_run_ordinal AS "appRunOrdinal", status,
                 json_extract(payload_json, '$.ref') AS ref
               FROM orchestration_v2_projection_checkpoints
@@ -4601,7 +4617,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       sql
         .withTransaction(
           Effect.gen(function* () {
-            yield* requireThread(threadId);
+            const threadRows = yield* sql<{
+              readonly project_id: ProjectId;
+              readonly worktree_path: string | null;
+            }>`
+          SELECT json_extract(payload_json, '$.projectId') AS project_id,
+            json_extract(payload_json, '$.worktreePath') AS worktree_path
+          FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId} LIMIT 1`;
+            if (threadRows[0] === undefined) {
+              return yield* new ProjectionStoreThreadNotFoundError({ threadId });
+            }
             const runRows = yield* sql<PayloadRow>`
           SELECT payload_json FROM orchestration_v2_projection_runs
           WHERE thread_id = ${threadId} AND run_id = ${target.runId}`;
@@ -4609,7 +4634,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               runRows[0] === undefined
                 ? undefined
                 : yield* decodeRunPayload(runRows[0].payload_json);
-            const [nodeRows, scopeRows, providerRows, readyRows] = yield* Effect.all([
+            const [
+              nodeRows,
+              scopeRows,
+              providerRows,
+              readyRows,
+              repositoryScopeRows,
+              repositoryBaselineRows,
+            ] = yield* Effect.all([
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_nodes
             WHERE thread_id = ${threadId} AND node_id = ${run?.rootNodeId ?? null}`,
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_checkpoint_scopes
@@ -4622,6 +4654,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               sql<{ readonly ordinal: number }>`SELECT ordinal_within_scope AS ordinal
             FROM orchestration_v2_projection_checkpoints
             WHERE thread_id = ${threadId} AND scope_id = ${target.scopeId} AND status = 'ready'`,
+              sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_checkpoint_scopes
+            WHERE thread_id = ${threadId} AND kind = 'manual' ORDER BY scope_id ASC`,
+              sql<{ readonly scope_id: CheckpointScopeId }>`SELECT scope_id
+            FROM orchestration_v2_projection_checkpoints
+            WHERE thread_id = ${threadId}
+              AND ordinal_within_scope = ${Math.max(0, (run?.ordinal ?? 0) - 1)}
+              AND scope_id IN (SELECT scope_id FROM orchestration_v2_projection_checkpoint_scopes
+                WHERE thread_id = ${threadId} AND kind = 'manual')
+              AND status = 'ready'`,
             ]);
             return {
               run,
@@ -4638,6 +4679,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   ? undefined
                   : yield* decodeProviderThreadPayload(providerRows[0].payload_json),
               readyCheckpointOrdinals: readyRows.map(({ ordinal }) => ordinal),
+              thread: {
+                projectId: threadRows[0].project_id,
+                worktreePath: threadRows[0].worktree_path,
+              },
+              repositoryScopes: yield* decodeRows(
+                decodeCheckpointScopePayload,
+                threadId,
+              )(repositoryScopeRows),
+              repositoryScopesWithBaseline: repositoryBaselineRows.map((row) => row.scope_id),
             };
           }),
         )
@@ -6364,16 +6414,21 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           }
           return {
             runs: projection.runs.map(({ id, ordinal, status }) => ({ id, ordinal, status })),
-            checkpointScopes: projection.checkpointScopes.map(({ id, runId, kind, cwd }) => ({
-              id,
-              runId,
-              kind,
-              cwd,
-            })),
+            checkpointScopes: projection.checkpointScopes.map(
+              ({ id, runId, kind, cwd, label, repositoryPath }) => ({
+                id,
+                runId,
+                kind,
+                cwd,
+                ...(label === undefined ? {} : { label }),
+                ...(repositoryPath === undefined ? {} : { repositoryPath }),
+              }),
+            ),
             checkpoints: projection.checkpoints.map(
-              ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+              ({ scopeId, runId, ordinalWithinScope, appRunOrdinal, status, ref }) => ({
                 scopeId,
                 runId,
+                ordinalWithinScope,
                 appRunOrdinal,
                 status,
                 ref,
@@ -6399,6 +6454,24 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (candidate) => candidate.scopeId === target.scopeId && candidate.status === "ready",
               )
               .map((candidate) => candidate.ordinalWithinScope),
+            thread: {
+              projectId: projection.thread.projectId,
+              worktreePath: projection.thread.worktreePath,
+            },
+            repositoryScopes: projection.checkpointScopes.filter(
+              (candidate) => typeof candidate.repositoryPath === "string",
+            ),
+            repositoryScopesWithBaseline: projection.checkpoints
+              .filter(
+                (candidate) =>
+                  candidate.status === "ready" &&
+                  candidate.ordinalWithinScope === Math.max(0, (run?.ordinal ?? 0) - 1) &&
+                  projection.checkpointScopes.some(
+                    (scope) =>
+                      scope.id === candidate.scopeId && typeof scope.repositoryPath === "string",
+                  ),
+              )
+              .map((candidate) => candidate.scopeId),
           };
         }),
       getRunMessage: (threadId, runId) =>

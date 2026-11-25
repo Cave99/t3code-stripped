@@ -1,6 +1,7 @@
 import { CheckpointScopeId, ProjectId, RunId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FiberMap from "effect/FiberMap";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -34,9 +35,20 @@ export class RunFinalizationObserver extends Context.Reference<{
     readonly threadId: ThreadId;
     readonly runId: RunId;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
+  /** Local status of the tracked repositories a run checkpointed. Returns before it finishes. */
+  readonly refreshRepositories: (input: {
+    readonly threadId: ThreadId;
+    readonly cwds: ReadonlyArray<string>;
+  }) => Effect.Effect<void>;
 }>("t3/orchestration-v2/RunFinalizationObserver", {
-  defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: () => Effect.void }),
+  defaultValue: () => ({
+    refresh: () => Effect.void,
+    refreshAfterTurn: () => Effect.void,
+    refreshRepositories: () => Effect.void,
+  }),
 }) {}
+
+const REPOSITORY_REFRESH_CONCURRENCY = 4;
 
 export class RunFinalizationService extends Context.Service<
   RunFinalizationService,
@@ -87,6 +99,17 @@ const make = Effect.gen(function* () {
         FiberSet.run(refreshes),
       );
     }
+    const repositoryScopeIds = new Set(
+      projection.checkpoints.flatMap((checkpoint) =>
+        checkpoint.runId === input.runId ? [checkpoint.scopeId] : [],
+      ),
+    );
+    const cwds = projection.checkpointScopes.flatMap((scope) =>
+      typeof scope.repositoryPath === "string" && repositoryScopeIds.has(scope.id)
+        ? [scope.cwd]
+        : [],
+    );
+    if (cwds.length > 0) yield* observer.refreshRepositories({ threadId: input.threadId, cwds });
   });
   return RunFinalizationService.of({ finalize });
 });
@@ -100,8 +123,30 @@ export const observerLive = Layer.effect(
     const vcsStatus = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const repositoryRefreshes = yield* FiberMap.make<ThreadId>();
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
+      // A project can track dozens of repositories, so the next turn must not wait for them all.
+      // A newer turn's refresh replaces a running one.
+      refreshRepositories: Effect.fn("RunFinalizationService.refreshRepositories")(function* ({
+        threadId,
+        cwds,
+      }) {
+        yield* Effect.forEach(
+          cwds,
+          (cwd) =>
+            vcsStatus.refreshLocalStatus(cwd).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("failed to refresh repository status after run completion", {
+                  threadId,
+                  cwd,
+                  detail: error.message,
+                }),
+              ),
+            ),
+          { concurrency: REPOSITORY_REFRESH_CONCURRENCY, discard: true },
+        ).pipe(FiberMap.run(repositoryRefreshes, threadId));
+      }),
       refresh: ({ cwd, threadId, runId }) =>
         Effect.gen(function* () {
           const [, local] = yield* Effect.all(

@@ -49,6 +49,7 @@ import { worktreeRepairDependenciesTestLayer } from "../ProviderTurnStartService
 import * as RunExecutionService from "../RunExecutionService.ts";
 import * as RunFinalizationService from "../RunFinalizationService.ts";
 import * as ThreadTitleRegenerationService from "../ThreadTitleRegenerationService.ts";
+import * as WorkspaceFolders from "../../workspace/WorkspaceFolders.ts";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
 import * as TurnItemPositionStore from "../TurnItemPositionStore.ts";
 import * as RuntimeRequestService from "../RuntimeRequestService.ts";
@@ -311,7 +312,14 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(NodeServices.layer),
   );
   const checkpointServiceProvided = CheckpointService.layer.pipe(
-    Layer.provide(Layer.mergeAll(checkpointStoreLayer, IdAllocator.layer)),
+    Layer.provide(
+      Layer.mergeAll(
+        checkpointStoreLayer,
+        IdAllocator.layer,
+        WorkspaceFolders.layer.pipe(Layer.provide(storesLayer)),
+        NodeServices.layer,
+      ),
+    ),
   );
   const contextHandoffServiceProvided = ContextHandoffService.layer.pipe(
     Layer.provide(IdAllocator.layer),

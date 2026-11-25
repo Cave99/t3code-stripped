@@ -163,6 +163,98 @@ it.effect("checkpoint capture skips untracked nested repositories without a comm
   }).pipe(Effect.scoped, Effect.provide(GitContractLayer)),
 );
 
+it.effect("checkpoints leave a nested repository with its own scope out of the outer one", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-checkpoint-nested-" });
+    const { git, checkpointRef } = yield* makeCheckpointFixture(driver, cwd);
+    const commitIn = (folder: string) =>
+      git([
+        "-C",
+        folder,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@test.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "initial",
+      ]);
+    // A name with leading pathspec magic must still be excluded literally.
+    for (const nested of ["api", ":web"]) {
+      yield* git(["init", nested]);
+      yield* commitIn(nested);
+    }
+    const excludePaths = ["api", ":web"];
+
+    yield* driver.checkpoints.captureCheckpoint({ cwd, checkpointRef, excludePaths });
+    assert.strictEqual((yield* git(["ls-tree", checkpointRef, "--", "api"])).stdout, "");
+    assert.strictEqual((yield* git(["ls-tree", checkpointRef, "--", "./:web"])).stdout, "");
+    assert.strictEqual((yield* git(["show", `${checkpointRef}:file.txt`])).stdout, "unstaged\n");
+
+    // A checkpoint taken before the folders had scopes still leaves them out of the diff.
+    const before = CheckpointRef.make("refs/t3/checkpoints/test-before");
+    yield* driver.checkpoints.captureCheckpoint({ cwd, checkpointRef: before });
+    yield* fileSystem.writeFileString(path.join(cwd, "file.txt"), "changed\n");
+    yield* driver.checkpoints.captureCheckpoint({ cwd, checkpointRef, excludePaths });
+    const patch = yield* driver.checkpoints.diffCheckpoints({
+      cwd,
+      fromCheckpointRef: before,
+      toCheckpointRef: checkpointRef,
+      ignoreWhitespace: false,
+      excludePaths,
+    });
+    assert.include(patch, "file.txt");
+    assert.notInclude(patch, "api");
+    assert.notInclude(patch, ":web");
+  }).pipe(Effect.scoped, Effect.provide(GitContractLayer)),
+);
+
+it.effect("a clean folder is snapshotted from its HEAD without staging its files", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+    const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-checkpoint-clean-" });
+    const git = (args: ReadonlyArray<string>) =>
+      driver.execute({ operation: "checkpoint-test", cwd, args });
+    yield* git(["init"]);
+    yield* git(["config", "user.name", "Test"]);
+    yield* git(["config", "user.email", "test@test.com"]);
+    yield* fileSystem.writeFileString(path.join(cwd, "file.txt"), "initial\n");
+    yield* git(["add", "."]);
+    yield* git(["commit", "-m", "initial"]);
+    const head = (yield* git(["rev-parse", "HEAD"])).stdout.trim();
+
+    assert.strictEqual(yield* driver.checkpoints.resolveCleanHead(cwd), head);
+    const checkpointRef = CheckpointRef.make("refs/t3/checkpoints/clean");
+    yield* driver.checkpoints.captureHeadCheckpoint({
+      cwd,
+      checkpointRef,
+      head,
+      seenAt: 1_700_000_000,
+    });
+    assert.strictEqual(
+      (yield* git(["rev-parse", `${checkpointRef}^{tree}`])).stdout,
+      (yield* git(["rev-parse", "HEAD^{tree}"])).stdout,
+    );
+    assert.strictEqual(
+      (yield* git(["log", "-1", "--format=%P %ct", checkpointRef])).stdout.trim(),
+      `${head} 1700000000`,
+    );
+
+    // Anything uncommitted, untracked or hidden from status makes the folder unclean.
+    yield* fileSystem.writeFileString(path.join(cwd, "new.txt"), "new\n");
+    assert.isNull(yield* driver.checkpoints.resolveCleanHead(cwd));
+    yield* fileSystem.remove(path.join(cwd, "new.txt"));
+    yield* git(["update-index", "--assume-unchanged", "file.txt"]);
+    assert.isNull(yield* driver.checkpoints.resolveCleanHead(cwd));
+  }).pipe(Effect.scoped, Effect.provide(GitContractLayer)),
+);
+
 it.effect("checkpoint recovery discovers nested HEAD independently of inherited GIT_DIR", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

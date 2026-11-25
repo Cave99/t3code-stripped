@@ -64,7 +64,10 @@ it.effect("rejects a non-ready checkpoint before opening a session or restoring 
   const testLayer = checkpointRollbackServiceLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(CheckpointService.CheckpointServiceV2)({ restore }),
+        Layer.mock(CheckpointService.CheckpointServiceV2)({
+          restore,
+          discardRepositorySnapshots: () => Effect.void,
+        }),
         Layer.mock(EventSink.EventSinkV2)({}),
         IdAllocator.layer,
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
@@ -141,7 +144,10 @@ it.effect("rejects a rollback when another provider thread became active", () =>
   const testLayer = checkpointRollbackServiceLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(CheckpointService.CheckpointServiceV2)({ restore }),
+        Layer.mock(CheckpointService.CheckpointServiceV2)({
+          restore,
+          discardRepositorySnapshots: () => Effect.void,
+        }),
         Layer.mock(EventSink.EventSinkV2)({}),
         IdAllocator.layer,
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
@@ -221,7 +227,10 @@ it.effect("rejects a rollback when provider selection changed before execution",
   const testLayer = checkpointRollbackServiceLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(CheckpointService.CheckpointServiceV2)({ restore }),
+        Layer.mock(CheckpointService.CheckpointServiceV2)({
+          restore,
+          discardRepositorySnapshots: () => Effect.void,
+        }),
         Layer.mock(EventSink.EventSinkV2)({}),
         IdAllocator.layer,
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
@@ -292,7 +301,10 @@ it.effect("reports a missing provider turn as a structured rollback failure", ()
   const testLayer = checkpointRollbackServiceLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(CheckpointService.CheckpointServiceV2)({ restore }),
+        Layer.mock(CheckpointService.CheckpointServiceV2)({
+          restore,
+          discardRepositorySnapshots: () => Effect.void,
+        }),
         Layer.mock(EventSink.EventSinkV2)({}),
         IdAllocator.layer,
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
@@ -391,6 +403,7 @@ it.effect.each([
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(CheckpointService.CheckpointServiceV2)({
+          discardRepositorySnapshots: () => Effect.void,
           restore: () =>
             Effect.sync(() => {
               calls.push("files");

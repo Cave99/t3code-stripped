@@ -42,6 +42,7 @@ it.effect("refreshes workspace after checkpoint capture without reading history"
         Layer.succeed(RunFinalization.RunFinalizationObserver, {
           refresh,
           refreshAfterTurn: () => Effect.void,
+          refreshRepositories: () => Effect.void,
         }),
       ),
     ),
@@ -80,6 +81,7 @@ const finalizationLayer = (
         Layer.succeed(RunFinalization.RunFinalizationObserver, {
           refresh,
           refreshAfterTurn: () => Effect.void,
+          refreshRepositories: () => Effect.void,
         }),
       ),
     ),

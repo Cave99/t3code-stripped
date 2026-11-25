@@ -51,6 +51,7 @@ import { layer as threadLaunchServiceLayer } from "./ThreadLaunchService.ts";
 import { layer as threadLifecycleServiceLayer } from "./ThreadLifecycleService.ts";
 import { layer as threadForkServiceLayer } from "./ThreadForkService.ts";
 import { layer as turnItemPositionStoreLayer } from "./TurnItemPositionStore.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 
 /** The shared application event log and its command receipts. */
 export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
@@ -58,7 +59,10 @@ export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationCommandReceipts.OrchestrationCommandReceiptRepositoryLive,
 );
 
+const workspaceFoldersProvided = WorkspaceFolders.layer.pipe(Layer.provide(ProjectStore.layer));
+
 const runtimePolicyProvided = RuntimePolicy.layerFromProjectStore.pipe(
+  Layer.provide(workspaceFoldersProvided),
   Layer.provide(ProjectStore.layer),
 );
 
@@ -102,7 +106,9 @@ const providerEventIngestorProvided = providerEventIngestorLayer.pipe(
   Layer.provide(Layer.mergeAll(eventSinkProvided, idAllocatorLayer, projectionStoreLayer)),
 );
 
-const checkpointServiceProvided = checkpointServiceLayer.pipe(Layer.provide(idAllocatorLayer));
+const checkpointServiceProvided = checkpointServiceLayer.pipe(
+  Layer.provide(Layer.merge(idAllocatorLayer, workspaceFoldersProvided)),
+);
 const contextHandoffServiceProvided = contextHandoffServiceLayer.pipe(
   Layer.provide(idAllocatorLayer),
 );

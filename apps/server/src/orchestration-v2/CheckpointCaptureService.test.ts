@@ -24,6 +24,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import { VcsProcessTimeoutError } from "@t3tools/contracts";
+import * as WorkspaceFoldersTestkit from "../workspace/WorkspaceFolders.testkit.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -274,6 +275,7 @@ it.layer(ProjectionStoreTestLayer)("CheckpointCaptureServiceV2", (it) => {
                     Layer.provide(
                       Layer.mergeAll(
                         IdAllocator.layer,
+                        WorkspaceFoldersTestkit.layerNoFoldersWithPlatform,
                         Layer.mock(CheckpointStore.CheckpointStore)({
                           listAuthoredPaths: () => Effect.succeed(null),
                           isGitRepository: () => Effect.succeed(true),
@@ -292,6 +294,7 @@ it.layer(ProjectionStoreTestLayer)("CheckpointCaptureServiceV2", (it) => {
                     ),
                   )
                 : Layer.mock(CheckpointService.CheckpointServiceV2)({
+                    repositoryScopes: () => Effect.succeed([]),
                     materializeBaselineCheckpoint: () =>
                       Effect.die(
                         "baseline materialization must be skipped when ordinal 0 is ready",
@@ -689,6 +692,7 @@ it.layer(ProjectionStoreTestLayer)("CheckpointCaptureServiceV2", (it) => {
           Layer.mergeAll(
             IdAllocator.layer,
             Layer.mock(CheckpointService.CheckpointServiceV2)({
+              repositoryScopes: () => Effect.succeed([]),
               materializeBaselineCheckpoint: () =>
                 Effect.die("baseline materialization must be skipped when ordinal 0 is ready"),
               capture: () => Effect.succeed(captured),
