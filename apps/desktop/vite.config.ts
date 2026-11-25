@@ -16,18 +16,20 @@ export default defineConfig({
   run: {
     tasks: {
       build: {
-        command: "node scripts/build-preview-annotation-css.mjs && vp pack",
+        command:
+          "node scripts/build-apple-speech.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
         dependsOn: ["t3#build"],
         cache: false,
       },
       dev: {
         command:
-          "node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
+          "node scripts/build-apple-speech.mjs && node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
         // Development runs the server from source, so no server/web build is needed first.
         cache: false,
       },
       "dev:bundle": {
-        command: "node scripts/build-preview-annotation-css.mjs && vp pack --watch",
+        command:
+          "node scripts/build-apple-speech.mjs && node scripts/build-preview-annotation-css.mjs && vp pack --watch",
         cache: false,
       },
       "dev:electron": {

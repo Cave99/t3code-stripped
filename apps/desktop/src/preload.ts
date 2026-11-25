@@ -128,6 +128,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
   pasteAsText: () => ipcRenderer.invoke(IpcChannels.PASTE_AS_TEXT_CHANNEL, undefined),
+  ...(clientPlatform === "darwin"
+    ? {
+        appleSpeech: {
+          supportedLocales: () =>
+            ipcRenderer.invoke(IpcChannels.APPLE_SPEECH_AVAILABLE_CHANNEL, undefined),
+          prepare: (input: { locale: string; install: boolean }) =>
+            ipcRenderer.invoke(IpcChannels.APPLE_SPEECH_PREPARE_CHANNEL, input),
+          transcribe: (input: { locale: string; pcm: Uint8Array }) =>
+            ipcRenderer.invoke(IpcChannels.APPLE_SPEECH_TRANSCRIBE_CHANNEL, input),
+          cancel: () => ipcRenderer.invoke(IpcChannels.APPLE_SPEECH_CANCEL_CHANNEL, undefined),
+        },
+      }
+    : {}),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

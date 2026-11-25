@@ -105,6 +105,7 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftId,
+  type ComposerThreadTarget,
   type PersistedComposerFileAttachment,
   type PersistedComposerImageAttachment,
   composerFileDedupKey,
@@ -1088,9 +1089,19 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { Spinner } from "../ui/spinner";
+import {
+  appendDictationToDraft,
+  dictationActions,
+  useComposerDictation,
+  useDictationAvailable,
+  useDictationState,
+} from "../../speech/useComposerDictation";
+import { dictationInsertion } from "../../speech/appleDictation";
 import {
   BotIcon,
   CircleAlertIcon,
+  MicIcon,
   PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
@@ -5668,6 +5679,80 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   // ------------------------------------------------------------------
+  // Dictation (macOS, on-device Apple Speech)
+  // ------------------------------------------------------------------
+  const dictationAvailable = useDictationAvailable();
+  const dictation = useDictationState();
+  const dictationEnabled =
+    dictationAvailable &&
+    !isConnecting &&
+    !projectSelectionRequired &&
+    !isChoiceOnlyPendingQuestion &&
+    !activePendingIsResponding;
+  const handleDictationTranscript = useCallback(
+    (target: ComposerThreadTarget, transcript: string) => {
+      if (composerTargetKey(target) !== composerTargetKey(composerDraftTarget)) {
+        appendDictationToDraft(target, transcript);
+        return;
+      }
+      const end = promptRef.current.length;
+      const selection = composerEditorRef.current?.readSelectionRange() ?? { start: end, end };
+      const replacement = dictationInsertion(
+        promptRef.current,
+        selection.start,
+        selection.end,
+        transcript,
+      );
+      // Lands at the caret and leaves it after the transcript, so typing continues there.
+      if (!applyPromptReplacement(selection.start, selection.end, replacement)) {
+        appendDictationToDraft(target, transcript);
+      }
+    },
+    [applyPromptReplacement, composerDraftTarget, promptRef],
+  );
+  const { toggle: toggleDictation } = useComposerDictation({
+    target: composerDraftTarget,
+    enabled: dictationEnabled,
+    keybindings,
+    terminalOpen,
+    modelPickerOpen: isComposerModelPickerOpen,
+    composerRef: composerFormRef,
+    onTranscript: handleDictationTranscript,
+  });
+  useEffect(() => {
+    const error = dictation.error;
+    if (!error) return;
+    dictationActions.dismissError();
+    const installLocale = error.installLocale;
+    const toastId = toastManager.add({
+      type: "error",
+      title: "Dictation stopped",
+      description: error.message,
+      ...(installLocale
+        ? {
+            actionProps: {
+              children: "Download model",
+              onClick: () => {
+                toastManager.close(toastId);
+                void dictationActions.install(installLocale).then((installed) => {
+                  if (installed)
+                    toastManager.add({
+                      type: "success",
+                      title: "Speech model installed",
+                      description: "Dictation now works on this Mac, offline.",
+                    });
+                });
+              },
+            },
+          }
+        : {}),
+    });
+  }, [dictation.error]);
+  const dictationShortcutLabel = shortcutLabelForCommand(keybindings, "composer.dictation", {
+    context: { terminalFocus: false, terminalOpen },
+  });
+
+  // ------------------------------------------------------------------
   // Callbacks: attachments
   // ------------------------------------------------------------------
   const countReservedAttachments = () => {
@@ -7575,6 +7660,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipPopup>Attach files</TooltipPopup>
                       </Tooltip>
                     </>
+                  ) : null}
+                  {dictationAvailable && !isComposerResting ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant={dictation.phase === "recording" ? "destructive" : "ghost"}
+                            size="icon-sm"
+                            disabled={
+                              dictation.phase === "transcribing" ||
+                              (dictation.phase === "idle" && !dictationEnabled)
+                            }
+                            aria-pressed={dictation.phase === "recording"}
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={toggleDictation}
+                            aria-label={
+                              dictation.phase === "recording" ? "Finish dictation" : "Dictate"
+                            }
+                          />
+                        }
+                      >
+                        {dictation.phase === "transcribing" || dictation.phase === "starting" ? (
+                          <Spinner />
+                        ) : (
+                          <MicIcon />
+                        )}
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {dictation.phase === "recording"
+                          ? "Finish dictation · Esc to discard"
+                          : dictation.phase === "transcribing"
+                            ? "Transcribing on this Mac"
+                            : `Dictate${dictationShortcutLabel ? ` (${dictationShortcutLabel})` : ""}`}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}

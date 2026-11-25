@@ -1,6 +1,21 @@
 {
   "customNotices": [
     {
+      "bundles": ["desktop"],
+      "license": "MIT",
+      "name": "Apple Speech engine (adapted from @react-native-ai/apple)",
+      "sourceUrl": "https://github.com/callstackincubator/ai",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "copyrights": [
+            "Copyright (c) 2024-2025 Szymon Rybczak",
+            "Copyright (c) 2025-present Callstack"
+          ]
+        }
+      ]
+    },
+    {
       "bundles": ["assets", "desktop", "web"],
       "license": "CC0-1.0",
       "name": "Notification Sound 1 by deadrobotmusic",

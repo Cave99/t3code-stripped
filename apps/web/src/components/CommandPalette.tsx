@@ -64,6 +64,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  MicIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
@@ -75,6 +76,7 @@ import {
 } from "lucide-react";
 import { hasDiffFindViewer, requestDiffFindOpen } from "./diffs/diffFindActionBus";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
+import { requestDictationToggle, useDictationAvailable } from "../speech/useComposerDictation";
 import {
   useCallback,
   useDeferredValue,
@@ -1050,6 +1052,7 @@ function OpenCommandPaletteDialog(props: {
         : null,
     [activeThreadEnvironmentId, activeThreadId],
   );
+  const dictationAvailable = useDictationAvailable();
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -1944,6 +1947,20 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "chat.find",
       run: async () => {
         requestThreadFindOpen();
+      },
+    });
+  }
+
+  if (dictationAvailable && (activeThreadId || activeDraftThread)) {
+    actionItems.push({
+      kind: "action",
+      value: "action:dictate",
+      title: "Dictate into the composer",
+      searchTerms: ["dictate", "dictation", "voice", "speech", "microphone", "talk"],
+      icon: <MicIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "composer.dictation",
+      run: async () => {
+        requestDictationToggle();
       },
     });
   }
