@@ -135,6 +135,8 @@ export function QueuedRunsControl({
       key: run.id,
       runId: run.id,
       messageId: run.userMessageId,
+      // A fresh message starts its own turn, so it can't steer into the running one.
+      freshContext: run.freshContext === true,
       serverIndex,
       text,
       attachments,
@@ -151,6 +153,7 @@ export function QueuedRunsControl({
       key: message.id,
       runId: null,
       messageId: null,
+      freshContext: false,
       serverIndex: null,
       text: message.text,
       attachments: [] as ReadonlyArray<ContractChatAttachment>,
@@ -207,7 +210,7 @@ export function QueuedRunsControl({
   useImperativeHandle(ref, () => ({
     steerNext(repeat) {
       const next = queued[0];
-      if (!next || !workflow?.canPromoteToSteer) return false;
+      if (!next || !workflow?.canPromoteToSteer || next.run.freshContext === true) return false;
       if (!repeat && busyRunId === null) void steer(next.run.id);
       return true;
     },
@@ -450,7 +453,8 @@ export function QueuedRunsControl({
                               disabled={
                                 item.runId === null ||
                                 busyRunId !== null ||
-                                !workflow?.canPromoteToSteer
+                                !workflow?.canPromoteToSteer ||
+                                item.freshContext
                               }
                               onClick={() => {
                                 if (item.runId !== null) {
@@ -465,7 +469,9 @@ export function QueuedRunsControl({
                           <TooltipPopup>
                             {activeRun === null
                               ? "There is no active run to steer"
-                              : `Send as a steer instead${item.serverIndex === 0 && props.steerShortcutLabel ? ` (${props.steerShortcutLabel})` : ""}`}
+                              : item.freshContext
+                                ? "This message starts a fresh session, so it waits for the current turn"
+                                : `Send as a steer instead${item.serverIndex === 0 && props.steerShortcutLabel ? ` (${props.steerShortcutLabel})` : ""}`}
                           </TooltipPopup>
                         </Tooltip>
                         <Tooltip>

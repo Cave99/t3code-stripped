@@ -1546,6 +1546,8 @@ export interface ChatComposerProps {
   onToggleKeepFullHistory: () => void;
   /** Picking /usage-limits from the menu is the action itself; the draft keeps nothing of it. */
   onUsageLimitsCommand?: (() => void) | undefined;
+  /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
+  onFreshSession?: (() => void) | undefined;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -2494,6 +2496,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const freshSessionAvailable = props.onFreshSession !== undefined;
   const compactSlashCommandAvailable =
     composerTrigger?.kind === "slash-command" &&
     prompt.slice(0, composerTrigger.rangeStart).trim() === "" &&
@@ -2616,6 +2619,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               },
             ] as const)
           : []),
+        ...(freshSessionAvailable
+          ? ([
+              {
+                id: "slash:clear",
+                type: "slash-command",
+                command: "clear",
+                label: "/clear",
+                description: "Start a fresh session; earlier messages stay visible",
+              },
+            ] as const)
+          : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
         selectedProviderSkills,
@@ -2644,8 +2658,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           skill.description ??
           (skill.scope ? `${skill.scope} skill` : ""),
       }));
+      // C3's `/clear` replaces the provider's, which would clear a session C3 still treats as live.
       const visibleProviderSlashCommandItems = providerSlashCommandItems.filter(
-        (item) => item.command.name !== "compact" || compactSlashCommandAvailable,
+        (item) =>
+          (item.command.name !== "compact" || compactSlashCommandAvailable) &&
+          (item.command.name !== "clear" || !freshSessionAvailable),
       );
       const slashCommandItems = slashCommandItemsForPromptPosition(
         [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
@@ -2725,6 +2742,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     environmentThreadShells,
     exactPullRequestLookup.data,
+    freshSessionAvailable,
     planModeUiEnabled,
     pullRequestLookup.data,
     pullRequestProjectId,
@@ -3864,7 +3882,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   }, [readComposerSnapshot, resolveComposerTrigger]);
 
-  const { onUsageLimitsCommand } = props;
+  const { onUsageLimitsCommand, onFreshSession } = props;
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
       if (composerSelectLockRef.current) return;
@@ -3901,6 +3919,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           if (applied) {
             setComposerHighlightedItemId(null);
             setIsComposerModelPickerOpen(true);
+          }
+          return;
+        }
+        if (item.command === "clear") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (applied) {
+            setComposerHighlightedItemId(null);
+            onFreshSession?.();
           }
           return;
         }
@@ -4024,6 +4052,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerDraftTarget,
       handleInteractionModeChange,
       planModeUiEnabled,
+      onFreshSession,
       onUsageLimitsCommand,
       resolveActiveComposerTrigger,
     ],

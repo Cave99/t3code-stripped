@@ -187,6 +187,13 @@ describe("searchSlashCommandItems", () => {
         description: "Switch model",
       },
       {
+        id: "slash:clear",
+        type: "slash-command",
+        command: "clear",
+        label: "/clear",
+        description: "Start a fresh session",
+      },
+      {
         id: "provider-slash-command:claudeAgent:compact",
         type: "provider-slash-command",
         provider: claudeDriver,
@@ -216,6 +223,7 @@ describe("searchSlashCommandItems", () => {
     ]);
     expect(slashCommandItemsForPromptPosition(items, true).map((item) => item.id)).toEqual([
       "slash:model",
+      "slash:clear",
       "provider-slash-command:claudeAgent:compact",
       "skill:claudeAgent:unslop",
     ]);

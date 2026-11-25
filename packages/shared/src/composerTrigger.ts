@@ -122,3 +122,8 @@ export function detectComposerTrigger(
     rangeEnd: cursor,
   };
 }
+
+/** `/clear` as the whole message arms a fresh session instead of sending. */
+export function isClearComposerCommand(text: string): boolean {
+  return /^\/clear\s*$/i.test(text.trim());
+}

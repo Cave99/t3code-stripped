@@ -29,6 +29,7 @@ import {
   ChevronRightIcon,
   ArrowRightLeftIcon,
   ArrowRightIcon,
+  EraserIcon,
   GitForkIcon,
   MessageSquareIcon,
   MinusIcon,
@@ -54,6 +55,11 @@ const LIFECYCLE_TYPES = new Set<OrchestrationV2TurnItem["type"]>([
   "subagent",
   "thread_created",
 ]);
+
+/** Marks where `/clear` or an agent started a new provider session in this thread. */
+export function FreshSessionRow() {
+  return <TimelineSystemDivider label="New session" icon={EraserIcon} />;
+}
 
 export function isV2LifecycleItem(item: OrchestrationV2TurnItem): boolean {
   return LIFECYCLE_TYPES.has(item.type);
