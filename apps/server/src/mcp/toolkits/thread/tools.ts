@@ -1,6 +1,6 @@
 import {
   OrchestrationSearchThreadsInput,
-  OrchestrationSearchThreadsResult,
+  OrchestrationThreadSearchMatch,
   OrchestrationV2ThreadForkSourcePoint,
   OrchestrationV2ContextTransfer,
   TrimmedNonEmptyString,
@@ -230,9 +230,20 @@ const ThreadTransfersTool = Tool.make("t3_thread_transfers", {
 const ThreadSearchTool = Tool.make("t3_thread_search", {
   ...commandTool,
   description:
-    "Search active thread titles and content with the app's existing bounded search. Returns matches in the calling project from the global top matches; other-project matches are omitted, so this may return fewer than limit. No pagination or exhaustive-result guarantee.",
+    'Search the calling project\'s active threads the way the command palette does: title, branch, pull request, and project matches first (source "title", ranked by match quality and recent use, with one-typo tolerance), then threads whose messages contain every query word of three or more characters (source "user" or "assistant", with a snippet; up to a fifth of the limit is kept for these). Subagent threads are skipped. No pagination or exhaustive-result guarantee.',
   parameters: OrchestrationSearchThreadsInput,
-  success: OrchestrationSearchThreadsResult,
+  success: Schema.Struct({
+    matches: Schema.Array(
+      Schema.Struct({
+        threadId: OrchestrationThreadSearchMatch.fields.threadId,
+        projectId: OrchestrationThreadSearchMatch.fields.projectId,
+        title: Schema.String,
+        source: Schema.Literals(["title", "user", "assistant"]),
+        snippet: Schema.optional(OrchestrationThreadSearchMatch.fields.snippet),
+        messageCreatedAt: Schema.optional(OrchestrationThreadSearchMatch.fields.messageCreatedAt),
+      }),
+    ),
+  }),
   dependencies: [...commandTool.dependencies, ThreadSearch.ThreadSearch],
 })
   .annotate(Tool.Readonly, true)
