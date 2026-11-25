@@ -64,6 +64,7 @@ import {
 } from "../ProviderAdapter.ts";
 import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
 import { makeProviderFailure } from "../ProviderFailure.ts";
+import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 
@@ -1014,6 +1015,8 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
           }),
         );
         assert.equal(openedOptions?.permissionMode, "acceptEdits");
+        // Jobs the agent starts inherit the thread, so port discovery can attribute their servers.
+        assert.equal(openedOptions?.env?.[PortScanner.AGENT_THREAD_ENV], threadId);
         const canUseTool = openedOptions?.canUseTool;
         assert.isFunction(canUseTool);
 

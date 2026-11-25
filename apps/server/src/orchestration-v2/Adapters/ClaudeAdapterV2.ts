@@ -88,6 +88,7 @@ import { planClaudeSkillDispatch } from "../../provider/Drivers/ClaudeSkillDispa
 import { discoverClaudeSkills } from "../../provider/Drivers/ClaudeSkills.ts";
 import { compileClaudeModelSelection } from "../../claudeModelOptions.ts";
 import * as ServerConfig from "../../config.ts";
+import * as PortScanner from "../../preview/PortScanner.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
   claudeSignedOutMessage,
@@ -7049,7 +7050,12 @@ export function makeClaudeAdapterV2(
                 cwd: turnInput.runtimePolicy.cwd,
                 attachmentsDir,
                 settings: adapterOptions.settings,
-                environment: adapterOptions.environment,
+                // Jobs the agent starts inherit the thread, so port discovery can attribute
+                // their servers.
+                environment: {
+                  ...adapterOptions.environment,
+                  [PortScanner.AGENT_THREAD_ENV]: turnInput.threadId,
+                },
                 tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
                 ...mcpOverrides,
                 permissionMode: queryPolicy.permissionMode,

@@ -3,6 +3,7 @@ import {
   PREVIEW_URL_MAX_LENGTH,
   type DiscoveredLocalServer,
   type EnvironmentId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { isLoopbackHost } from "@t3tools/shared/preview";
 import { useMemo } from "react";
@@ -62,4 +63,19 @@ export function useDiscoveredPortsState(
     }),
     [query.data?.configuredUrlProbing, query.data?.servers],
   );
+}
+
+/** Servers the thread's terminals or agent started. */
+export function useThreadDiscoveredPorts(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+}): ReadonlyArray<DiscoveredLocalServer> {
+  const { servers } = useDiscoveredPortsState(input.environmentId);
+  return useMemo(() => {
+    const owned = servers.filter(
+      (server) =>
+        server.terminal?.threadId === input.threadId || server.agent?.threadId === input.threadId,
+    );
+    return owned.length === 0 ? EMPTY_PORTS : owned;
+  }, [servers, input.threadId]);
 }

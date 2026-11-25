@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - the stop test signals a real detached process group.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeNet from "node:net";
 
 import { it as effectIt } from "@effect/vitest";
@@ -19,8 +21,9 @@ import * as PlatformError from "effect/PlatformError";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import * as Tracer from "effect/Tracer";
-import { expect } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import { FetchHttpClient } from "effect/unstable/http";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as PortScanner from "./PortScanner.ts";
@@ -686,3 +689,191 @@ effectIt.effect("does not swallow process probe interruption", () =>
     }
   }),
 );
+
+const processOutput = (stdout: string) => ({
+  stdout,
+  stderr: "",
+  code: ChildProcessSpawner.ExitCode(0),
+  timedOut: false,
+  stdoutTruncated: false,
+  stderrTruncated: false,
+  stdoutInvalidUtf8: false,
+  stderrInvalidUtf8: false,
+});
+
+const htmlFetch = (() =>
+  Promise.resolve(
+    new Response("hello", { headers: { "content-type": "text/html" } }),
+  )) as unknown as typeof globalThis.fetch;
+
+/** A scanner whose `lsof` lists `pid` on the test port and whose `ps` answers from `ps`. */
+const makeAgentScannerLayer = (input: {
+  readonly pid: number;
+  readonly platform?: NodeJS.Platform;
+  readonly ps: (args: ReadonlyArray<string>) => string;
+  readonly calls?: Array<ReadonlyArray<string>>;
+}) =>
+  PortScanner.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(ProcessRunner.ProcessRunner, {
+          run: (run) =>
+            Effect.sync(() => {
+              input.calls?.push([run.command, ...run.args]);
+              return processOutput(
+                run.command === "ps"
+                  ? input.ps(run.args)
+                  : `p${input.pid}\ncnode\nn*:${LSOF_TEST_PORT}\n`,
+              );
+            }),
+        }),
+        Layer.succeed(Net.NetService, {
+          canListenOnHost: () => Effect.succeed(true),
+          isPortAvailableOnLoopback: () => Effect.succeed(true),
+          hasListenerOnHost: () => Effect.succeed(false),
+          reserveLoopbackPort: () => Effect.succeed(40_000),
+          findAvailablePort: (preferred) => Effect.succeed(preferred),
+        }),
+        Layer.succeed(HostProcessPlatform, input.platform ?? "linux"),
+        FetchHttpClient.layer.pipe(Layer.provide(Layer.succeed(FetchHttpClient.Fetch, htmlFetch))),
+      ),
+    ),
+  );
+
+describe("agent-started servers", () => {
+  it("reads the agent thread from a ps environment listing", () => {
+    const threads = PortScanner.parsePsEnvironmentThreads(
+      [
+        "  101 node vite.js PATH=/bin T3CODE_THREAD_ID=thread-a HOME=/root",
+        "  102 node other.js PATH=/bin",
+      ].join("\n"),
+    );
+    expect(threads.get(101)).toBe("thread-a");
+    expect(threads.get(102)).toBeNull();
+  });
+
+  it("refuses a group that holds this server, its ancestors, or its direct children", () => {
+    const table = new Map(
+      [
+        { pid: 10, ppid: 1, pgid: 10 }, // Electron
+        { pid: 20, ppid: 10, pgid: 10 }, // this server
+        { pid: 30, ppid: 20, pgid: 30 }, // agent CLI, its own group
+        { pid: 40, ppid: 30, pgid: 40 }, // tool shell job
+        { pid: 41, ppid: 40, pgid: 40 }, // dev server in that job
+        { pid: 50, ppid: 30, pgid: 30 }, // job sharing the agent's group
+      ].map((row) => [row.pid, row] as const),
+    );
+    expect(PortScanner.stoppableProcessGroup(table, 41, 20)).toBe(40);
+    expect(PortScanner.stoppableProcessGroup(table, 50, 20)).toBeNull();
+    expect(PortScanner.stoppableProcessGroup(table, 20, 20)).toBeNull();
+    expect(PortScanner.stoppableProcessGroup(table, 99, 20)).toBeNull();
+  });
+
+  effectIt.effect("attributes a listener to the thread in its launch environment", () => {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const layer = makeAgentScannerLayer({
+      pid: 4321,
+      calls,
+      ps: () => "4321 node vite.js T3CODE_THREAD_ID=thread-agent\n",
+    });
+    return Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      const [server] = yield* scanner.scan();
+      expect(server?.agent).toEqual({ threadId: "thread-agent" });
+      expect(server?.terminal).toBeNull();
+      // A pid's environment is read once while it listens.
+      yield* scanner.scan();
+      expect(calls.filter(([command]) => command === "ps")).toEqual([
+        ["ps", "eww", "-o", "pid=,command=", "-p", "4321"],
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  effectIt.effect("refuses to stop a listener no thread started", () =>
+    Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      const error = yield* Effect.flip(scanner.stopServer({ pid: 4321, port: LSOF_TEST_PORT }));
+      expect(error.reason).toBe("not-found");
+    }).pipe(Effect.provide(makeAgentScannerLayer({ pid: 4321, ps: () => "4321 node vite.js\n" }))),
+  );
+
+  effectIt.effect("refuses to stop a server sharing a group with an agent CLI", () =>
+    Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      const error = yield* Effect.flip(scanner.stopServer({ pid: 4321, port: LSOF_TEST_PORT }));
+      expect(error.reason).toBe("shared-group");
+    }).pipe(
+      Effect.provide(
+        makeAgentScannerLayer({
+          pid: 4321,
+          ps: (args) =>
+            args[0] === "-A"
+              ? `${process.pid} 1 ${process.pid}\n4000 ${process.pid} 4000\n4321 4000 4000\n`
+              : "4321 node vite.js T3CODE_THREAD_ID=thread-agent\n",
+        }),
+      ),
+    ),
+  );
+
+  effectIt.effect("does not stop servers on Windows", () =>
+    Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      const error = yield* Effect.flip(scanner.stopServer({ pid: 4321, port: LSOF_TEST_PORT }));
+      expect(error.reason).toBe("unsupported");
+    }).pipe(Effect.provide(makeAgentScannerLayer({ pid: 4321, platform: "win32", ps: () => "" }))),
+  );
+
+  effectIt.live(
+    "stops an agent server's job with SIGTERM",
+    () => {
+      // The job is a grandchild in its own group, as a tool shell's background job is.
+      const pid = Number(
+        NodeChildProcess.execFileSync(
+          process.execPath,
+          [
+            "-e",
+            'const c = require("node:child_process").spawn("sleep", ["30"], { detached: true, stdio: "ignore" }); c.unref(); console.log(c.pid);',
+          ],
+          { encoding: "utf8" },
+        ).trim(),
+      );
+      const isAlive = () => {
+        try {
+          const stat = NodeChildProcess.execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
+            encoding: "utf8",
+          });
+          return !stat.trim().startsWith("Z");
+        } catch {
+          return false;
+        }
+      };
+      const layer = makeAgentScannerLayer({
+        pid,
+        ps: (args) =>
+          args[0] === "-A"
+            ? NodeChildProcess.execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+                encoding: "utf8",
+              })
+            : `${pid} sleep 30 T3CODE_THREAD_ID=thread-agent\n`,
+      });
+      return Effect.gen(function* () {
+        expect(isAlive()).toBe(true);
+        const scanner = yield* PortScanner.PortDiscovery;
+        yield* scanner.stopServer({ pid, port: LSOF_TEST_PORT });
+        expect(isAlive()).toBe(false);
+      }).pipe(
+        Effect.provide(layer),
+        Effect.ensuring(
+          Effect.sync(() => {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch {
+              // Already stopped.
+            }
+          }),
+        ),
+      );
+    },
+    10_000,
+  );
+});
