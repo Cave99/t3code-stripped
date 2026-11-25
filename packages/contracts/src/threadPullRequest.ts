@@ -136,12 +136,18 @@ export const ThreadPullRequestWatch = Schema.Struct({
    */
   checksAwaitedSince: Schema.optional(Schema.NullOr(IsoDateTime)),
   /**
-   * Whether the host was still running checks on the head at the last read; absent on watches
-   * not read since it existed.
+   * Whether the host was still running checks on the head at the last read. Only then does the
+   * watch keep its thread working; absent on watches not read since a turn that could push.
    */
   checksPending: Schema.optional(Schema.Boolean),
+  /** How long the watch holds its thread. Absent means until every check finished. */
+  until: Schema.optional(Schema.Literal("merged")),
 });
 export type ThreadPullRequestWatch = typeof ThreadPullRequestWatch.Type;
+
+/** `merged` also ends when the PR closes or the agent unwatches it. */
+export const PullRequestWatchUntil = Schema.Literals(["checks", "merged"]);
+export type PullRequestWatchUntil = typeof PullRequestWatchUntil.Type;
 
 export const ThreadPullRequestLink = Schema.Struct({
   ...ThreadPullRequestKey.fields,

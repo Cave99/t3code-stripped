@@ -7,6 +7,7 @@ import {
   pullRequestHostOf,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
+  type PullRequestWatchUntil,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
@@ -214,7 +215,7 @@ const make = Effect.gen(function* () {
    * result reports the state the thread holds afterwards.
    */
   const setWatching = Effect.fn("PullRequestsToolkit.setWatching")(function* (
-    input: PullRequestTargetInput,
+    input: PullRequestTargetInput & { readonly until?: PullRequestWatchUntil | undefined },
     watching: boolean,
   ) {
     const thread = yield* requireThread(PullRequestWatchFailedError);
@@ -243,6 +244,7 @@ const make = Effect.gen(function* () {
         number: target.number,
         watching,
         ...(watching ? { link: { url: target.url, source: "agent" as const } } : {}),
+        ...(watching && input.until !== undefined && { until: input.until }),
       })
       .pipe(Effect.catchCause(dispatchFailure(PullRequestWatchFailedError)));
     const after = yield* requireThread(PullRequestWatchFailedError);

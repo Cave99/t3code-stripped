@@ -8,6 +8,7 @@ import {
   type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   normalizeThreadPullRequestKey,
@@ -23,6 +24,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import type * as Scope from "effect/Scope";
 
 import {
@@ -186,10 +188,12 @@ function planRead(
     return { detail: true, activity: true };
   }
   // Nothing on the host changes when the no-checks deadline passes, so it alone prompts a read.
+  // A turn that may have pushed clears a watch's answer, and that alone prompts a read too.
   const checksDue = group.targets.some(
     ({ watch }) =>
-      watch.checksAwaitedSince != null &&
-      now - Date.parse(watch.checksAwaitedSince) >= PULL_REQUEST_WATCH_NO_CHECKS_MS,
+      watch.checksPending === undefined ||
+      (watch.checksAwaitedSince != null &&
+        now - Date.parse(watch.checksAwaitedSince) >= PULL_REQUEST_WATCH_NO_CHECKS_MS),
   );
   if (fingerprint === null) {
     const read =
@@ -224,7 +228,8 @@ function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatc
     left.checksAwaitedSince === right.checksAwaitedSince &&
     (left.awaitingApproval ?? []).join("\n") === (right.awaitingApproval ?? []).join("\n") &&
     (left.approvalAnnounced ?? false) === (right.approvalAnnounced ?? false) &&
-    left.checksPending === right.checksPending
+    left.checksPending === right.checksPending &&
+    left.until === right.until
   );
 }
 
@@ -337,6 +342,10 @@ export const make = Effect.gen(function* () {
         ...identityOf(target.link),
         startedAt: target.watch.startedAt,
         watch: next,
+        // Lets the orchestrator tell that a turn cleared the answer while this read was in flight.
+        ...(target.watch.checksPending === undefined
+          ? {}
+          : { checksPendingBefore: target.watch.checksPending }),
         ...(endedWatch === undefined ? {} : { endedWatch }),
         ...(wake === undefined
           ? {}
@@ -673,8 +682,33 @@ export const make = Effect.gen(function* () {
     nextSweepAt = now + SWEEP_MINUTES * 60_000;
     yield* sweep;
   });
+  // A turn can push, which starts new checks, so a turn starting on a watched thread clears its
+  // watches' answers: they hold the thread until a read sees the new head's checks.
+  const reopenChecks = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const thread = yield* projections.getThread(threadId);
+      if (!(thread.pullRequests ?? []).some((link) => link.watch?.checksPending !== undefined)) {
+        return;
+      }
+      const uuid = yield* crypto.randomUUIDv4;
+      yield* engine.dispatch({
+        type: "thread.pull-request-watch.checks-reopen",
+        commandId: CommandId.make(`server:pr-watch-reopen:${threadId}:${uuid}`),
+        threadId,
+      });
+    }).pipe(Effect.catchCause(logFailure("reopening a watch's checks failed", { threadId })));
+
   const start: PullRequestWatchReactor["Service"]["start"] = () =>
-    forkParked(scheduler.register("pull-request-watch", due));
+    Effect.gen(function* () {
+      yield* forkParked(scheduler.register("pull-request-watch", due));
+      yield* forkParked(
+        Stream.runForEach(engine.streamDomainEvents, (event) =>
+          event.type === "run.updated" && event.payload.status === "running"
+            ? reopenChecks(event.threadId)
+            : Effect.void,
+        ).pipe(Effect.catchCause(logFailure("pull request watch event stream failed", {}))),
+      );
+    });
 
   return { start, sweep } satisfies PullRequestWatchReactor["Service"];
 });

@@ -1272,3 +1272,18 @@ describe("isSnoozed", () => {
     ).toBe(false);
   });
 });
+
+describe("pull request watches and settlement", () => {
+  it("never auto-settles a watched thread, even once the watch stops holding it", () => {
+    const watched = shell({
+      pendingBackgroundTasks: [
+        {
+          taskId: "pull-request-watch:github.com/acme/app#1",
+          kind: "monitor",
+          awaited: false,
+        },
+      ],
+    });
+    expect(ThreadSettlementService.isAutoSettlementCandidate(watched, NOW_MS)).toBe(false);
+  });
+});

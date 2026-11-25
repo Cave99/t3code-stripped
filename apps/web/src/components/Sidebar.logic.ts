@@ -1238,7 +1238,8 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if ((thread.pendingBackgroundTasks?.length ?? 0) > 0) {
+  // A pull request watch whose checks all finished stays on but waits on a person, not the agent.
+  if (thread.pendingBackgroundTasks?.some((task) => task.awaited !== false)) {
     return {
       label: "Waiting",
       colorClass: "text-sidebar-muted-foreground",
