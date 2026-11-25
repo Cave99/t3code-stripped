@@ -441,4 +441,50 @@ it.layer(TestLayer)("ProjectionStoreV2 long threads", (it) => {
       );
     }),
   );
+
+  it.effect("opening a long thread reads only its live runs, attempts and nodes", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const runs = 40;
+      const threadId = yield* seedLongThread({ suffix: "open-window", runs, lastRunActive: true });
+
+      const { statements, tracer } = traceSqlStatements();
+      const snapshot = yield* store
+        .getThreadSnapshotWindow(threadId, { rowLimit: 12, userTurnLimit: 2 })
+        .pipe(Effect.withTracer(tracer));
+      const windowRunIds = new Set(snapshot.projection.turnItems.map((item) => item.runId));
+      assert.isBelow(windowRunIds.size, runs);
+      assert.deepEqual(
+        snapshot.projection.runs.map((run) => run.id),
+        [...windowRunIds]
+          .filter((id) => id !== null)
+          .toSorted(
+            (left, right) => Number(left.split(":").at(-1)) - Number(right.split(":").at(-1)),
+          ),
+      );
+      assert.include(
+        snapshot.projection.nodes.map((node) => String(node.id)),
+        `node:open-window:${runs}:tool:${TOOLS_PER_RUN - 1}`,
+      );
+
+      for (const marker of [
+        "WITH RECURSIVE retained",
+        "SELECT payload_json FROM orchestration_v2_projection_runs",
+        "SELECT payload_json FROM orchestration_v2_projection_run_attempts",
+      ]) {
+        const statement = statements.find((candidate) => candidate.includes(marker));
+        assert.isDefined(statement, marker);
+        const plan = yield* queryPlan(statement!);
+        // No arm walks every run, attempt or node row of the thread to check its status.
+        assert.isFalse(
+          plan.some((detail) =>
+            /(runs_thread_ordinal_idx|run_attempts_thread_idx|nodes_settled_leaf_idx|nodes_thread_run_idx) \(thread_id=\?\)$/.test(
+              detail,
+            ),
+          ),
+          `${marker}\n${plan.join("\n")}`,
+        );
+      }
+    }),
+  );
 });

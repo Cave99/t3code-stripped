@@ -2682,6 +2682,43 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ${filter?.turnItemRunIds === undefined ? sql`` : sql`AND (run_id IN (SELECT value FROM json_each(${encodeIdList(filter.turnItemRunIds.filter((id): id is RunId => id !== null))})) OR (${filter.turnItemRunIds.includes(null) ? 1 : 0} = 1 AND run_id IS NULL))`}
     `;
 
+    // Other node indexes also start with thread_id. Without this hint SQLite reads a thread's live
+    // nodes through one of them and fetches every node of the thread to check its status. The
+    // query must filter on the same status list as the index of migration 65.
+    const LIVE_NODES_INDEX = sql.literal("INDEXED BY orchestration_v2_projection_nodes_live_idx");
+
+    // A window's runs and attempts: the live ones plus those its items name. Each arm seeks its
+    // own index; one OR over the arms fetches every run or attempt row of the thread.
+    const windowRunRowIds = (
+      threadId: ThreadId,
+      cohortRunIds: string,
+      requiredRunId: RunId | undefined,
+    ) => sql`
+      SELECT rowid FROM orchestration_v2_projection_runs
+      WHERE thread_id = ${threadId} AND status IN ('queued','preparing','starting','running','waiting')
+      UNION
+      SELECT rowid FROM orchestration_v2_projection_runs
+      WHERE run_id IN (SELECT value FROM json_each(${cohortRunIds})) AND +thread_id = ${threadId}
+      UNION
+      SELECT rowid FROM orchestration_v2_projection_runs
+      WHERE run_id = ${requiredRunId ?? null} AND +thread_id = ${threadId}
+    `;
+    const windowAttemptRowIds = (
+      threadId: ThreadId,
+      cohortRunIds: string,
+      requiredRunId: RunId | undefined,
+    ) => sql`
+      SELECT rowid FROM orchestration_v2_projection_run_attempts
+        INDEXED BY orchestration_v2_projection_run_attempts_live_idx
+      WHERE thread_id = ${threadId} AND status IN ('pending','starting','running','waiting')
+      UNION
+      SELECT rowid FROM orchestration_v2_projection_run_attempts
+      WHERE run_id IN (SELECT value FROM json_each(${cohortRunIds})) AND +thread_id = ${threadId}
+      UNION
+      SELECT rowid FROM orchestration_v2_projection_run_attempts
+      WHERE run_id = ${requiredRunId ?? null} AND +thread_id = ${threadId}
+    `;
+
     const readCanonicalProjection = (
       threadId: ThreadId,
       window?: {
@@ -2868,20 +2905,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             WITH RECURSIVE retained(node_id) AS (
               SELECT value FROM json_each(${cohortJson("nodeId")})
               UNION
-              SELECT node_id FROM orchestration_v2_projection_nodes
+              SELECT node_id FROM orchestration_v2_projection_nodes ${LIVE_NODES_INDEX}
               WHERE thread_id = ${threadId} AND status IN ('pending','starting','running','waiting')
               UNION
               SELECT root_node_id FROM orchestration_v2_projection_run_attempts
-              WHERE thread_id = ${threadId} AND (
-                status IN ('pending','starting','running','waiting')
-                OR run_id IN (SELECT value FROM json_each(${cohortRunIds}))
-                OR run_id = ${window.requiredRunId ?? null})
+              WHERE rowid IN (${windowAttemptRowIds(threadId, cohortRunIds, window.requiredRunId)})
               UNION
               SELECT json_extract(payload_json, '$.rootNodeId') FROM orchestration_v2_projection_runs
-              WHERE thread_id = ${threadId} AND (
-                status IN ('queued','preparing','starting','running','waiting')
-                OR run_id IN (SELECT value FROM json_each(${cohortRunIds}))
-                OR run_id = ${window.requiredRunId ?? null})
+              WHERE rowid IN (${windowRunRowIds(threadId, cohortRunIds, window.requiredRunId)})
               UNION
               SELECT node_id FROM orchestration_v2_projection_runtime_requests
               WHERE thread_id = ${threadId} AND status IN ('pending','waiting')
@@ -2936,10 +2967,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           `
               : sql<PayloadRow>`
             SELECT payload_json FROM orchestration_v2_projection_runs
-            WHERE thread_id = ${threadId}
-              AND (status IN ('queued','preparing','starting','running','waiting')
-                OR run_id IN (SELECT value FROM json_each(${cohortRunIds}))
-                OR run_id = ${window.requiredRunId ?? null})
+            WHERE rowid IN (${windowRunRowIds(threadId, cohortRunIds, window.requiredRunId)})
             ORDER BY ordinal ASC
           `,
           fields !== undefined && !fields.includes("attempts")
@@ -2953,9 +2981,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           `
               : sql<PayloadRow>`
             SELECT payload_json FROM orchestration_v2_projection_run_attempts
-            WHERE thread_id = ${threadId}
-              AND (status IN ('pending','starting','running','waiting')
-                OR run_id IN (SELECT value FROM json_each(${cohortRunIds})))
+            WHERE rowid IN (${windowAttemptRowIds(threadId, cohortRunIds, undefined)})
             ORDER BY run_id ASC, attempt_ordinal ASC
           `,
           fields !== undefined && !fields.includes("nodes")
