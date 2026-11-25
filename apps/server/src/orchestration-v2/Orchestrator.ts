@@ -59,6 +59,7 @@ import {
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
+  backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -454,6 +455,9 @@ function pendingThreadTitleGenerationEffect(
     request: { type: "thread-title.generate", kind },
   };
 }
+
+/** How long automatic settlement waits for a queued turn to start. */
+export const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
 
@@ -2579,8 +2583,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (command.type === "thread.settle") {
       const projection = yield* loadProjectionForCommand(
         command,
-        ["runs", "runtimeRequests", "messages"],
-        { turnItemTypes: [], messageRoles: ["user"] },
+        ["runs", "runtimeRequests", "messages", "providerThreads", "turnItems"],
+        {
+          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+          messageRoles: ["user"],
+        },
       );
       // Queued notification and delegated-completion runs only wake the agent.
       // They are not user messages and are hidden from the queue UI, so they
@@ -2612,6 +2620,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} has active or blocked work and cannot be settled.`,
+        });
+      }
+      // Settling detaches the provider session, which ends the work running inside it. Hold for
+      // the work auto-settle waits on. Delegated tasks run in their own thread and survive.
+      const awaitedSessionWorkExists = backgroundWorkHoldsCompletion(
+        derivePendingBackgroundWork({
+          latestRun: projection.runs.findLast((run) => run.status !== "queued"),
+          providerThreads: projection.providerThreads,
+          turnItems: projection.turnItems.filter(
+            (item) => item.type !== "subagent" || item.origin !== "app_owned",
+          ),
+          activeProviderThreadId: projection.thread.activeProviderThreadId,
+          runs: projection.runs,
+        }),
+      );
+      if (awaitedSessionWorkExists) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} is still running background agents or commands, and settling would end them. Wait for them to finish, or press Stop, then settle.`,
         });
       }
 
@@ -10197,6 +10225,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             commandId: command.commandId,
             commandType: command.type,
             cause: `Thread ${command.threadId} changed before automatic settlement.`,
+          });
+        }
+        // The completion reaction starts or holds the queue just after a run ends; settling
+        // first would cancel an automatic wake it was about to start.
+        const { runs } = yield* loadProjectionForCommand(command, ["runs"]);
+        const endedAt = runs
+          .flatMap((run) =>
+            run.completedAt == null ? [] : [DateTime.toEpochMillis(run.completedAt)],
+          )
+          .reduce((latest, at) => Math.max(latest, at), Number.NEGATIVE_INFINITY);
+        if (
+          runs.some((run) => run.status === "queued") &&
+          Math.abs(DateTime.toEpochMillis(yield* DateTime.now) - endedAt) <
+            QUEUED_TURN_START_GRACE_MS
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} has a queued run that may still start.`,
           });
         }
         yield* dispatchThreadMutation(
