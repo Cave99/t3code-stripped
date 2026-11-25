@@ -113,16 +113,21 @@ check fails, the required checks pass, someone else comments or reviews, or the 
 conflict. Threads in a project that watch the same pull request share one check. On GitHub, a check
 first asks whether anything changed and reads the pull request only when it did, which keeps
 watching inside GitHub's rate limit. Comments from your own account do not wake it. Watching ends
-when the pull request merges or closes, after 10 wakes in a row that bring only comments, after 8
+when the pull request merges or closes (the agent is woken to hear it), after 10 wakes in a row that bring only comments, after 8
 failed reads in a row, or when you press Stop on the thread. A rate limit only pauses watching.
 Settling or archiving a thread also ends all its watches. Unsettle the thread before starting a new
-watch. Subagents cannot watch pull requests; the thread that delegated to them does. To start or stop
+watch. Watching a pull request again does not repeat check or conflict news its last
+watch already reported; unlinking the pull request clears that. Subagents cannot watch pull requests; the thread that delegated to them does. To start or stop
 it yourself, use the row menu in the **Linked pull requests** panel. In the thread details card, a
 watched pull request shows an eye; click it to stop watching.
 
-A watched thread counts as working between wakes, so it stays in the **Working** section and does
-not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
-returns to your inbox.
+A watched thread counts as working while the pull request still has checks running, so it stays in
+the **Working** section, including after the agent's next turn. Once every check has finished, the
+thread returns to your inbox: what happens next is up to a person. If you ask the agent to act on the
+pull request itself, such as merging it once a teammate approves, the thread stays in **Working**
+until the pull request merges or closes. The watch stays on and still wakes the agent on new
+comments, failed checks or conflicts, and a watched thread never auto-settles. Agents stop watching
+when they hand the work back to you.
 
 ## GitHub stacks
 

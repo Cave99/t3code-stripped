@@ -631,6 +631,33 @@ describe("orchestrator MCP toolkit", () => {
             yield* invoke("t3_thread_organize", { action: "unpin" });
             expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).toBeNull();
 
+            // Settling a thread that watches a pull request is refused rather than ending the
+            // watch the agent waits on.
+            const watchKey = { host: "github.com", repository: "acme/app", number: 7 };
+            yield* orchestrator.dispatch({
+              type: "thread.pull-request.watch",
+              commandId: CommandId.make("command:mcp-parent:watch"),
+              threadId: parentThreadId,
+              ...watchKey,
+              watching: true,
+              link: { url: "https://github.com/acme/app/pull/7", source: "agent" },
+            });
+            const settleWatched = yield* invoke("t3_thread_organize", { action: "settle" });
+            expect(settleWatched.structuredContent).toMatchObject({
+              code: "invalid_request",
+              message: expect.stringContaining("unwatch_pull_request"),
+            });
+            const stillWatched = yield* orchestrator.getThreadShell(parentThreadId);
+            expect(stillWatched?.settledOverride).not.toBe("settled");
+            expect(stillWatched?.pullRequests?.[0]?.watch).toBeDefined();
+            yield* orchestrator.dispatch({
+              type: "thread.pull-request.watch",
+              commandId: CommandId.make("command:mcp-parent:unwatch"),
+              threadId: parentThreadId,
+              ...watchKey,
+              watching: false,
+            });
+
             if (parentRun === undefined || parentRun.rootNodeId === null) {
               return yield* Effect.die(new Error("Parent run missing."));
             }

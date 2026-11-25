@@ -66,6 +66,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as PullRequestWatchReactor from "./PullRequestWatchReactor.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import { PullRequestProviderError } from "../pullRequest/PullRequestProvider.ts";
+import { PULL_REQUEST_WATCH_WAKE_LIMIT } from "./pullRequestWatch.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import type { ProviderAdapterV2SessionRuntime, ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
@@ -2406,7 +2407,10 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         commandId: CommandId.make(`pr-watch-settle-${mode}`),
         threadId,
       });
-      const expected = before.pullRequests?.map(({ watch: _watch, ...link }) => link);
+      const expected = before.pullRequests?.map(({ watch, ...link }) => ({
+        ...link,
+        endedWatch: watch,
+      }));
       assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, expected);
       assert.isTrue((yield* maintenance.rebuild).valid);
       assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, expected);
@@ -2730,6 +2734,993 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
+  // regression: #23701 a head no check runs on never woke the watch
+  it.effect("wakes once when no checks report on the head, without saying they passed", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-no-checks");
+      const projectId = ProjectId.make("pr-watch-no-checks-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch no checks",
+        workspaceRoot: "/workspace/watch-no-checks",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-no-checks-create"),
+        threadId,
+        projectId,
+        title: "Watch no checks",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 14 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-no-checks-start"),
+        threadId,
+        ...key,
+        watching: true,
+        link: { url: "https://github.com/pingdotgg/t3code/pull/14", source: "agent" },
+      });
+
+      // A docs-only push that path filters keep every workflow off.
+      let headSha = "6074dd48ff";
+      let checks: PullRequestDetail["checks"] = [];
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({
+                projectId,
+                number: 14,
+                at: "2026-10-02T12:00:00.000Z",
+              }),
+              headSha,
+              checks,
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const wakes = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) =>
+          messages.filter(
+            (message) => message.notification !== undefined && message.notification !== null,
+          ),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      const anHourOfSweeps = Effect.gen(function* () {
+        for (let pass = 0; pass < 6; pass++) {
+          yield* reactor.sweep;
+          yield* TestClock.adjust("10 minutes");
+        }
+        yield* reactor.sweep;
+      });
+
+      yield* anHourOfSweeps;
+      const told = yield* wakes;
+      assert.equal(told.length, 1, "one wake for a head with no checks");
+      assert.notMatch(told[0]!.text, /\bpass/i);
+      assert.notEqual(told[0]!.notification?.outcome, "completed");
+
+      // An empty read on a head whose checks were seen is a failed read, not "no checks".
+      headSha = "7777777777";
+      checks = [{ name: "lint", status: "pending", description: null, url: null, required: true }];
+      // Without a fingerprint, a quiet pull request is read again only once the reread is due.
+      yield* TestClock.adjust("10 minutes");
+      yield* reactor.sweep;
+      checks = [];
+      yield* anHourOfSweeps;
+      assert.equal((yield* wakes).length, 1);
+
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-no-checks-end"),
+        threadId,
+        ...key,
+        watching: false,
+      });
+    }),
+  );
+
+  it.effect("wakes for checks that complete after the no-checks notice on the same head", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-late-checks");
+      const projectId = ProjectId.make("pr-watch-late-checks-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch late checks",
+        workspaceRoot: "/workspace/watch-late-checks",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-late-checks-create"),
+        threadId,
+        projectId,
+        title: "Watch late checks",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 14 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-late-checks-start"),
+        threadId,
+        ...key,
+        watching: true,
+        link: { url: "https://github.com/pingdotgg/t3code/pull/14", source: "agent" },
+      });
+
+      const headSha = "6074dd48ff";
+      let checks: PullRequestDetail["checks"] = [];
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({
+                projectId,
+                number: 14,
+                at: "2026-10-02T12:00:00.000Z",
+              }),
+              headSha,
+              checks,
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const wakes = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) =>
+          messages.filter(
+            (message) => message.notification !== undefined && message.notification !== null,
+          ),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const sweep = reactor.sweep.pipe(Effect.andThen(worker.drain()));
+      yield* sweep;
+      assert.lengthOf(yield* wakes, 0);
+      yield* TestClock.adjust("20 minutes");
+      yield* sweep;
+      const noChecks = yield* wakes;
+      assert.lengthOf(noChecks, 1);
+      assert.include(noChecks[0]!.text, "No checks have reported");
+      assert.equal(noChecks[0]!.notification?.outcome, "updated");
+
+      checks = [{ name: "lint", status: "pending", description: null, url: null, required: true }];
+      yield* TestClock.adjust("10 minutes");
+      yield* sweep;
+      assert.lengthOf(yield* wakes, 1);
+
+      checks = [{ name: "lint", status: "success", description: null, url: null, required: true }];
+      yield* TestClock.adjust("10 minutes");
+      yield* sweep;
+      const completed = yield* wakes;
+      assert.lengthOf(completed, 2);
+      assert.equal(completed[1]!.notification?.summary, "#14: checks passed");
+      assert.include(completed[1]!.text, "All 1 required check passed on 6074dd4.");
+      assert.equal(completed[1]!.notification?.outcome, "completed");
+
+      yield* TestClock.adjust("1 hour");
+      yield* sweep;
+      const settled = yield* wakes;
+      assert.lengthOf(settled, 2);
+      assert.lengthOf(
+        settled.filter((message) => message.text.includes("No checks have reported")),
+        1,
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-late-checks-end"),
+        threadId,
+        ...key,
+        watching: false,
+      });
+      yield* worker.drain();
+    }),
+  );
+
+  it.effect("finishes owed checks once after pending sweeps, a restart, and a re-watch", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-owed");
+      const projectId = ProjectId.make("pr-watch-owed-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch owed",
+        workspaceRoot: "/workspace/watch-owed",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-owed-create"),
+        threadId,
+        projectId,
+        title: "Watch owed",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const watch = (on: boolean, id: string) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-owed-${id}`),
+          threadId,
+          host: "github.com",
+          repository: "pingdotgg/t3code",
+          number: 12,
+          watching: on,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/12", source: "agent" },
+        });
+      yield* watch(true, "start");
+
+      let remainingStatus: "pending" | "success" = "pending";
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({
+                projectId,
+                number: 12,
+                at: "2026-10-02T12:00:00.000Z",
+              }),
+              headSha: "ad70160aaa",
+              checks: ["lint", "test"].map((name) => ({
+                name,
+                status: name === "test" ? remainingStatus : ("success" as const),
+                description: null,
+                url: null,
+                required: name === "lint",
+              })),
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const summaries = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) => messages.flatMap((message) => message.notification?.summary ?? []),
+      );
+
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      yield* worker.drain();
+      yield* TestClock.adjust("10 minutes");
+      yield* reactor.sweep;
+      yield* worker.drain();
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch?.owedChecks,
+        ["test"],
+      );
+      // The fresh reactor reloads the nonempty obligation from the persisted watch.
+      const restarted = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* restarted.sweep;
+      yield* worker.drain();
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      // A new watch on the same pull request knows what the last one told.
+      yield* watch(false, "stop");
+      yield* watch(true, "again");
+      yield* restarted.sweep;
+      yield* worker.drain();
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch?.owedChecks,
+        ["test"],
+      );
+      remainingStatus = "success";
+      yield* TestClock.adjust("10 minutes");
+      yield* restarted.sweep;
+      yield* worker.drain();
+      assert.deepEqual(yield* summaries, ["#12: checks passed", "#12: checks passed"]);
+      yield* TestClock.adjust("10 minutes");
+      yield* restarted.sweep;
+      yield* worker.drain();
+      assert.deepEqual(yield* summaries, ["#12: checks passed", "#12: checks passed"]);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch?.owedChecks,
+        [],
+      );
+      yield* watch(false, "end");
+    }),
+  );
+
+  it.effect.each([true, false])(
+    "reads a quiet head when its no-checks notice comes due (fingerprint: %s)",
+    (fingerprinted) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const threadId = ThreadId.make(`runtime-pull-request-watch-due-${fingerprinted}`);
+        const projectId = ProjectId.make(`pr-watch-due-project-${fingerprinted}`);
+        yield* seedProject({
+          projectId,
+          title: "Watch no-checks deadline",
+          workspaceRoot: "/workspace/watch-due",
+          defaultModelSelection: null,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`pr-watch-due-create-${fingerprinted}`),
+          threadId,
+          projectId,
+          title: "Watch no-checks deadline",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        const key = { host: "github.com", repository: "pingdotgg/t3code", number: 14 };
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-due-start-${fingerprinted}`),
+          threadId,
+          ...key,
+          watching: true,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/14", source: "agent" },
+        });
+
+        let reads = 0;
+        const host = Layer.mergeAll(
+          NodeServices.layer,
+          Layer.mock(PullRequestService.PullRequestService)({
+            // The host reports the same fingerprint throughout, so only the deadline can prompt a read.
+            watchFingerprint: () =>
+              Effect.succeed(fingerprinted ? { status: "quiet", remarks: "none" } : null),
+            invalidate: () => Effect.void,
+            detail: () =>
+              Effect.sync(() => {
+                reads++;
+                return {
+                  ...watchedPullRequestDetail({
+                    projectId,
+                    number: 14,
+                    at: "2026-10-02T12:00:00.000Z",
+                  }),
+                  headSha: "6074dd48ff",
+                  checks: [],
+                };
+              }),
+            activity: () =>
+              Effect.succeed({
+                comments: [],
+                commentCount: 0,
+                commentsTruncated: false,
+                reviewThreads: [],
+                commits: [],
+              }),
+          }),
+        );
+        const wakes = Effect.map(
+          orchestrator.getThreadRecords(threadId, ["messages"]),
+          ({ messages }) =>
+            messages.filter((message) => message.text.includes("No checks have reported")),
+        );
+        const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const sweep = reactor.sweep.pipe(Effect.andThen(worker.drain()));
+
+        yield* sweep;
+        yield* TestClock.adjust("10 minutes");
+        yield* sweep;
+        assert.lengthOf(yield* wakes, 0);
+
+        yield* TestClock.adjust("6 minutes");
+        yield* sweep;
+        const told = yield* wakes;
+        assert.lengthOf(told, 1);
+        assert.include(told[0]!.text, "after 16 minutes");
+
+        // The notice clears the deadline, so the watch returns to its quiet cadence.
+        const readsAfterNotice = reads;
+        yield* TestClock.adjust("2 minutes");
+        yield* sweep;
+        assert.equal(reads, readsAfterNotice);
+        assert.lengthOf(yield* wakes, 1);
+
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-due-end-${fingerprinted}`),
+          threadId,
+          ...key,
+          watching: false,
+        });
+        yield* worker.drain();
+      }),
+  );
+
+  it.effect("wakes once for a state it reported, across a restart and a new watch", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-told");
+      const projectId = ProjectId.make("pr-watch-told-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch told",
+        workspaceRoot: "/workspace/watch-told",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-told-create"),
+        threadId,
+        projectId,
+        title: "Watch told",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const watch = (on: boolean, id: string) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-told-${id}`),
+          threadId,
+          host: "github.com",
+          repository: "pingdotgg/t3code",
+          number: 12,
+          watching: on,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/12", source: "agent" },
+        });
+      yield* watch(true, "start");
+
+      let headSha = "ad70160aaa";
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({
+                projectId,
+                number: 12,
+                at: "2026-10-02T12:00:00.000Z",
+              }),
+              headSha,
+              checks: ["lint", "test"].map((name) => ({
+                name,
+                status: "success" as const,
+                description: null,
+                url: null,
+                required: true,
+              })),
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const summaries = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) => messages.flatMap((message) => message.notification?.summary ?? []),
+      );
+
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      yield* TestClock.adjust("10 minutes");
+      yield* reactor.sweep;
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      // A restart keeps nothing in memory; the watch state is all it has.
+      const restarted = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* restarted.sweep;
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      // A new watch on the same pull request knows what the last one told.
+      yield* watch(false, "stop");
+      yield* watch(true, "again");
+      yield* restarted.sweep;
+      assert.deepEqual(yield* summaries, ["#12: checks passed"]);
+
+      headSha = "bbbbbbbbbb";
+      yield* TestClock.adjust("10 minutes");
+      yield* restarted.sweep;
+      assert.deepEqual(yield* summaries, ["#12: checks passed", "#12: checks passed"]);
+      yield* watch(false, "end");
+    }),
+  );
+
+  it.effect("a watch that ends on the comment limit keeps what its last pass saw", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-limit");
+      const projectId = ProjectId.make("pr-watch-limit-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch limit",
+        workspaceRoot: "/workspace/watch-limit",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-limit-create"),
+        threadId,
+        projectId,
+        title: "Watch limit",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 13 };
+      const watch = (id: string) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-limit-${id}`),
+          threadId,
+          ...key,
+          watching: true,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/13", source: "agent" },
+        });
+      const watchOf = Effect.map(
+        orchestrator.getThreadShell(threadId),
+        (thread) => thread?.pullRequests?.[0],
+      );
+      yield* watch("start");
+      const started = (yield* watchOf)?.watch;
+      assert.isDefined(started);
+      if (started === undefined) return;
+      // Green checks were reported, and one more comment-only wake ends the watch.
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request-watch.sync",
+        commandId: CommandId.make("pr-watch-limit-told"),
+        threadId,
+        ...key,
+        startedAt: started.startedAt,
+        watch: {
+          ...started,
+          headSha: "abc1234def",
+          passed: true,
+          passedChecks: ["lint"],
+          wakes: PULL_REQUEST_WATCH_WAKE_LIMIT - 1,
+        },
+      });
+
+      let status: "pending" | "success" = "pending";
+      const commentAt = DateTime.formatIso(
+        DateTime.add(DateTime.makeUnsafe(started.startedAt), { seconds: 1 }),
+      );
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          detail: () =>
+            Effect.sync(() => ({
+              ...watchedPullRequestDetail({ projectId, number: 13, at: commentAt }),
+              checks: [{ name: "lint", status, description: null, url: null, required: true }],
+            })),
+          activity: () =>
+            Effect.succeed({
+              comments: [
+                {
+                  id: "reviewer-comment",
+                  kind: "issue-comment" as const,
+                  author: { login: "reviewer", name: null, avatarUrl: null },
+                  body: "One more thing.",
+                  createdAt: commentAt,
+                  url: "https://github.com/pingdotgg/t3code/pull/13#comment",
+                  path: null,
+                  reviewState: null,
+                },
+              ],
+              commentCount: 1,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const summaries = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) => messages.flatMap((message) => message.notification?.summary ?? []),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      const ended = yield* watchOf;
+      assert.isUndefined(ended?.watch);
+      assert.isFalse(ended?.endedWatch?.passed);
+      assert.deepEqual(yield* summaries, ["#13: new comments, stopped watching"]);
+
+      // The checks went pending after the last report, so passing again is news.
+      status = "success";
+      yield* TestClock.adjust("10 minutes");
+      yield* watch("again");
+      yield* reactor.sweep;
+      assert.deepEqual(yield* summaries, [
+        "#13: new comments, stopped watching",
+        "#13: checks passed",
+      ]);
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-limit-end"),
+        threadId,
+        ...key,
+        watching: false,
+      });
+    }),
+  );
+
+  it.effect("watching a dismissed stack layer again keeps what its last watch told", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-dismissed");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-dismissed-create"),
+        threadId,
+        projectId: ProjectId.make("pr-watch-dismissed-project"),
+        title: "Watch dismissed",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 14 };
+      const url = "https://github.com/pingdotgg/t3code/pull/14";
+      const watchOf = Effect.map(
+        orchestrator.getThreadShell(threadId),
+        (thread) => thread?.pullRequests?.[0]?.watch,
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make("pr-watch-dismissed-link"),
+        threadId,
+        ...key,
+        url,
+        source: "stack",
+      });
+      const watching = (on: boolean, id: string) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-dismissed-${id}`),
+          threadId,
+          ...key,
+          watching: on,
+          link: { url, source: "agent" },
+        });
+      yield* watching(true, "start");
+      const started = yield* watchOf;
+      assert.isDefined(started);
+      if (started === undefined) return;
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request-watch.sync",
+        commandId: CommandId.make("pr-watch-dismissed-told"),
+        threadId,
+        ...key,
+        startedAt: started.startedAt,
+        watch: { ...started, headSha: "abc1234def", passed: true, passedChecks: ["lint"] },
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.unlink",
+        commandId: CommandId.make("pr-watch-dismissed-unlink"),
+        threadId,
+        ...key,
+      });
+      yield* watching(true, "again");
+      const again = yield* watchOf;
+      assert.equal(again?.headSha, "abc1234def");
+      assert.isTrue(again?.passed);
+      yield* watching(false, "end");
+    }),
+  );
+
+  // Settling detaches the provider session, which ends work running inside it.
+  it.effect.each([
+    { name: "a native subagent", work: "subagent" as const, settles: false },
+    {
+      name: "a background command marked awaited",
+      work: "awaited-command" as const,
+      settles: false,
+    },
+    { name: "an unmarked background command", work: "command" as const, settles: true },
+    { name: "a task delegated to another thread", work: "delegated" as const, settles: true },
+  ])("settling a completed turn that left $name running settles: $settles", ({ work, settles }) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make(`runtime-layer-settle-background-${work}`);
+
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}:create`),
+        threadId,
+        projectId: ProjectId.make(`${threadId}:project`),
+        title: "Settle with background work",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: `/tmp/${threadId}`,
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}:message`),
+        threadId,
+        messageId: MessageId.make(`${threadId}:message`),
+        text: "Start the work in the background.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+      const before = yield* orchestrator.getThreadProjection(threadId);
+      const run = before.runs[0];
+      const providerThread = before.providerThreads[0];
+      if (run === undefined || providerThread === undefined) {
+        return yield* Effect.die(new Error("Run or provider thread missing."));
+      }
+      const now = yield* DateTime.now;
+      const subagentItem = (origin: "provider_native" | "app_owned") => ({
+        id: EventId.make(`${threadId}:subagent`),
+        type: "turn-item.updated" as const,
+        threadId,
+        runId: run.id,
+        ...(run.rootNodeId === null ? {} : { nodeId: run.rootNodeId }),
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make(`${threadId}:subagent`),
+          type: "subagent" as const,
+          threadId,
+          runId: run.id,
+          nodeId: run.rootNodeId,
+          providerThreadId: providerThread.id,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 2,
+          status: "running" as const,
+          title: "Review",
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          subagentId: NodeId.make(`${threadId}:subagent`),
+          origin,
+          driver: providerThread.driver,
+          providerInstanceId: providerThread.providerInstanceId,
+          childThreadId: origin === "app_owned" ? ThreadId.make(`${threadId}:child`) : null,
+          prompt: "Review the change",
+          result: null,
+        },
+      });
+      const roster = (awaited: boolean) => ({
+        id: EventId.make(`${threadId}:roster`),
+        type: "provider-thread.updated" as const,
+        threadId,
+        occurredAt: now,
+        payload: {
+          ...providerThread,
+          updatedAt: now,
+          pendingBackgroundTasks: [
+            {
+              taskId: "background-command",
+              kind: "command" as const,
+              ...(awaited ? { awaited: true as const } : {}),
+            },
+          ],
+        },
+      });
+      yield* eventSink.write({
+        events: [
+          work === "subagent"
+            ? subagentItem("provider_native")
+            : work === "delegated"
+              ? subagentItem("app_owned")
+              : roster(work === "awaited-command"),
+          {
+            id: EventId.make(`${threadId}:completed`),
+            type: "run.updated",
+            threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+          },
+        ],
+      });
+
+      const settle = orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make(`${threadId}:settle`),
+        threadId,
+      });
+      if (settles) {
+        yield* settle;
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(projection.thread.settledOverride, "settled");
+        return;
+      }
+      const error = yield* settle.pipe(Effect.flip);
+      assert.equal(error._tag, "OrchestratorDispatchError");
+      assert.equal(
+        error.cause,
+        `Thread ${threadId} is still running background agents or commands, and settling would end them. Wait for them to finish, or press Stop, then settle.`,
+      );
+      const projection = yield* orchestrator.getThreadProjection(threadId);
+      assert.isNull(projection.thread.settledOverride);
+    }),
+  );
+
+  // A thread watching a pull request, with a wake queued behind a running turn.
+  const queuedWatchWake = (prefix: string) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make(`${prefix}-auto-settle`);
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${prefix}-create`),
+        threadId,
+        projectId: ProjectId.make(`${prefix}-project`),
+        title: "Queued watch wake",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 7 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make(`${prefix}-start`),
+        threadId,
+        ...key,
+        watching: true,
+        link: { url: "https://github.com/pingdotgg/t3code/pull/7", source: "agent" },
+      });
+      const started = (yield* orchestrator.getThreadShell(threadId))?.pullRequests?.[0]?.watch;
+      assert.isDefined(started);
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${prefix}-active`),
+        threadId,
+        messageId: MessageId.make(`${prefix}-active`),
+        text: "Merge it",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+      const wakeMessageId = MessageId.make(prefix);
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request-watch.sync",
+        commandId: CommandId.make(`${prefix}-sync`),
+        threadId,
+        ...key,
+        startedAt: started.startedAt,
+        watch: { ...started, headSha: "merged", wakes: 1 },
+        wake: {
+          messageId: wakeMessageId,
+          text: "Update",
+          notification: { source: { kind: "monitor" }, outcome: "updated", summary: "#7 merged" },
+        },
+      });
+      const before = yield* orchestrator.getThreadProjection(threadId);
+      const activeRun = before.runs.find((run) => run.status === "starting");
+      const wakeRun = before.runs.find((run) => run.userMessageId === wakeMessageId);
+      assert.isDefined(activeRun);
+      assert.isDefined(wakeRun);
+      assert.equal(wakeRun.status, "queued");
+      assert.notEqual(wakeRun.queueHeld, true);
+      return { threadId, activeRun, wakeRun };
+    });
+
+  // regression: #29898 settle on merge cancelled a watch wake queued behind the finished run
+  it.effect("automatic settlement refuses a held wake only within the queued-turn grace", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const { threadId, activeRun, wakeRun } = yield* queuedWatchWake("pr-watch-held-wake");
+      const now = yield* DateTime.now;
+      // Startup recovery's command prefix skips the completion reaction, as after a restart.
+      yield* eventSink.write({
+        commandId: CommandId.make("command:runtime-reconcile:pr-watch-held-wake"),
+        events: [
+          {
+            id: EventId.make("pr-watch-held-wake-completed"),
+            type: "run.updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...activeRun, status: "completed", completedAt: now },
+          },
+          {
+            id: EventId.make("pr-watch-held-wake-hold"),
+            type: "run.updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...wakeRun, queueHeld: true },
+          },
+        ],
+      });
+      const autoSettle = (commandId: string) =>
+        Effect.flatMap(orchestrator.getThreadShell(threadId), (shell) =>
+          orchestrator.dispatch({
+            type: "thread.auto-settle",
+            commandId: CommandId.make(commandId),
+            threadId,
+            snapshotAt: shell?.updatedAt ?? now,
+          }),
+        );
+      const early = yield* autoSettle("pr-watch-held-wake-early").pipe(Effect.exit);
+      assert.equal(early._tag, "Failure");
+
+      yield* TestClock.adjust(Orchestrator.QUEUED_TURN_START_GRACE_MS);
+      yield* autoSettle("pr-watch-held-wake-late");
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      assert.isNotNull(after.thread.settledAt);
+      assert.equal(after.runs.find((run) => run.id === wakeRun.id)?.status, "cancelled");
+    }),
+  );
+
   it.effect("reports how long an ended watch was quiet", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -2783,7 +3774,8 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
                 Effect.sync(() => ({
                   ...watchedPullRequestDetail({ projectId, number: key.number, at: "2026-10-02" }),
                   headSha,
-                  checks: [],
+                  // A check still running keeps the watch quiet: no checks at all would be news.
+                  checks: [{ name: "ci", status: "pending", description: null, url: null }],
                 })),
               activity: () =>
                 Effect.succeed({
@@ -2960,6 +3952,8 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       fingerprint = { status: "OPEN settled", remarks: "0" };
       yield* reactor.sweep;
       assert.deepEqual(reads(), { detail: 3, activity: 1 });
+      // The rest finished after the failure, which is news of its own.
+      assert.deepEqual(yield* summaries, ["#11: checks failed", "#11: checks finished"]);
 
       // Nothing in flight and nothing moved, so the passes read nothing.
       for (let pass = 0; pass < 5; pass += 1) yield* reactor.sweep;
@@ -2982,7 +3976,11 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       fingerprint = { status: "OPEN settled", remarks: "1" };
       yield* reactor.sweep;
       assert.deepEqual(reads(), { detail: 4, activity: 2 });
-      assert.deepEqual(yield* summaries, ["#11: checks failed", "#11: new comments"]);
+      assert.deepEqual(yield* summaries, [
+        "#11: checks failed",
+        "#11: checks finished",
+        "#11: new comments",
+      ]);
 
       // While the host is rate limited, a pass reads nothing and the watch stays on.
       fingerprint = "rate-limited";
@@ -2996,7 +3994,11 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* TestClock.adjust("30 minutes");
       yield* reactor.sweep;
       assert.deepEqual(reads(), { detail: 5, activity: 3 });
-      assert.deepEqual(yield* summaries, ["#11: checks failed", "#11: new comments"]);
+      assert.deepEqual(yield* summaries, [
+        "#11: checks failed",
+        "#11: checks finished",
+        "#11: new comments",
+      ]);
     }),
   );
 

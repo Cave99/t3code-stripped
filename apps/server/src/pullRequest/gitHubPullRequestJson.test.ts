@@ -26,6 +26,7 @@ import {
   decodeReviewThreadsJson,
   decodeViewerPermissionsJson,
   decodeWorkflowRunApprovalsJson,
+  decodeUnfinishedWorkflowRunsJson,
   reviewThreadConversation,
   REVIEW_THREADS_GRAPHQL_QUERY,
   pullRequestCoreGraphQlQuery,
@@ -395,6 +396,46 @@ describe("pull request detail decoding", () => {
       ["Prepare PR size config", "pending"],
     ]);
     expect(detail.checksState).toBe("pending");
+  });
+
+  it("keeps a check pending while another run of it on the same commit is still going", () => {
+    // A workflow on both `push` and `pull_request` runs the same check twice on one commit. The
+    // `pull_request` run finished after the `push` run started, and the `push` run is still going.
+    const finished = {
+      __typename: "CheckRun",
+      name: "check",
+      workflowName: "Checks",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      startedAt: "2026-10-08T04:06:10Z",
+      completedAt: "2026-10-08T04:18:58Z",
+    };
+    const running = {
+      ...finished,
+      status: "IN_PROGRESS",
+      conclusion: "",
+      startedAt: "2026-10-08T04:06:13Z",
+      completedAt: "0001-01-01T00:00:00Z",
+    };
+    // A run still queued has not started either, so it carries no time at all.
+    const queued = { ...running, status: "QUEUED", startedAt: "0001-01-01T00:00:00Z" };
+    const raw = JSON.parse(detailJson) as Record<string, unknown>;
+    const checksOf = (statusCheckRollup: ReadonlyArray<object>) => {
+      const detail = expectSuccess(
+        decodePullRequestDetailJson(JSON.stringify({ ...raw, statusCheckRollup })),
+      );
+      return [detail.checks.map((check) => [check.name, check.status]), detail.checksState];
+    };
+
+    // Both listing orders, so the run still going wins on its own rather than by coming last.
+    for (const rollup of [
+      [finished, running],
+      [running, finished],
+      [finished, queued],
+      [queued, finished],
+    ]) {
+      expect(checksOf(rollup)).toEqual([[["check", "pending"]], "pending"]);
+    }
   });
 
   it("merges reviews with comments in time order and keeps a bodyless approval", () => {
@@ -1107,7 +1148,13 @@ describe("review thread decoding", () => {
             path: "src/a.ts",
             line: 42,
             diffSide: "LEFT",
-            comments: { totalCount: 2, nodes: [comment("c1", "first"), comment("c2", "second")] },
+            comments: {
+              totalCount: 2,
+              nodes: [
+                { ...comment("c1", "first"), lastEditedAt: "2026-07-02T00:00:00Z" },
+                comment("c2", "second"),
+              ],
+            },
           },
         ]),
       ),
@@ -1126,6 +1173,7 @@ describe("review thread decoding", () => {
             author: { login: "bilal", name: null, avatarUrl: "https://avatars/b.png" },
             body: "first",
             createdAt: "2026-07-01T00:00:00Z",
+            editedAt: "2026-07-02T00:00:00Z",
             url: "https://github.com/acme/web/pull/1#discussion_rc1",
             reactions: [],
           },
@@ -1134,12 +1182,16 @@ describe("review thread decoding", () => {
             author: { login: "bilal", name: null, avatarUrl: "https://avatars/b.png" },
             body: "second",
             createdAt: "2026-07-01T00:00:00Z",
+            editedAt: null,
             url: "https://github.com/acme/web/pull/1#discussion_rc2",
             reactions: [],
           },
         ],
       },
     ]);
+    expect(
+      reviewThreadConversation(reviewThreads.threads.map((entry) => entry.thread))[0]?.editedAt,
+    ).toBe("2026-07-02T00:00:00Z");
   });
 
   it("leaves an outdated thread without a line rather than pinning it to a stale one", () => {
@@ -1186,6 +1238,27 @@ describe("review thread decoding", () => {
     const threads = decoded.threads.map((entry) => entry.thread);
     expect(reviewThreadConversation(threads).map((comment) => comment.id)).toEqual(["c4"]);
     expect(threads).toHaveLength(1);
+  });
+
+  it("reads edit times for issue comments and reviews without using reaction updates", () => {
+    const editedAt = "2026-10-02T12:06:00Z";
+    const result = expectSuccess(
+      decodeReviewThreadsJson(
+        threadsJson([], {
+          comments: {
+            nodes: [
+              { id: "edited", lastEditedAt: editedAt },
+              { id: "reaction-only", lastEditedAt: null, updatedAt: editedAt },
+            ],
+          },
+          reviews: { nodes: [{ id: "review", lastEditedAt: editedAt }] },
+        }),
+      ),
+    );
+    expect([...result.editedAtById]).toEqual([
+      ["edited", editedAt],
+      ["review", editedAt],
+    ]);
   });
 
   it("puts an issue comment's and a review's reactions in reactionsById, and the pull request's own in reactions", () => {
@@ -2072,5 +2145,26 @@ describe("pull request watch fingerprints", () => {
     expect(replied.remarks).not.toBe(before.remarks);
     // A pull request GitHub had no answer for is left for a full read.
     expect(decode(null, pullRequest(base)).has(0)).toBe(false);
+  });
+});
+
+describe("unfinished workflow run decoding", () => {
+  it("keeps only runs GitHub has not finished, including queued ones without jobs", () => {
+    const runs = expectSuccess(
+      decodeUnfinishedWorkflowRunsJson(
+        JSON.stringify([
+          { databaseId: 1, workflowName: "CI", url: "https://x/runs/1", status: "queued" },
+          { databaseId: 2, workflowName: "Lint", url: "https://x/runs/2", status: "in_progress" },
+          { databaseId: 3, workflowName: "Done", url: "https://x/runs/3", status: "completed" },
+          {
+            databaseId: 4,
+            workflowName: "Gate",
+            url: "https://x/runs/4",
+            status: "action_required",
+          },
+        ]),
+      ),
+    );
+    expect(runs.map((run) => run.id)).toEqual([1, 2]);
   });
 });

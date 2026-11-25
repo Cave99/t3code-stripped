@@ -47,7 +47,10 @@ function at(offsetMs: number): DateTime.Utc {
   return DateTime.makeUnsafe(NOW_MS + offsetMs);
 }
 
-function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): OrchestrationV2ThreadShell {
+type SettlementShell = OrchestrationV2ThreadShell &
+  Pick<ProjectionStore.ProjectionSettlementCandidate, "latestResumingMessageAt">;
+
+function shell(overrides: Partial<SettlementShell> = {}): SettlementShell {
   return {
     id: ThreadId.make("thread-1"),
     projectId: ProjectId.make("project-1"),
@@ -84,6 +87,7 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     latestRunStartedAt: null,
     latestRunCompletedAt: null,
     latestUserMessageAt: null,
+    latestResumingMessageAt: overrides.latestUserMessageAt ?? null,
     createdAt: at(-30 * DAY_MS),
     updatedAt: at(-10 * DAY_MS),
     archivedAt: null,
@@ -270,6 +274,31 @@ describe("resolveAutoSettlementAt", () => {
     ).toBeNull();
   });
 
+  it("settles on merge after automatic agent wakes, but not after the thread is resumed", () => {
+    // A background command stopped after the merge and its notification started a run. Only the
+    // user's own messages, or an agent's MCP send, hold a merged thread open.
+    const woken = shell({
+      latestUserMessageAt: at(-30 * 60 * 1_000),
+      latestResumingMessageAt: at(-2 * 60 * 60 * 1_000),
+      latestRunRequestedAt: at(-30 * 60 * 1_000),
+      latestRunCompletedAt: at(-29 * 60 * 1_000),
+    });
+    const input = {
+      thread: woken,
+      pullRequest: { state: "merged" as const, mergedAt: DateTime.formatIso(at(-60 * 60 * 1_000)) },
+      nowMs: NOW_MS,
+      autoSettleAfterDays: null,
+      autoSettleOnMerge: true,
+    };
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(at(-29 * 60 * 1_000));
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
+        ...input,
+        thread: { ...woken, latestResumingMessageAt: at(-30 * 60 * 1_000) },
+      }),
+    ).toBeNull();
+  });
+
   it("settles on merge only after the user's last action and preserves the activity time", () => {
     const thread = shell({
       latestUserMessageAt: at(-2 * 60 * 60 * 1_000),
@@ -384,10 +413,7 @@ function makeProject(
   };
 }
 
-function makeThread(
-  id: string,
-  overrides: Partial<OrchestrationV2ThreadShell> = {},
-): OrchestrationV2ThreadShell {
+function makeThread(id: string, overrides: Partial<SettlementShell> = {}): SettlementShell {
   return shell({
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
@@ -399,10 +425,14 @@ function makeThread(
   });
 }
 
+type SettlementSnapshot = Omit<OrchestrationV2ShellSnapshot, "threads"> & {
+  readonly threads: ReadonlyArray<SettlementShell>;
+};
+
 function makeSnapshot(
-  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  threads: ReadonlyArray<SettlementShell>,
   projects: ReadonlyArray<OrchestrationProjectShell> = [makeProject()],
-): OrchestrationV2ShellSnapshot {
+): SettlementSnapshot {
   return {
     schemaVersion: 1,
     snapshotSequence: 1,
@@ -449,7 +479,7 @@ function makeBranchPullRequest(state: "open" | "closed" | "merged") {
 }
 
 interface HarnessOptions {
-  readonly snapshot: OrchestrationV2ShellSnapshot;
+  readonly snapshot: SettlementSnapshot;
   readonly settings?: ContractServerSettings;
   readonly branchPullRequest?: GitManager.GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService.PullRequestService["Service"]["summary"];
@@ -553,6 +583,16 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       listShells: () => Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({
+      getThreadsWithPullRequests: (readOptions) =>
+        Ref.get(snapshots).pipe(
+          Effect.map((snapshot) =>
+            snapshot.threads
+              .filter(
+                (thread) => readOptions?.includeArchived === true || thread.archivedAt === null,
+              )
+              .map((thread) => ({ ...thread, pullRequests: thread.pullRequests ?? [] })),
+          ),
+        ),
       getSettlementCandidates: (threadId) =>
         Ref.update(candidateReads, (reads) => [...reads, threadId]).pipe(
           Effect.andThen(Ref.updateAndGet(snapshotReadCount, (count) => count + 1)),
@@ -990,6 +1030,62 @@ describe("ThreadSettlementServiceV2 worker", () => {
       }),
     ),
   );
+  it.effect(
+    "an archived thread's merged pull request does not settle a local thread on its branch",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const owner = makeThread("archived-owner", {
+          branch: "feature",
+          archivedAt: DateTime.makeUnsafe("2026-08-29T00:00:00.000Z"),
+          pullRequests: [
+            {
+              host: "example.test",
+              repository: "owner/repository",
+              number: 42,
+              url: "https://example.test/owner/repository/pull/42",
+              source: "manual",
+              linkedAt: "2026-08-20T00:00:00.000Z",
+              snapshot: {
+                state: "merged",
+                title: "Pull request",
+                headBranch: "feature",
+                baseBranch: "main",
+                isDraft: false,
+                updatedAt: NOW,
+                mergedAt: NOW,
+                syncedAt: NOW,
+              },
+              stack: null,
+            },
+          ],
+        });
+        const sibling = makeThread("local-sibling", {
+          branch: "feature",
+          createdAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+          latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([owner, sibling]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleOnMerge: true,
+            sidebarAutoSettleAfterDays: null,
+          },
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishMerge;
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+
+          expect(yield* Ref.get(fixture.commands)).toEqual([]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+  );
 });
 
 describe("ThreadSettlementServiceV2 terminals", () => {
@@ -1240,5 +1336,20 @@ describe("isSnoozed", () => {
     expect(
       ThreadSettlementService.isSnoozed(shell({ ...snoozed, snoozedUntil: at(-1) }), NOW_MS),
     ).toBe(false);
+  });
+});
+
+describe("pull request watches and settlement", () => {
+  it("never auto-settles a watched thread, even once the watch stops holding it", () => {
+    const watched = shell({
+      pendingBackgroundTasks: [
+        {
+          taskId: "pull-request-watch:github.com/acme/app#1",
+          kind: "monitor",
+          awaited: false,
+        },
+      ],
+    });
+    expect(ThreadSettlementService.isAutoSettlementCandidate(watched, NOW_MS)).toBe(false);
   });
 });

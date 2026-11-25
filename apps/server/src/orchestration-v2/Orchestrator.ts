@@ -29,6 +29,7 @@ import {
   type OrchestrationV2ServerCommand,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
+  type PullRequestWatchUntil,
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
   type OrchestrationV2ContextSourcePoint,
@@ -58,6 +59,7 @@ import {
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
+  backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -399,6 +401,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-link.sync":
     case "thread.pull-request.watch":
     case "thread.pull-request-watch.sync":
+    case "thread.pull-request-watch.checks-reopen":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
     case "thread.runtime-mode.set":
@@ -453,6 +456,9 @@ function pendingThreadTitleGenerationEffect(
   };
 }
 
+/** How long automatic settlement waits for a queued turn to start. */
+export const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
+
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
 
 /** A reopened preparation item drops the output and exit code of the attempt it replaces. */
@@ -488,9 +494,45 @@ function withPullRequestWatch(
   link: ThreadPullRequestLink,
   watch: ThreadPullRequestWatch | undefined,
 ): ThreadPullRequestLink {
-  const { watch: _previous, ...rest } = link;
-  return watch === undefined ? rest : { ...rest, watch };
+  const { watch: previous, endedWatch, ...rest } = link;
+  if (watch !== undefined) return { ...rest, watch };
+  const ended = previous ?? endedWatch;
+  return ended === undefined ? rest : { ...rest, endedWatch: ended };
 }
+
+/**
+ * What a watch read records. Only the agent sets `until`, so a read in flight keeps what the
+ * watch has now, and an answer read before a turn cleared it belongs to the old head.
+ */
+function syncedPullRequestWatch(
+  existing: ThreadPullRequestWatch | undefined,
+  command: {
+    readonly watch: ThreadPullRequestWatch | null;
+    readonly checksPendingBefore?: boolean | undefined;
+  },
+): ThreadPullRequestWatch | undefined {
+  if (command.watch === null) return undefined;
+  const watch = withUntil(command.watch, existing?.until ?? "checks");
+  if (command.checksPendingBefore === undefined || existing?.checksPending !== undefined) {
+    return watch;
+  }
+  return withoutChecksAnswer(watch);
+}
+
+function withUntil(
+  watch: ThreadPullRequestWatch,
+  until: PullRequestWatchUntil | undefined,
+): ThreadPullRequestWatch {
+  if (until === undefined || until === (watch.until ?? "checks")) return watch;
+  if (until === "merged") return { ...watch, until };
+  const { until: _checks, ...rest } = watch;
+  return rest;
+}
+
+const withoutChecksAnswer = ({
+  checksPending: _answer,
+  ...watch
+}: ThreadPullRequestWatch): ThreadPullRequestWatch => watch;
 
 /** A legacy single-PR link as a link entry. Re-linking a pull request keeps its watch. */
 function legacyPullRequestLink(
@@ -499,6 +541,9 @@ function legacyPullRequestLink(
   now: DateTime.Utc,
 ): ThreadPullRequestLink {
   const key = legacyThreadPullRequestKey(linked);
+  const existing = threadPullRequestsOf(thread).find((link) =>
+    threadPullRequestKeysEqual(link, key),
+  );
   return withPullRequestWatch(
     {
       ...key,
@@ -507,8 +552,9 @@ function legacyPullRequestLink(
       linkedAt: DateTime.formatIso(now),
       snapshot: null,
       stack: null,
+      ...(existing?.endedWatch && { endedWatch: existing.endedWatch }),
     },
-    threadPullRequestsOf(thread).find((link) => threadPullRequestKeysEqual(link, key))?.watch,
+    existing?.watch,
   );
 }
 
@@ -2378,6 +2424,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pull-request-link.sync"
           | "thread.pull-request.watch"
           | "thread.pull-request-watch.sync"
+          | "thread.pull-request-watch.checks-reopen"
           | "thread.pull-request.sync"
           | "thread.title.regeneration.complete"
           | "thread.runtime-mode.set"
@@ -2582,8 +2629,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (command.type === "thread.settle") {
       const projection = yield* loadProjectionForCommand(
         command,
-        ["runs", "runtimeRequests", "messages"],
-        { turnItemTypes: [], messageRoles: ["user"] },
+        ["runs", "runtimeRequests", "messages", "providerThreads", "turnItems"],
+        {
+          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+          messageRoles: ["user"],
+        },
       );
       // Queued notification and delegated-completion runs only wake the agent.
       // They are not user messages and are hidden from the queue UI, so they
@@ -2615,6 +2666,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} has active or blocked work and cannot be settled.`,
+        });
+      }
+      // Settling detaches the provider session, which ends the work running inside it. Hold for
+      // the work auto-settle waits on. Delegated tasks run in their own thread and survive.
+      const awaitedSessionWorkExists = backgroundWorkHoldsCompletion(
+        derivePendingBackgroundWork({
+          latestRun: projection.runs.findLast((run) => run.status !== "queued"),
+          providerThreads: projection.providerThreads,
+          turnItems: projection.turnItems.filter(
+            (item) => item.type !== "subagent" || item.origin !== "app_owned",
+          ),
+          activeProviderThreadId: projection.thread.activeProviderThreadId,
+          runs: projection.runs,
+        }),
+      );
+      if (awaitedSessionWorkExists) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} is still running background agents or commands, and settling would end them. Wait for them to finish, or press Stop, then settle.`,
         });
       }
 
@@ -3064,6 +3135,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: command.type === "thread.pull-request-link.sync" ? thread.updatedAt : now,
           };
         }
+        case "thread.pull-request-watch.checks-reopen": {
+          // A turn that may have pushed clears each answer, so the watch holds the thread
+          // until its next read sees whether new checks started.
+          const linked = threadPullRequestsOf(thread);
+          if (!linked.some((link) => link.watch?.checksPending !== undefined)) return thread;
+          return {
+            ...thread,
+            pullRequests: linked.map((link) =>
+              link.watch?.checksPending === undefined
+                ? link
+                : { ...link, watch: withoutChecksAnswer(link.watch) },
+            ),
+          };
+        }
         case "thread.pull-request.watch":
         case "thread.pull-request-watch.sync": {
           const key = normalizeThreadPullRequestKey(command);
@@ -3071,6 +3156,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const linked = threadPullRequestsOf(thread);
           const visible = (link: ThreadPullRequestLink) =>
             link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, key);
+          const dismissed = linked.find((link) => threadPullRequestKeysEqual(link, key));
           // A watch started on an unlinked (or dismissed) pull request links it in the same step.
           const links =
             command.type === "thread.pull-request.watch" &&
@@ -3086,6 +3172,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     linkedAt: startedAt,
                     snapshot: null,
                     stack: null,
+                    ...(dismissed?.endedWatch && { endedWatch: dismissed.endedWatch }),
                   },
                 ]
               : linked;
@@ -3095,26 +3182,58 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             command.type === "thread.pull-request-watch.sync"
               ? // Progress read before a stop or restart must not bring the old watch back.
                 existing.watch?.startedAt === command.startedAt
-                ? (command.watch ?? undefined)
+                ? syncedPullRequestWatch(existing.watch, command)
                 : existing.watch
               : !command.watching
                 ? undefined
-                : (existing.watch ?? {
-                    startedAt,
-                    headSha: null,
-                    failedChecks: [],
-                    passed: false,
-                    passedChecks: [],
-                    remarksThrough: startedAt,
-                    remarkIds: [],
-                    conflicting: false,
-                    wakes: 0,
-                  });
+                : withUntil(
+                    existing.watch ?? {
+                      startedAt,
+                      headSha: null,
+                      failedChecks: [],
+                      passed: false,
+                      passedChecks: [],
+                      conflicting: false,
+                      // Watching again must not repeat check or conflict news the last watch told.
+                      ...(existing.endedWatch && {
+                        headSha: existing.endedWatch.headSha,
+                        failedChecks: existing.endedWatch.failedChecks,
+                        passed: existing.endedWatch.passed,
+                        passedChecks: existing.endedWatch.passedChecks,
+                        conflicting: existing.endedWatch.conflicting,
+                      }),
+                      ...(existing.endedWatch?.owedChecks !== undefined && {
+                        owedChecks: existing.endedWatch.owedChecks,
+                      }),
+                      ...(existing.endedWatch?.awaitingApproval !== undefined && {
+                        awaitingApproval: existing.endedWatch.awaitingApproval,
+                      }),
+                      ...(existing.endedWatch?.approvalAnnounced !== undefined && {
+                        approvalAnnounced: existing.endedWatch.approvalAnnounced,
+                      }),
+                      // A finished-checks answer kept from the last watch may be an older head's;
+                      // a fresh read decides.
+                      ...(existing.endedWatch?.checksPending === true && { checksPending: true }),
+                      ...(existing.endedWatch?.checksAwaitedSince !== undefined && {
+                        checksAwaitedSince: existing.endedWatch.checksAwaitedSince,
+                      }),
+                      remarksThrough: startedAt,
+                      remarkIds: [],
+                      wakes: 0,
+                    },
+                    command.until,
+                  );
           if (watch === existing.watch && links === linked) return thread;
+          const final =
+            command.type === "thread.pull-request-watch.sync" && watch === undefined
+              ? command.endedWatch
+              : undefined;
           return {
             ...thread,
             pullRequests: links.map((link) =>
-              link === existing ? withPullRequestWatch(link, watch) : link,
+              link === existing
+                ? withPullRequestWatch(final ? { ...link, watch: final } : link, watch)
+                : link,
             ),
             // A user or agent starting or stopping a watch is activity; recorded progress is not.
             updatedAt: command.type === "thread.pull-request.watch" ? now : thread.updatedAt,
@@ -3210,6 +3329,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.pull-request-link.sync":
         case "thread.pull-request.watch":
         case "thread.pull-request-watch.sync":
+        case "thread.pull-request-watch.checks-reopen":
         case "thread.pull-request.sync":
           return "thread.pull-request-synced" as const;
         case "thread.runtime-mode.set":
@@ -10153,6 +10273,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             cause: `Thread ${command.threadId} changed before automatic settlement.`,
           });
         }
+        // The completion reaction starts or holds the queue just after a run ends; settling
+        // first would cancel an automatic wake it was about to start.
+        const { runs } = yield* loadProjectionForCommand(command, ["runs"]);
+        const endedAt = runs
+          .flatMap((run) =>
+            run.completedAt == null ? [] : [DateTime.toEpochMillis(run.completedAt)],
+          )
+          .reduce((latest, at) => Math.max(latest, at), Number.NEGATIVE_INFINITY);
+        if (
+          runs.some((run) => run.status === "queued") &&
+          Math.abs(DateTime.toEpochMillis(yield* DateTime.now) - endedAt) <
+            QUEUED_TURN_START_GRACE_MS
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} has a queued run that may still start.`,
+          });
+        }
         yield* dispatchThreadMutation(
           {
             type: "thread.settle",
@@ -10209,6 +10348,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.unlink":
       case "thread.pull-request-link.sync":
       case "thread.pull-request.watch":
+      case "thread.pull-request-watch.checks-reopen":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
       case "thread.runtime-mode.set":

@@ -1,7 +1,15 @@
 import { canonicalRepositoryKey } from "@t3tools/shared/sourceControl";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  backgroundWorkHoldsCompletion,
+  isPullRequestWatchTask,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import {
+  legacyThreadPullRequestKey,
+  threadPullRequestKeyOf,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
   CommandId,
   type ThreadId,
@@ -37,7 +45,7 @@ export interface SettlementPullRequest {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
-export const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
+export const QUEUED_TURN_START_GRACE_MS = Orchestrator.QUEUED_TURN_START_GRACE_MS;
 
 function toMillis(value: DateTime.Utc | null | undefined): number | null {
   return value == null ? null : DateTime.toEpochMillis(value);
@@ -64,6 +72,20 @@ function pullRequestMatchesProject(
     canonicalRepositoryKey(pullRequest.repositoryKey) ===
       canonicalRepositoryKey(project.repositoryIdentity.canonicalKey)
   );
+}
+
+function branchPullRequestKey(pullRequest: GitManager.GitBranchPullRequest): string | null {
+  const parsed = parseChangeRequestUrl(pullRequest.url);
+  if (parsed !== null && parsed.number === pullRequest.number) {
+    return threadPullRequestKeyOf(parsed);
+  }
+  const separator = pullRequest.repositoryKey?.indexOf("/") ?? -1;
+  if (pullRequest.repositoryKey == null || separator <= 0) return null;
+  return threadPullRequestKeyOf({
+    host: pullRequest.repositoryKey.slice(0, separator),
+    repository: pullRequest.repositoryKey.slice(separator + 1),
+    number: pullRequest.number,
+  });
 }
 
 /**
@@ -96,10 +118,15 @@ export function threadHasQueuedTurnStart(
   ].every((value) => value === null || value < messageAtMs);
 }
 
+/**
+ * A merged or closed pull request settles the thread unless it was resumed afterwards: the user
+ * wrote to it, or an agent sent it a message through MCP. Runs that background work or a PR
+ * watch started on their own do not count, so they cannot hold a merged thread open.
+ */
 function pullRequestSettles(
   thread: Pick<
-    OrchestrationV2ThreadShell,
-    "createdAt" | "latestUserMessageAt" | "latestRunRequestedAt"
+    ProjectionStore.ProjectionSettlementCandidate,
+    "createdAt" | "latestResumingMessageAt"
   >,
   pullRequest: SettlementPullRequest,
   autoSettleOnMerge: boolean,
@@ -111,8 +138,7 @@ function pullRequestSettles(
   if (terminalAt == null) return false;
   const userAnchorMs = latestMillis([
     toMillis(thread.createdAt),
-    toMillis(thread.latestUserMessageAt),
-    toMillis(thread.latestRunRequestedAt),
+    toMillis(thread.latestResumingMessageAt),
   ]);
   if (userAnchorMs === null) return false;
   const pullRequestAtMs = Date.parse(terminalAt);
@@ -122,7 +148,7 @@ function pullRequestSettles(
 
 /** Cheap checks that run before any source control lookup. */
 export function isAutoSettlementCandidate(
-  thread: ProjectionStore.ProjectionSettlementCandidate,
+  thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestResumingMessageAt">,
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
@@ -132,7 +158,11 @@ export function isAutoSettlementCandidate(
   // A live run, or background work that will wake the agent, is not
   // staleness. A dev server left running is: the agent is done.
   if (thread.activityRunStatus != null) return false;
-  if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;
+  const pendingTasks = thread.pendingBackgroundTasks ?? [];
+  if (backgroundWorkHoldsCompletion(pendingTasks)) return false;
+  // Settling ends a watch, which would silently drop a reviewer's later comments, and leave an
+  // agent waiting on it with nothing to wake it.
+  if (pendingTasks.some(isPullRequestWatchTask)) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;
   const snoozedUntilMs = toMillis(thread.snoozedUntil);
   if (snoozedUntilMs === null || snoozedUntilMs <= nowMs) return true;
@@ -393,7 +423,7 @@ export const make = Effect.gen(function* () {
       const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
       if (reference != null) {
         return JSON.stringify([
-          "linked",
+          thread.linkedPullRequest != null ? "linked" : "branch-reference",
           reference.projectId,
           reference.repository,
           reference.number,
@@ -408,6 +438,21 @@ export const make = Effect.gen(function* () {
       );
     };
     const groups = Map.groupBy(lookupCandidates, lookupKey);
+    // A thread with no link of its own does not settle from a pull request another thread links
+    // (archived threads included): a branch reused for another thread's PR is not this work.
+    const explicitlyLinked = new Set(
+      groups.size === 0
+        ? []
+        : (yield* projections.getThreadsWithPullRequests({ includeArchived: true })).flatMap(
+            (thread) =>
+              visibleThreadPullRequests(thread.pullRequests ?? []).map(threadPullRequestKeyOf),
+          ),
+    );
+    const ownedByAnotherThread = (pullRequest: GitManager.GitBranchPullRequest | null) => {
+      if (pullRequest === null || pullRequest.state === "open") return false;
+      const key = branchPullRequestKey(pullRequest);
+      return key !== null && explicitlyLinked.has(key);
+    };
 
     const wouldSettle = Effect.fn("ThreadSettlementServiceV2.wouldSettle")(function* (
       group: ReadonlyArray<(typeof lookupCandidates)[number]>,
@@ -434,6 +479,13 @@ export const make = Effect.gen(function* () {
     ) {
       const thread = group[0]!;
       const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
+      if (
+        thread.linkedPullRequest == null &&
+        reference != null &&
+        explicitlyLinked.has(threadPullRequestKeyOf(legacyThreadPullRequestKey(reference)))
+      ) {
+        return undefined;
+      }
       if (reference != null) {
         // The event carries the merged state, so only the threads linked to
         // that exact pull request settle from it. Every other linked thread
@@ -492,7 +544,8 @@ export const make = Effect.gen(function* () {
       if (cwd === undefined) {
         return yield* Effect.die(new Error("thread project not found"));
       }
-      return yield* git.branchPullRequest({ cwd, branch: thread.branch });
+      const pullRequest = yield* git.branchPullRequest({ cwd, branch: thread.branch });
+      return ownedByAnotherThread(pullRequest) ? undefined : pullRequest;
     });
 
     yield* Effect.forEach(

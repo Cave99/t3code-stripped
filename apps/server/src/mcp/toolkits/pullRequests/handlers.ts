@@ -7,6 +7,7 @@ import {
   pullRequestHostOf,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
+  type PullRequestWatchUntil,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
@@ -34,7 +35,7 @@ import {
   PullRequestHostRequiredError,
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
-  PullRequestNotOpenError,
+  MERGED_WATCH_NEXT,
   type PullRequestTargetInput,
   PullRequestWatchFailedError,
   PullRequestWatchFromSubagentError,
@@ -214,7 +215,7 @@ const make = Effect.gen(function* () {
    * result reports the state the thread holds afterwards.
    */
   const setWatching = Effect.fn("PullRequestsToolkit.setWatching")(function* (
-    input: PullRequestTargetInput,
+    input: PullRequestTargetInput & { readonly until?: PullRequestWatchUntil | undefined },
     watching: boolean,
   ) {
     const thread = yield* requireThread(PullRequestWatchFailedError);
@@ -230,8 +231,18 @@ const make = Effect.gen(function* () {
     const before = watchedLink(thread);
     // A merged pull request cannot reopen. A closed one can, and its saved state may be stale,
     // so the watch starts and its first read ends it if the host still says closed.
+    // A watch on a merged PR could only report that it merged, so report it now instead.
     if (watching && before?.snapshot?.state === "merged") {
-      return yield* new PullRequestNotOpenError({ state: "merged" });
+      return {
+        host: target.host,
+        repository: target.repository,
+        number: target.number,
+        url: target.url,
+        watching: false,
+        wasWatching: before.watch !== undefined,
+        state: "merged" as const,
+        next: MERGED_WATCH_NEXT,
+      };
     }
     yield* engine
       .dispatch({
@@ -243,6 +254,7 @@ const make = Effect.gen(function* () {
         number: target.number,
         watching,
         ...(watching ? { link: { url: target.url, source: "agent" as const } } : {}),
+        ...(watching && input.until !== undefined && { until: input.until }),
       })
       .pipe(Effect.catchCause(dispatchFailure(PullRequestWatchFailedError)));
     const after = yield* requireThread(PullRequestWatchFailedError);

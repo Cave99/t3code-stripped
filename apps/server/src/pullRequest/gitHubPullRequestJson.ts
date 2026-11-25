@@ -362,6 +362,7 @@ function toReactions(
 
 const RawCommentSchema = Schema.Struct({
   id: Schema.String,
+  lastEditedAt: Schema.optional(Schema.NullOr(Schema.String)),
   author: Schema.optional(Schema.NullOr(RawActorSchema)),
   body: Schema.optional(Schema.String),
   createdAt: Schema.String,
@@ -372,6 +373,7 @@ const RawCommentSchema = Schema.Struct({
 
 const RawReviewSchema = Schema.Struct({
   id: Schema.String,
+  lastEditedAt: Schema.optional(Schema.NullOr(Schema.String)),
   author: Schema.optional(Schema.NullOr(RawActorSchema)),
   body: Schema.optional(Schema.String),
   state: Schema.optional(Schema.NullOr(Schema.String)),
@@ -416,6 +418,7 @@ const RawWorkflowRunApprovalSchema = Schema.Struct({
   databaseId: Schema.Int,
   workflowName: Schema.optional(Schema.NullOr(Schema.String)),
   url: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const RawPullRequestHeadSchema = Schema.Struct({
@@ -490,6 +493,7 @@ const RawReviewThreadsSchema = Schema.Struct({
                 Schema.Struct({
                   id: Schema.optional(Schema.NullOr(Schema.String)),
                   author: Schema.optional(Schema.NullOr(RawActorSchema)),
+                  lastEditedAt: Schema.optional(Schema.NullOr(Schema.String)),
                   reactionGroups: RawReactionGroupsSchema,
                 }),
               ),
@@ -507,6 +511,7 @@ const RawReviewThreadsSchema = Schema.Struct({
                 Schema.Struct({
                   id: Schema.optional(Schema.NullOr(Schema.String)),
                   author: Schema.optional(Schema.NullOr(RawActorSchema)),
+                  lastEditedAt: Schema.optional(Schema.NullOr(Schema.String)),
                   reactionGroups: RawReactionGroupsSchema,
                 }),
               ),
@@ -885,7 +890,7 @@ export const REVIEW_THREADS_GRAPHQL_QUERY = `query($owner: String!, $name: Strin
           comments(first: 10) {
             totalCount
             pageInfo { hasNextPage endCursor }
-            nodes { id author { __typename login avatarUrl } body createdAt url ${REACTION_GROUPS_FIELDS} }
+            nodes { id author { __typename login avatarUrl } body createdAt lastEditedAt url ${REACTION_GROUPS_FIELDS} }
           }
         }
       }
@@ -894,9 +899,9 @@ export const REVIEW_THREADS_GRAPHQL_QUERY = `query($owner: String!, $name: Strin
       author { __typename login avatarUrl }
       ${REACTION_GROUPS_FIELDS}
       comments(first: ${GRAPHQL_PAGE_SIZE}) {
-        nodes { id author { __typename login avatarUrl } ${REACTION_GROUPS_FIELDS} }
+        nodes { id lastEditedAt author { __typename login avatarUrl } ${REACTION_GROUPS_FIELDS} }
       }
-      reviews(first: ${GRAPHQL_PAGE_SIZE}) { nodes { id author { __typename login avatarUrl } ${REACTION_GROUPS_FIELDS} } }
+      reviews(first: ${GRAPHQL_PAGE_SIZE}) { nodes { id lastEditedAt author { __typename login avatarUrl } ${REACTION_GROUPS_FIELDS} } }
       reviewRequests(first: 50) {
         nodes {
           requestedReviewer {
@@ -942,7 +947,7 @@ export const REVIEW_THREAD_COMMENTS_GRAPHQL_QUERY = `query($owner: String!, $nam
       pullRequest { id }
       comments(first: ${GRAPHQL_PAGE_SIZE}, after: $cursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { id author { __typename login avatarUrl } body createdAt url ${REACTION_GROUPS_FIELDS} }
+        nodes { id author { __typename login avatarUrl } body createdAt lastEditedAt url ${REACTION_GROUPS_FIELDS} }
       }
     }
   }
@@ -1446,6 +1451,9 @@ function toCheckStatus(raw: Schema.Schema.Type<typeof RawCheckSchema>): PullRequ
 /** What GitHub writes where a run has not reached that moment yet, which is not a time. */
 const UNSET_TIMESTAMP = "0001-01-01T00:00:00Z";
 
+/** Sorts after every real timestamp, so the deduper keeps a run that has not finished. */
+const STILL_RUNNING = "9999-12-31T23:59:59Z";
+
 function realTimestamp(value: string | null | undefined): string | null {
   const at = trimmed(value);
   return at === null || at === UNSET_TIMESTAMP ? null : at;
@@ -1458,8 +1466,9 @@ function isNamelessCheck(raw: Schema.Schema.Type<typeof RawCheckSchema>): boolea
 
 /**
  * The rollup as the deduper reads it: a check, the workflow that owns it, and when the run last
- * had something to say. A queued run reports a completion time it has not reached, so the start
- * stands in for it rather than sorting the newest run to the bottom.
+ * had something to say. A run that has not finished outranks any finished run of the same check:
+ * a workflow triggered by both `push` and `pull_request` runs the check twice on one commit, and
+ * the run that finished first must not hide the one still going.
  */
 function toCheckEntries(
   raw: ReadonlyArray<Schema.Schema.Type<typeof RawCheckSchema>> | null | undefined,
@@ -1471,17 +1480,21 @@ function toCheckEntries(
   return (raw ?? []).flatMap((check) => {
     const name = trimmed(check.name) ?? trimmed(check.context);
     if (name === null) return [];
+    const status = toCheckStatus(check);
     return [
       {
         check: {
           name,
-          status: toCheckStatus(check),
+          status,
           description: trimmed(check.description),
           url: trimmed(check.detailsUrl) ?? trimmed(check.targetUrl),
           ...(typeof check.isRequired === "boolean" ? { required: check.isRequired } : {}),
         },
         workflowName: trimmed(check.workflowName),
-        at: realTimestamp(check.completedAt) ?? realTimestamp(check.startedAt),
+        at:
+          status === "pending"
+            ? STILL_RUNNING
+            : (realTimestamp(check.completedAt) ?? realTimestamp(check.startedAt)),
       },
     ];
   });
@@ -1542,6 +1555,7 @@ function toComments(raw: {
     author: toActor(comment.author),
     body: comment.body ?? "",
     createdAt: comment.createdAt,
+    editedAt: comment.lastEditedAt ?? null,
     url: trimmed(comment.url),
     path: null,
     reviewState: null,
@@ -1566,6 +1580,7 @@ function toComments(raw: {
         author: toActor(review.author),
         body: review.body ?? "",
         createdAt: submittedAt,
+        editedAt: review.lastEditedAt ?? null,
         url: trimmed(review.url),
         path: null,
         reviewState,
@@ -2191,6 +2206,32 @@ export function decodeWorkflowRunApprovalsJson(
   );
 }
 
+// Approval-gated runs (action_required) are read separately as action-required checks.
+const UNFINISHED_WORKFLOW_RUN_STATUSES = new Set([
+  "requested",
+  "queued",
+  "pending",
+  "waiting",
+  "in_progress",
+]);
+
+/** Workflow runs GitHub has not finished, which may have no check runs on the head yet. */
+export function decodeUnfinishedWorkflowRunsJson(
+  raw: string,
+): Result.Result<ReadonlyArray<GitHubWorkflowRunApproval>, DecodeFailure> {
+  const decoded = decodeWorkflowRunApprovals(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  return Result.succeed(
+    decoded.success
+      .filter((run) => UNFINISHED_WORKFLOW_RUN_STATUSES.has(run.status?.toLowerCase() ?? ""))
+      .map((run) => ({
+        id: run.databaseId,
+        name: trimmed(run.workflowName) ?? `Workflow run ${run.databaseId}`,
+        url: trimmed(run.url),
+      })),
+  );
+}
+
 export function decodePullRequestHeadsJson(
   raw: string,
 ): Result.Result<ReadonlyArray<GitHubPullRequestHead>, DecodeFailure> {
@@ -2231,6 +2272,7 @@ export interface GitHubReviewThreadComments {
   readonly reactions: ReadonlyArray<PullRequestReaction>;
   /** Reactions by node id, for the comments and reviews the `gh` JSON read carries no reaction on. */
   readonly reactionsById: ReadonlyMap<string, ReadonlyArray<PullRequestReaction>>;
+  readonly editedAtById: ReadonlyMap<string, string>;
   /**
    * Everyone on the review: those still asked and those who have already answered. Whoever has
    * reviewed is no longer an outstanding request, so asking only for requests reports nobody on
@@ -2280,6 +2322,7 @@ export interface GitHubReviewThreadPage {
    * for without any. Only ids with a reaction are here; the rest carry none.
    */
   readonly reactionsById: ReadonlyMap<string, ReadonlyArray<PullRequestReaction>>;
+  readonly editedAtById: ReadonlyMap<string, string>;
   readonly reviewers: ReadonlyArray<PullRequestActor>;
   readonly avatarsByLogin: ReadonlyMap<string, string>;
   readonly botLogins: ReadonlySet<string>;
@@ -2310,6 +2353,7 @@ export function reviewThreadConversation(
       author: comment.author,
       body: comment.body,
       createdAt: comment.createdAt,
+      editedAt: comment.editedAt ?? null,
       url: comment.url,
       path: thread.path,
       reviewState: null,
@@ -2409,6 +2453,7 @@ export function decodeReviewThreadsJson(
             author: toActor(comment.author),
             body: comment.body ?? "",
             createdAt: comment.createdAt,
+            editedAt: comment.lastEditedAt ?? null,
             url: trimmed(comment.url),
             reactions: toReactions(comment.reactionGroups, viewer),
           })),
@@ -2475,12 +2520,15 @@ export function decodeReviewThreadsJson(
     });
   }
   const reactionsById = new Map<string, ReadonlyArray<PullRequestReaction>>();
+  const editedAtById = new Map<string, string>();
   for (const node of [
     ...(pullRequest.comments?.nodes ?? []),
     ...(pullRequest.reviews?.nodes ?? []),
   ]) {
     const id = trimmed(node.id);
     if (id === null) continue;
+    const editedAt = trimmed(node.lastEditedAt);
+    if (editedAt !== null) editedAtById.set(id, editedAt);
     const reactions = toReactions(node.reactionGroups, viewer);
     if (reactions.length > 0) reactionsById.set(id, reactions);
   }
@@ -2489,6 +2537,7 @@ export function decodeReviewThreadsJson(
     nextCursor: nextCursorOf(threads.pageInfo),
     reactions: toReactions(pullRequest.reactionGroups, viewer),
     reactionsById,
+    editedAtById,
     reviewers: [...reviewers.values()],
     avatarsByLogin,
     botLogins,
@@ -2525,6 +2574,7 @@ export function decodeReviewThreadCommentsJson(raw: string): Result.Result<
       author: toActor(comment.author),
       body: comment.body ?? "",
       createdAt: comment.createdAt,
+      editedAt: comment.lastEditedAt ?? null,
       url: trimmed(comment.url),
       reactions: toReactions(comment.reactionGroups, viewer),
     })),

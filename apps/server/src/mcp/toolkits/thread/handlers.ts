@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
 import {
   newCommandId,
@@ -244,6 +245,17 @@ export const ThreadToolkitHandlersLive = ThreadToolkit.toLayer({
     Effect.gen(function* () {
       const { threads, projection } = yield* readWritableThread(input.threadId);
       const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
+      // Settling ends the thread's pull request watches, and an agent settling a thread it
+      // watches from would never be woken again. Ending the watch is the agent's explicit call.
+      const watched = visibleThreadPullRequests(projection.thread.pullRequests ?? []).filter(
+        (link) => link.watch !== undefined,
+      );
+      if (input.action === "settle" && watched.length > 0) {
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: `This thread is watching pull request ${watched.map((link) => `#${link.number}`).join(", ")}, and settling would end the watch. If the work is done, call unwatch_pull_request first, then settle. Otherwise end your turn: C3 Code wakes you on the next change.`,
+        });
+      }
       let command: OrchestrationV2Command;
       switch (input.action) {
         case "snooze":

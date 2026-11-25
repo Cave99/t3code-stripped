@@ -5,9 +5,11 @@ import {
   type PullRequestComment,
   type PullRequestRef,
   type PullRequestActivity,
+  type PullRequestDetail,
   type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   normalizeThreadPullRequestKey,
@@ -23,6 +25,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import type * as Scope from "effect/Scope";
 
 import {
@@ -34,7 +37,12 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { evaluatePullRequestWatch, pullRequestWatchMessage } from "./pullRequestWatch.ts";
+import {
+  evaluatePullRequestWatch,
+  pullRequestWatchEndMessage,
+  PULL_REQUEST_WATCH_NO_CHECKS_MS,
+  pullRequestWatchMessage,
+} from "./pullRequestWatch.ts";
 
 /**
  * Minutes between passes. Checks take minutes, so a faster pass mostly spends the host's rate
@@ -181,19 +189,30 @@ function planRead(
   if (last === undefined || group.targets.some((target) => !last.watches.has(watchKey(target)))) {
     return { detail: true, activity: true };
   }
+  // Nothing on the host changes when the no-checks deadline passes, so it alone prompts a read.
+  // A turn that may have pushed clears a watch's answer, and that alone prompts a read too.
+  const checksDue = group.targets.some(
+    ({ watch }) =>
+      watch.checksPending === undefined ||
+      (watch.checksAwaitedSince != null &&
+        now - Date.parse(watch.checksAwaitedSince) >= PULL_REQUEST_WATCH_NO_CHECKS_MS),
+  );
   if (fingerprint === null) {
     const read =
       last.inFlight ||
       !last.remarksComplete ||
       last.fingerprint !== group.fingerprint ||
       now - last.at >= QUIET_REREAD_MS;
-    return { detail: read, activity: read };
+    return { detail: read || checksDue, activity: read };
   }
   const activity =
     last.remarks !== fingerprint.remarks ||
     !last.remarksComplete ||
     now - last.at >= FINGERPRINT_REREAD_MS;
-  return { detail: activity || last.status !== fingerprint.status || last.inFlight, activity };
+  return {
+    detail: activity || checksDue || last.status !== fingerprint.status || last.inFlight,
+    activity,
+  };
 }
 
 function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatch): boolean {
@@ -203,10 +222,16 @@ function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatc
     left.failedChecks.join("\n") === right.failedChecks.join("\n") &&
     left.passed === right.passed &&
     left.passedChecks.join("\n") === right.passedChecks.join("\n") &&
+    (left.owedChecks ?? []).join("\n") === (right.owedChecks ?? []).join("\n") &&
     left.remarksThrough === right.remarksThrough &&
     left.remarkIds.join("\n") === right.remarkIds.join("\n") &&
     left.conflicting === right.conflicting &&
-    left.wakes === right.wakes
+    left.wakes === right.wakes &&
+    left.checksAwaitedSince === right.checksAwaitedSince &&
+    (left.awaitingApproval ?? []).join("\n") === (right.awaitingApproval ?? []).join("\n") &&
+    (left.approvalAnnounced ?? false) === (right.approvalAnnounced ?? false) &&
+    left.checksPending === right.checksPending &&
+    left.until === right.until
   );
 }
 
@@ -308,6 +333,7 @@ export const make = Effect.gen(function* () {
     target: WatchTarget,
     next: ThreadPullRequestWatch | null,
     wake?: { readonly text: string; readonly notification: OrchestrationV2Notification },
+    endedWatch?: ThreadPullRequestWatch,
   ) =>
     Effect.gen(function* () {
       const uuid = yield* crypto.randomUUIDv4;
@@ -318,6 +344,11 @@ export const make = Effect.gen(function* () {
         ...identityOf(target.link),
         startedAt: target.watch.startedAt,
         watch: next,
+        // Lets the orchestrator tell that a turn cleared the answer while this read was in flight.
+        ...(target.watch.checksPending === undefined
+          ? {}
+          : { checksPendingBefore: target.watch.checksPending }),
+        ...(endedWatch === undefined ? {} : { endedWatch }),
         ...(wake === undefined
           ? {}
           : { wake: { ...wake, messageId: MessageId.make(`message:pr-watch:${uuid}`) } }),
@@ -393,31 +424,31 @@ export const make = Effect.gen(function* () {
     ),
   );
 
-  // A closed pull request can reopen, but the watch has nothing to report until then.
-  const closed = (target: WatchTarget) =>
-    record(target, null, {
-      text: `Pull request #${target.link.number} (${target.link.url}) was closed, so C3 Code stopped watching it. Call watch_pull_request if it reopens.`,
-      notification: {
-        source: { kind: "monitor" },
-        outcome: "updated",
-        summary: `#${target.link.number}: closed, stopped watching`,
-      },
-    }).pipe(
+  // A merged or closed pull request ends the watch with a wake, so an agent waiting on the
+  // watch (to clean up after a merge, say) hears of it rather than being left asleep.
+  const finished = (target: WatchTarget, detail: Pick<PullRequestDetail, "state" | "baseBranch">) =>
+    record(
+      target,
+      null,
+      pullRequestWatchEndMessage({
+        number: target.link.number,
+        url: target.link.url,
+        detail,
+      }),
+    ).pipe(
       Effect.tap(() => woke(target)),
-      Effect.tap(() => ended(target, "closed")),
+      Effect.tap(() => ended(target, detail.state === "merged" ? "merged" : "closed")),
     );
 
   /** Why a watch ends without a host read; the rest are read once per pull request. */
   const endsWithoutRead = ({ thread, link }: WatchTarget): WatchEndReason | undefined =>
-    // A merged pull request cannot reopen. Settling and archiving end watches, and a subagent
-    // cannot start one; a watch left from before those rules ends here.
-    link.snapshot?.state === "merged"
-      ? "merged"
-      : thread.settledOverride === "settled" || thread.settledAt !== null
-        ? "settled"
-        : thread.lineage.relationshipToParent === "subagent"
-          ? "subagent"
-          : undefined;
+    // Settling and archiving end watches, and a subagent cannot start one; a watch left from
+    // before those rules ends here. A merged pull request is read once more, so its wake says so.
+    thread.settledOverride === "settled" || thread.settledAt !== null
+      ? "settled"
+      : thread.lineage.relationshipToParent === "subagent"
+        ? "subagent"
+        : undefined;
 
   /**
    * Runs one thread's step for each thread in a group, so one refusal does not skip the rest.
@@ -508,9 +539,9 @@ export const make = Effect.gen(function* () {
     }
     readFailures.delete(group.key);
     const [detail, activity] = read.value;
-    const headSha = detail.headSha ?? null;
     for (const target of group.targets) {
       const life = lifeOf(target);
+      const headSha = detail.headSha ?? life.headSha;
       // The first read only learns the head, so it is not a push.
       const pushed = life.headSha !== null && headSha !== life.headSha;
       lives.set(lifeKey(target), {
@@ -524,11 +555,7 @@ export const make = Effect.gen(function* () {
     }
     if (detail.state !== "open") {
       lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) =>
-        detail.state === "closed"
-          ? closed(target)
-          : record(target, null).pipe(Effect.tap(() => ended(target, "merged"))),
-      );
+      return yield* eachTarget(group, (target) => finished(target, detail));
     }
 
     // Never advance the remark watermark past comments an incomplete read could have missed.
@@ -549,18 +576,20 @@ export const make = Effect.gen(function* () {
       remarks: fingerprint?.remarks ?? null,
     });
     yield* eachTarget(group, (target) => {
-      const report = evaluatePullRequestWatch(target.watch, detail, remarks);
+      const report = evaluatePullRequestWatch(target.watch, detail, remarks, now);
       if (report.changes.length > 0) {
-        return record(
-          target,
-          report.exhausted ? null : report.next,
-          pullRequestWatchMessage({
-            number: target.link.number,
-            url: target.link.url,
-            baseBranch: detail.baseBranch,
-            headSha: report.next.headSha,
-            report,
-          }),
+        const wake = pullRequestWatchMessage({
+          number: target.link.number,
+          url: target.link.url,
+          baseBranch: detail.baseBranch,
+          headSha: report.next.headSha,
+          report,
+        });
+        // An ending watch keeps what this pass saw, so watching again starts from it.
+        return (
+          report.exhausted
+            ? record(target, null, wake, report.next)
+            : record(target, report.next, wake)
         ).pipe(
           Effect.tap(() => woke(target)),
           Effect.tap(() => (report.exhausted ? ended(target, "comment-limit") : Effect.void)),
@@ -651,8 +680,33 @@ export const make = Effect.gen(function* () {
     nextSweepAt = now + SWEEP_MINUTES * 60_000;
     yield* sweep;
   });
+  // A turn can push, which starts new checks, so a turn starting on a watched thread clears its
+  // watches' answers: they hold the thread until a read sees the new head's checks.
+  const reopenChecks = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const thread = yield* projections.getThread(threadId);
+      if (!(thread.pullRequests ?? []).some((link) => link.watch?.checksPending !== undefined)) {
+        return;
+      }
+      const uuid = yield* crypto.randomUUIDv4;
+      yield* engine.dispatch({
+        type: "thread.pull-request-watch.checks-reopen",
+        commandId: CommandId.make(`server:pr-watch-reopen:${threadId}:${uuid}`),
+        threadId,
+      });
+    }).pipe(Effect.catchCause(logFailure("reopening a watch's checks failed", { threadId })));
+
   const start: PullRequestWatchReactor["Service"]["start"] = () =>
-    forkParked(scheduler.register("pull-request-watch", due));
+    Effect.gen(function* () {
+      yield* forkParked(scheduler.register("pull-request-watch", due));
+      yield* forkParked(
+        Stream.runForEach(engine.streamDomainEvents, (event) =>
+          event.type === "run.updated" && event.payload.status === "running"
+            ? reopenChecks(event.threadId)
+            : Effect.void,
+        ).pipe(Effect.catchCause(logFailure("pull request watch event stream failed", {}))),
+      );
+    });
 
   return { start, sweep } satisfies PullRequestWatchReactor["Service"];
 });

@@ -2,6 +2,7 @@ import {
   McpCapabilityUnavailableError,
   PositiveInt,
   PullRequestState,
+  PullRequestWatchUntil,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -117,15 +118,6 @@ export class PullRequestWatchFailedError extends Schema.TaggedError<PullRequestW
   }
 }
 
-export class PullRequestNotOpenError extends Schema.TaggedError<PullRequestNotOpenError>()(
-  "PullRequestNotOpenError",
-  { state: Schema.String },
-) {
-  override get message(): string {
-    return `The pull request is ${this.state}, so there is nothing to watch.`;
-  }
-}
-
 export class PullRequestWatchFromSubagentError extends Schema.TaggedError<PullRequestWatchFromSubagentError>()(
   "PullRequestWatchFromSubagentError",
   {},
@@ -154,7 +146,6 @@ export const PullRequestToolError = Schema.Union([
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
   PullRequestWatchFailedError,
-  PullRequestNotOpenError,
   PullRequestWatchFromSubagentError,
 ]);
 export type PullRequestToolError = typeof PullRequestToolError.Type;
@@ -192,8 +183,17 @@ export const WatchPullRequestResult = Schema.Struct({
   wasWatching: Schema.Boolean.annotate({
     description: "Whether it was already watched before the call.",
   }),
+  state: Schema.optional(
+    Schema.Literal("merged").annotate({
+      description: "The PR already merged, so nothing was watched.",
+    }),
+  ),
+  next: Schema.optional(Schema.String),
 });
 export type WatchPullRequestResult = typeof WatchPullRequestResult.Type;
+
+export const MERGED_WATCH_NEXT =
+  "This PR is already merged, so there is nothing to watch. Report that and end your turn.";
 
 export const ThreadPullRequestEntry = Schema.Struct({
   ...PullRequestIdentity,
@@ -266,10 +266,21 @@ const ListThreadPullRequestsTool = Tool.make("list_thread_pull_requests", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+export const WatchPullRequestInput = Schema.Struct({
+  ...PullRequestTargetInput.fields,
+  until: Schema.optional(
+    PullRequestWatchUntil.annotate({
+      description:
+        'How long this thread stays working. Omit it to keep the current value; a new watch starts at "checks". "checks": until checks finish, for a PR you hand to the user. "merged": until it merges or closes or you unwatch it, when you will act on it yourself, such as merging after someone else approves.',
+    }),
+  ),
+});
+export type WatchPullRequestInput = typeof WatchPullRequestInput.Type;
+
 const WatchPullRequestTool = Tool.make("watch_pull_request", {
   description:
-    "Have C3 Code watch an open pull request for this thread, linking it first if needed. C3 Code checks it every two minutes and wakes you with a message when a check fails, the required checks pass, someone else comments or reviews, or the branch starts to conflict with its base. Use this to monitor or babysit a pull request instead of polling, sleeping, or running a watcher. Only comments posted after this call wake you, so handle the existing ones first, then end your turn. A wake is news, not a merge decision: check readiness yourself before merging. While C3 Code watches, the thread stays in the user's Working list, not their inbox. When you hand the work back to the user, call unwatch_pull_request first so the thread returns to their inbox. Watching ends when the pull request merges or closes, when its thread settles or is archived, when C3 Code fails to read it 8 times in a row (a host rate limit only delays it), when the user stops this thread, or when you call unwatch_pull_request. Unsettle the thread before starting a new watch. A subagent cannot watch: its parent thread owns the pull request.",
-  parameters: PullRequestTargetInput,
+    "Have C3 Code watch an open pull request for this thread, linking it first if needed. C3 Code checks it every two minutes and wakes you when a check fails or waits for a maintainer's approval, the required checks pass, every check finishes after a failure, no check reports after a push, someone else comments or reviews, the branch starts to conflict, or the pull request merges or closes. Use this instead of polling, sleeping, or running a watcher. Only comments posted after this call wake you, so handle the existing ones first, then end your turn. The watch stays on after each wake, so do not call this again on a wake. A wake is news, not a merge decision: check readiness yourself before merging. The thread stays in the user's Working list while checks run, or until the pull request merges or closes with until \"merged\". When you hand the work back to the user, call unwatch_pull_request first so the thread returns to their inbox; do not settle a thread you watch from. A merged pull request is reported in the result instead of watched. Watching ends when the pull request merges or closes, when the thread is settled or archived, after 8 failed reads in a row, when the user stops this thread, or when you call unwatch_pull_request. A subagent cannot watch: its parent thread owns the pull request.",
+  parameters: WatchPullRequestInput,
   success: WatchPullRequestResult,
   failure: PullRequestToolError,
   dependencies,

@@ -71,10 +71,15 @@ export function turnItemUpdateCanEndBackgroundWork(
  * including kinds this build does not know, holds as the conservative choice.
  */
 export function backgroundWorkHoldsCompletion(
-  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind">>,
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind" | "awaited">>,
 ): boolean {
-  return tasks.some((task) => backgroundWorkKindHoldsCompletion(task.kind));
+  return tasks.some((task) => task.awaited ?? backgroundWorkKindHoldsCompletion(task.kind));
 }
+
+const PULL_REQUEST_WATCH_TASK_ID = "pull-request-watch:";
+
+export const isPullRequestWatchTask = (task: Pick<PendingBackgroundWorkTask, "taskId">) =>
+  task.taskId.startsWith(PULL_REQUEST_WATCH_TASK_ID);
 
 function backgroundWorkKindHoldsCompletion(kind: PendingBackgroundWorkTask["kind"]): boolean {
   switch (kind) {
@@ -92,7 +97,9 @@ type PendingBackgroundWorkRun = Pick<OrchestrationV2Run, "id" | "ordinal" | "sta
 type PendingBackgroundWorkPullRequest = Pick<
   ThreadPullRequestLink,
   "host" | "repository" | "number" | "url" | "source" | "watch"
->;
+> & {
+  readonly snapshot?: Pick<NonNullable<ThreadPullRequestLink["snapshot"]>, "state"> | null;
+};
 
 type PendingBackgroundWorkProviderThread = Pick<
   OrchestrationV2ProviderThread,
@@ -294,9 +301,16 @@ function pullRequestWatchTasks(
       ? []
       : [
           {
-            taskId: `pull-request-watch:${threadPullRequestKeyOf(link)}`,
+            taskId: `${PULL_REQUEST_WATCH_TASK_ID}${threadPullRequestKeyOf(link)}`,
             description: `Watching pull request #${link.number}`,
             kind: "monitor" as const,
+            // Once every check finished, a person moves the PR next: the watch stays on but holds
+            // nothing, unless the agent said it acts on the PR itself. A merged PR's watch holds
+            // until its read wakes the agent, so settling on merge waits.
+            awaited:
+              link.watch.checksPending !== false ||
+              link.watch.until === "merged" ||
+              link.snapshot?.state === "merged",
           },
         ],
   );

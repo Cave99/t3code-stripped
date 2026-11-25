@@ -559,9 +559,27 @@ describe("derivePendingBackgroundWork kinds", () => {
           taskId: "pull-request-watch:github.com/acme/app#1",
           description: "Watching pull request #1",
           kind: "monitor",
+          awaited: true,
         },
       ]);
       expect(backgroundWorkHoldsCompletion(tasks)).toBe(true);
+    });
+
+    it("stops holding once checks finish, unless the agent watches until merge", () => {
+      const holds = (extra: object, snapshot: { state: "open" | "merged" } | null = null) =>
+        backgroundWorkHoldsCompletion(
+          derivePendingBackgroundWork({
+            latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+            providerThreads: [],
+            turnItems: [],
+            pullRequests: [{ ...link(1, {}), watch: { ...watch, ...extra }, snapshot }],
+          }),
+        );
+      expect(holds({ checksPending: true })).toBe(true);
+      expect(holds({ checksPending: false })).toBe(false);
+      expect(holds({ checksPending: false, until: "merged" })).toBe(true);
+      // A merged PR's watch holds until its read wakes the agent.
+      expect(holds({ checksPending: false }, { state: "merged" })).toBe(true);
     });
 
     it("keeps a thread that never ran waiting on its watch", () => {
