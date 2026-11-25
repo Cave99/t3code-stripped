@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 58 }, (_, index) => index + 1),
+        Array.from({ length: 65 }, (_, index) => index + 1),
       );
     }),
   );
@@ -30,6 +30,13 @@ layer("055_OrchestrationV2", (it) => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "McpAppModelContext"],
         [58, "ThreadMessageSearch"],
+        [59, "SettledLeafNodeIndex"],
+        [60, "TurnItemMessageOrdinalIndex"],
+        [61, "TurnItemTypeStatusIndex"],
+        [62, "LastExecutedRunIndex"],
+        [63, "TurnItemCounts"],
+        [64, "DeferredCommandMessageIndex"],
+        [65, "ThreadSnapshotWindowIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -54,6 +61,13 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 56, name: "RemoveRedundantProjectionIndexes" },
         { migration_id: 57, name: "McpAppModelContext" },
         { migration_id: 58, name: "ThreadMessageSearch" },
+        { migration_id: 59, name: "SettledLeafNodeIndex" },
+        { migration_id: 60, name: "TurnItemMessageOrdinalIndex" },
+        { migration_id: 61, name: "TurnItemTypeStatusIndex" },
+        { migration_id: 62, name: "LastExecutedRunIndex" },
+        { migration_id: 63, name: "TurnItemCounts" },
+        { migration_id: 64, name: "DeferredCommandMessageIndex" },
+        { migration_id: 65, name: "ThreadSnapshotWindowIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

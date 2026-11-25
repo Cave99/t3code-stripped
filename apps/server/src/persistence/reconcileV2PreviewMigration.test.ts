@@ -39,6 +39,13 @@ describe("V2 preview upgrade", () => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "McpAppModelContext"],
         [58, "ThreadMessageSearch"],
+        [59, "SettledLeafNodeIndex"],
+        [60, "TurnItemMessageOrdinalIndex"],
+        [61, "TurnItemTypeStatusIndex"],
+        [62, "LastExecutedRunIndex"],
+        [63, "TurnItemCounts"],
+        [64, "DeferredCommandMessageIndex"],
+        [65, "ThreadSnapshotWindowIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -120,6 +127,13 @@ describe("V2 preview upgrade", () => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "McpAppModelContext"],
         [58, "ThreadMessageSearch"],
+        [59, "SettledLeafNodeIndex"],
+        [60, "TurnItemMessageOrdinalIndex"],
+        [61, "TurnItemTypeStatusIndex"],
+        [62, "LastExecutedRunIndex"],
+        [63, "TurnItemCounts"],
+        [64, "DeferredCommandMessageIndex"],
+        [65, "ThreadSnapshotWindowIndexes"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

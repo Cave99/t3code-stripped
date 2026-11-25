@@ -72,6 +72,13 @@ import Migration0055 from "./Migrations/055_OrchestrationV2.ts";
 import Migration0056 from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
 import Migration0057 from "./Migrations/057_McpAppModelContext.ts";
 import Migration0058 from "./Migrations/058_ThreadMessageSearch.ts";
+import Migration0059 from "./Migrations/059_SettledLeafNodeIndex.ts";
+import Migration0060 from "./Migrations/060_TurnItemMessageOrdinalIndex.ts";
+import Migration0061 from "./Migrations/061_TurnItemTypeStatusIndex.ts";
+import Migration0062 from "./Migrations/062_LastExecutedRunIndex.ts";
+import Migration0063 from "./Migrations/063_TurnItemCounts.ts";
+import Migration0064 from "./Migrations/064_DeferredCommandMessageIndex.ts";
+import Migration0065 from "./Migrations/065_ThreadSnapshotWindowIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -144,6 +151,13 @@ export const migrationEntries = [
   [56, "RemoveRedundantProjectionIndexes", Migration0056],
   [57, "McpAppModelContext", Migration0057],
   [58, "ThreadMessageSearch", Migration0058],
+  [59, "SettledLeafNodeIndex", Migration0059],
+  [60, "TurnItemMessageOrdinalIndex", Migration0060],
+  [61, "TurnItemTypeStatusIndex", Migration0061],
+  [62, "LastExecutedRunIndex", Migration0062],
+  [63, "TurnItemCounts", Migration0063],
+  [64, "DeferredCommandMessageIndex", Migration0064],
+  [65, "ThreadSnapshotWindowIndexes", Migration0065],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

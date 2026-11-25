@@ -661,13 +661,17 @@ function providerTurnForRun(
     return undefined;
   }
 
-  return (
-    latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
-    projection.providerTurns.find((turn) => {
-      const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
-      return attempt?.providerTurnId === turn.id;
-    })
-  );
+  const latest = latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId);
+  if (latest !== undefined) {
+    return latest;
+  }
+  // Look the attempt up once; finding it per provider turn is quadratic on a long thread.
+  const namedTurnId = projection.attempts.find(
+    (candidate) => candidate.id === run.activeAttemptId,
+  )?.providerTurnId;
+  return namedTurnId === undefined || namedTurnId === null
+    ? undefined
+    : projection.providerTurns.find((turn) => turn.id === namedTurnId);
 }
 
 function contextSourcePointForRun(
@@ -1035,6 +1039,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* effectOutbox.awaitSettled(`effect:checkpoint.capture:${latest.id}`);
     }).pipe(Effect.ignore);
 
+  // This runs inside the write transaction for every command, so finished leaf
+  // nodes of finished runs stay unread: busy threads hold thousands of them.
   const readCommandProjection = (threadId: ThreadId) =>
     projectionStore
       .getThreadRecords(
@@ -1053,7 +1059,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           "checkpointScopes",
           "contextTransfers",
         ],
-        { turnItemTypes: ["user_message", "error"], messageRoles: ["user"] },
+        {
+          turnItemTypes: ["user_message", "error"],
+          messageRoles: ["user"],
+          omitSettledLeafNodes: true,
+        },
       )
       .pipe(
         Effect.map((records): OrchestrationV2ThreadProjection => ({
