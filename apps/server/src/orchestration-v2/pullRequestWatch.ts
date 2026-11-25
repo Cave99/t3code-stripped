@@ -318,6 +318,27 @@ const SUMMARY: Record<PullRequestWatchChange["kind"], string> = {
   conflicting: "merge conflict",
 };
 
+/** The wake that ends a watch because its pull request merged or closed. */
+export function pullRequestWatchEndMessage(input: {
+  readonly number: number;
+  readonly url: string;
+  readonly detail: Pick<PullRequestDetail, "state" | "baseBranch">;
+}): { readonly text: string; readonly notification: OrchestrationV2Notification } {
+  const merged = input.detail.state === "merged";
+  const how = merged ? `was merged into ${input.detail.baseBranch}` : "was closed without merging";
+  return {
+    text: [
+      `Pull request #${input.number} (${input.url}) ${how}, so C3 Code stopped watching it.`,
+      ...(merged ? [] : ["If it is reopened, call watch_pull_request to watch it again."]),
+    ].join(" "),
+    notification: {
+      source: { kind: "monitor" },
+      outcome: merged ? "completed" : "updated",
+      summary: `#${input.number}: ${merged ? "merged" : "closed"}, stopped watching`,
+    },
+  };
+}
+
 /** The wake the agent reads and the timeline notification the user sees. */
 export function pullRequestWatchMessage(input: {
   readonly number: number;

@@ -5,6 +5,7 @@ import {
   type PullRequestComment,
   type PullRequestRef,
   type PullRequestActivity,
+  type PullRequestDetail,
   type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
@@ -38,6 +39,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import {
   evaluatePullRequestWatch,
+  pullRequestWatchEndMessage,
   PULL_REQUEST_WATCH_NO_CHECKS_MS,
   pullRequestWatchMessage,
 } from "./pullRequestWatch.ts";
@@ -422,31 +424,31 @@ export const make = Effect.gen(function* () {
     ),
   );
 
-  // A closed pull request can reopen, but the watch has nothing to report until then.
-  const closed = (target: WatchTarget) =>
-    record(target, null, {
-      text: `Pull request #${target.link.number} (${target.link.url}) was closed, so C3 Code stopped watching it. Call watch_pull_request if it reopens.`,
-      notification: {
-        source: { kind: "monitor" },
-        outcome: "updated",
-        summary: `#${target.link.number}: closed, stopped watching`,
-      },
-    }).pipe(
+  // A merged or closed pull request ends the watch with a wake, so an agent waiting on the
+  // watch (to clean up after a merge, say) hears of it rather than being left asleep.
+  const finished = (target: WatchTarget, detail: Pick<PullRequestDetail, "state" | "baseBranch">) =>
+    record(
+      target,
+      null,
+      pullRequestWatchEndMessage({
+        number: target.link.number,
+        url: target.link.url,
+        detail,
+      }),
+    ).pipe(
       Effect.tap(() => woke(target)),
-      Effect.tap(() => ended(target, "closed")),
+      Effect.tap(() => ended(target, detail.state === "merged" ? "merged" : "closed")),
     );
 
   /** Why a watch ends without a host read; the rest are read once per pull request. */
   const endsWithoutRead = ({ thread, link }: WatchTarget): WatchEndReason | undefined =>
-    // A merged pull request cannot reopen. Settling and archiving end watches, and a subagent
-    // cannot start one; a watch left from before those rules ends here.
-    link.snapshot?.state === "merged"
-      ? "merged"
-      : thread.settledOverride === "settled" || thread.settledAt !== null
-        ? "settled"
-        : thread.lineage.relationshipToParent === "subagent"
-          ? "subagent"
-          : undefined;
+    // Settling and archiving end watches, and a subagent cannot start one; a watch left from
+    // before those rules ends here. A merged pull request is read once more, so its wake says so.
+    thread.settledOverride === "settled" || thread.settledAt !== null
+      ? "settled"
+      : thread.lineage.relationshipToParent === "subagent"
+        ? "subagent"
+        : undefined;
 
   /**
    * Runs one thread's step for each thread in a group, so one refusal does not skip the rest.
@@ -553,11 +555,7 @@ export const make = Effect.gen(function* () {
     }
     if (detail.state !== "open") {
       lastReads.delete(group.key);
-      return yield* eachTarget(group, (target) =>
-        detail.state === "closed"
-          ? closed(target)
-          : record(target, null).pipe(Effect.tap(() => ended(target, "merged"))),
-      );
+      return yield* eachTarget(group, (target) => finished(target, detail));
     }
 
     // Never advance the remark watermark past comments an incomplete read could have missed.

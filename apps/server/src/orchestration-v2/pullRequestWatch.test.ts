@@ -8,6 +8,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   PULL_REQUEST_WATCH_WAKE_LIMIT,
   evaluatePullRequestWatch as evaluate,
+  pullRequestWatchEndMessage,
   pullRequestWatchMessage,
 } from "./pullRequestWatch.ts";
 
@@ -678,5 +679,33 @@ describe("pullRequestWatchMessage", () => {
       outcome: "failed",
       summary: "#12: checks failed, new comments",
     });
+  });
+});
+
+describe("pullRequestWatchEndMessage", () => {
+  it("tells the agent its watched pull request merged or closed", () => {
+    const url = "https://github.com/o/r/pull/12";
+    const merged = pullRequestWatchEndMessage({
+      number: 12,
+      url,
+      detail: { state: "merged", baseBranch: "main" },
+    });
+    assert.equal(
+      merged.text,
+      `Pull request #12 (${url}) was merged into main, so C3 Code stopped watching it.`,
+    );
+    assert.deepEqual(merged.notification, {
+      source: { kind: "monitor" },
+      outcome: "completed",
+      summary: "#12: merged, stopped watching",
+    });
+    const closed = pullRequestWatchEndMessage({
+      number: 12,
+      url,
+      detail: { state: "closed", baseBranch: "main" },
+    });
+    assert.include(closed.text, "was closed without merging");
+    assert.include(closed.text, "call watch_pull_request to watch it again");
+    assert.equal(closed.notification.summary, "#12: closed, stopped watching");
   });
 });
