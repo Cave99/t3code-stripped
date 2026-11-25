@@ -316,8 +316,10 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
       Layer.mergeAll(
         checkpointStoreLayer,
         IdAllocator.layer,
-        WorkspaceFolders.layer.pipe(Layer.provide(storesLayer)),
-        NodeServices.layer,
+        WorkspaceFolders.layer.pipe(
+          Layer.provide(storesLayer),
+          Layer.provide(NodeServices.layer),
+        ),
       ),
     ),
   );
