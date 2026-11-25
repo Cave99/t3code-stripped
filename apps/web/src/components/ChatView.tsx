@@ -8659,7 +8659,8 @@ export default function ChatView(props: ChatViewProps) {
       composerFilesSnapshot.length > 0
         ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
         : supportsAttachmentUploads;
-    if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
+    // Uploads finish after the message shows as sending; the turn starts once they land.
+    if (turnUsesAttachmentUploads) {
       for (const attachment of composerAttachmentsSnapshot) {
         startAttachmentUpload({
           environmentId,
@@ -8667,16 +8668,22 @@ export default function ChatView(props: ChatViewProps) {
           draftTarget: composerDraftTarget,
         });
       }
+    }
+    // Declining is irreversible, so a redirect waits for its uploads instead of failing after.
+    if (
+      turnUsesAttachmentUploads &&
+      composerAttachmentsSnapshot.length > 0 &&
+      sendCtx.shownPendingApprovalIds.length > 0
+    ) {
       await awaitAttachmentUploads(composerAttachmentsSnapshot.map((attachment) => attachment.id));
-      const attachmentCapabilitiesAfterUpload = readLiveAttachmentCapabilities();
-      if (attachmentCapabilitiesAfterUpload.fileBlockReason !== null) {
+      const uploadBlockReason =
+        readLiveAttachmentCapabilities().fileBlockReason ??
+        (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null
+          ? "Retry or remove failed uploads before sending."
+          : null);
+      if (uploadBlockReason !== null) {
         sendInFlightRef.current = false;
-        setThreadError(threadIdForSend, attachmentCapabilitiesAfterUpload.fileBlockReason);
-        return;
-      }
-      if (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null) {
-        sendInFlightRef.current = false;
-        setThreadError(threadIdForSend, "Retry or remove failed uploads before sending.");
+        setThreadError(threadIdForSend, uploadBlockReason);
         return;
       }
     }
@@ -8811,9 +8818,10 @@ export default function ChatView(props: ChatViewProps) {
     const turnAttachmentsPromise = Promise.all(
       composerAttachmentsSnapshot.map(async (attachment) => {
         if (turnUsesAttachmentUploads) {
+          await awaitAttachmentUploads([attachment.id]);
           const uploaded = getUploadedAttachments({ environmentId, images: [attachment] })?.[0];
           if (!uploaded) {
-            throw new Error(`Attachment '${attachment.name}' did not finish uploading.`);
+            throw new Error(`Attachment '${attachment.name}' failed to upload.`);
           }
           return uploaded;
         }

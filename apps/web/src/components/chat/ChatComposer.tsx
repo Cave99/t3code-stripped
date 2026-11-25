@@ -1961,6 +1961,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             imageIds: [...composerImages, ...composerFiles].map((attachment) => attachment.id),
             uploadsByImageId,
             environmentId,
+            // A plain send waits for its uploads. Answers and approval redirects need them first.
+            allowPending: !questionAttachmentTarget && pendingApprovals.length === 0,
           })
       : null);
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
