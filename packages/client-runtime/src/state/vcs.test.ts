@@ -279,13 +279,15 @@ describe("cached VCS refs", () => {
   it.effect("invalidates persisted refs when ref-affecting commands settle", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const refsDigest = yield* Ref.make("refs-a");
         const expectedError = new EnvironmentRpcUnavailableError({
           environmentId: TARGET.environmentId,
           message: "pull failed after fetching refs",
         });
         const client = {
           [WS_METHODS.vcsPull]: () => Effect.fail(expectedError),
-          [WS_METHODS.vcsRefreshStatus]: () => Effect.void,
+          [WS_METHODS.vcsRefreshStatus]: () =>
+            Ref.get(refsDigest).pipe(Effect.map((digest) => ({ refsDigest: digest }))),
         } as unknown as WsRpcProtocolClient;
         const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
           target: TARGET,
@@ -341,6 +343,22 @@ describe("cached VCS refs", () => {
         expect(AsyncResult.isSuccess(refreshResult)).toBe(true);
         expect(yield* Ref.get(clears)).toBe(2);
         expect(registry.get(vcsRefsCacheStateAtom(TARGET)).revision).toBe(2);
+
+        // A refresh that saw the same refs as the last one keeps the cached branch list.
+        const refreshStatus = Effect.promise(() =>
+          atoms.refreshStatus.run(registry, {
+            environmentId: TARGET.environmentId,
+            input: { cwd: "/repo" },
+          }),
+        );
+        yield* refreshStatus;
+        expect(yield* Ref.get(clears)).toBe(2);
+        expect(registry.get(vcsRefsCacheStateAtom(TARGET)).revision).toBe(2);
+
+        yield* Ref.set(refsDigest, "refs-b");
+        yield* refreshStatus;
+        expect(yield* Ref.get(clears)).toBe(3);
+        expect(registry.get(vcsRefsCacheStateAtom(TARGET)).revision).toBe(3);
       }),
     ),
   );

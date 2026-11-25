@@ -1,3 +1,5 @@
+import * as NodeCrypto from "node:crypto";
+
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -15,6 +17,7 @@ import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import type {
   GitManagerServiceError,
+  VcsRefreshStatusResult,
   VcsStatusInput,
   VcsStatusLocalResult,
   VcsStatusRemoteResult,
@@ -191,7 +194,9 @@ export class VcsStatusBroadcaster extends Context.Service<
     readonly refreshLocalStatus: (
       cwd: string,
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
-    readonly refreshStatus: (cwd: string) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
+    readonly refreshStatus: (
+      cwd: string,
+    ) => Effect.Effect<VcsRefreshStatusResult, GitManagerServiceError>;
     /**
      * Refresh a loaded cwd after a turn if background policy allows it.
      * GitManager retries missing PRs for the current branch and keeps known
@@ -476,7 +481,7 @@ export const make = Effect.gen(function* () {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
     // invalidateStatus (not the two partial invalidations) so an explicit
     // refresh also bypasses GitManager's slow PR-lookup cache.
-    return yield* withRemoteWriteLock(
+    const status = yield* withRemoteWriteLock(
       cwd,
       Effect.gen(function* () {
         yield* workflow.invalidateStatus(cwd);
@@ -489,6 +494,15 @@ export const make = Effect.gen(function* () {
         return yield* updateCachedStatus(cwd, local, remote, { publish: true });
       }),
     );
+    // Read after the fetch so the client can keep its cached branch list when no ref moved
+    // since its last refresh.
+    const refs = yield* workflow.readRefSnapshot(cwd);
+    return refs === null
+      ? status
+      : {
+          ...status,
+          refsDigest: NodeCrypto.createHash("sha256").update(refs).digest("hex").slice(0, 32),
+        };
   });
 
   const refreshPullRequestStatus: VcsStatusBroadcaster["Service"]["refreshPullRequestStatus"] =

@@ -96,7 +96,7 @@ import {
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   VcsStatusInput,
-  VcsStatusResult,
+  VcsRefreshStatusResult,
   VcsStatusStreamEvent,
 } from "./git.ts";
 import {
@@ -1033,7 +1033,7 @@ const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
 
 const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   payload: VcsStatusInput,
-  success: VcsStatusResult,
+  success: VcsRefreshStatusResult,
   error: GitManagerServiceError,
 });
 
