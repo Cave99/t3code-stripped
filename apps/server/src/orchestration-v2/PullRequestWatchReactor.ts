@@ -50,6 +50,12 @@ import {
  * limit, which every machine on the same account shares.
  */
 const SWEEP_MINUTES = 2;
+/**
+ * Seconds between probes of pull requests with a check running or mergeability unknown. A probe
+ * asks only for the batched host fingerprint and reads in full only when it moved, so a finished
+ * check wakes the agent within seconds instead of at the next sweep.
+ */
+const PROBE_SECONDS = 20;
 /** Group reads in flight at once, inside the host's own request limit. */
 const GROUP_READS = 4;
 /** Reads in a row that failed for a reason other than a rate limit before the watch ends. */
@@ -244,7 +250,9 @@ function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatc
  * conflict. A pass every two minutes looks at each watched pull request once for all the threads
  * of a project that watch it. Where the host has a fingerprint, one batched read of those tells
  * the pass which pull requests moved, and only those are read; elsewhere a pull request is read
- * unless its sync snapshot has not moved while nothing is in flight.
+ * unless its sync snapshot has not moved while nothing is in flight. Between passes, a probe
+ * asks for the fingerprints of pull requests with checks in flight, so a finished check is seen
+ * within seconds.
  * Settling or archiving a thread ends its watches, and a merged or closed pull request ends
  * its watch. Each ended watch is logged once with why it ended and how long it went without
  * a push, for debugging watches that live too long.
@@ -255,6 +263,8 @@ export class PullRequestWatchReactor extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     /** One pass over every watched pull request. */
     readonly sweep: Effect.Effect<void>;
+    /** Reads the in-flight pull requests of the last sweep whose host fingerprint moved. */
+    readonly probe: Effect.Effect<void>;
   }
 >()("t3/orchestration-v2/PullRequestWatchReactor") {}
 
@@ -314,6 +324,8 @@ export const make = Effect.gen(function* () {
   // Reads in a row that failed, per pull request. Kept in memory: a restart only delays the stop.
   const readFailures = new Map<string, number>();
   const lastReads = new Map<string, LastRead>();
+  /** The last sweep's groups, which probes choose from. */
+  let currentGroups: ReadonlyArray<WatchGroup> = [];
   // Replies past each long thread's first page, per pull request, so a pass pages a thread
   // again only when the host's count of it moves. A restart pages each thread once more.
   const threadTails = new Map<
@@ -602,20 +614,32 @@ export const make = Effect.gen(function* () {
     });
   });
 
-  const sweep = Effect.gen(function* () {
+  /**
+   * Every watch, or with `only`, the watches of those groups. Watches are read fresh from the
+   * projection either way, so a probe evaluates against what earlier reads recorded.
+   */
+  const pass = Effect.fnUntraced(function* (only: ReadonlySet<string> | undefined) {
     const threads = yield* projections.getThreadsWithPullRequests();
+    // Grouped per project too: each project reads through its own checkout, so one that cannot
+    // read the pull request must not end another project's watches.
+    const groupKeyOf = (target: WatchTarget) =>
+      `${target.thread.projectId} ${threadPullRequestKeyOf(target.link)}`;
     const targets = threads.flatMap((thread) =>
-      visibleThreadPullRequests(thread.pullRequests ?? []).flatMap((link) =>
-        link.watch === undefined ? [] : [{ thread, link, watch: link.watch }],
-      ),
+      visibleThreadPullRequests(thread.pullRequests ?? []).flatMap((link) => {
+        if (link.watch === undefined) return [];
+        const target = { thread, link, watch: link.watch };
+        return only === undefined || only.has(groupKeyOf(target)) ? [target] : [];
+      }),
     );
-    // A watch seen last pass and gone now was ended outside this reactor.
-    const present = new Set(targets.map(lifeKey));
-    yield* Effect.forEach(
-      [...lives].filter(([key]) => !present.has(key)),
-      ([key, life]) => reportEnd(key, life, "stopped"),
-      { discard: true },
-    );
+    if (only === undefined) {
+      // A watch seen last pass and gone now was ended outside this reactor.
+      const present = new Set(targets.map(lifeKey));
+      yield* Effect.forEach(
+        [...lives].filter(([key]) => !present.has(key)),
+        ([key, life]) => reportEnd(key, life, "stopped"),
+        { discard: true },
+      );
+    }
     for (const target of targets) lifeOf(target);
     const byPullRequest = new Map<string, Array<WatchTarget>>();
     const ending: Array<readonly [WatchTarget, WatchEndReason]> = [];
@@ -625,9 +649,7 @@ export const make = Effect.gen(function* () {
         ending.push([target, reason]);
         continue;
       }
-      // Grouped per project too: each project reads through its own checkout, so one that cannot
-      // read the pull request must not end another project's watches.
-      const key = `${target.thread.projectId} ${threadPullRequestKeyOf(target.link)}`;
+      const key = groupKeyOf(target);
       byPullRequest.set(key, [...(byPullRequest.get(key) ?? []), target]);
     }
     const groups = [...byPullRequest].map(([key, members]): WatchGroup => ({
@@ -635,8 +657,11 @@ export const make = Effect.gen(function* () {
       targets: members,
       fingerprint: [...new Set(members.map(snapshotFingerprint))].toSorted().join("\n"),
     }));
-    for (const cache of [readFailures, lastReads, threadTails]) {
-      for (const key of cache.keys()) if (!byPullRequest.has(key)) cache.delete(key);
+    if (only === undefined) {
+      currentGroups = groups;
+      for (const cache of [readFailures, lastReads, threadTails]) {
+        for (const key of cache.keys()) if (!byPullRequest.has(key)) cache.delete(key);
+      }
     }
     yield* Effect.forEach(
       ending,
@@ -673,19 +698,61 @@ export const make = Effect.gen(function* () {
         ),
       { concurrency: "unbounded", discard: true },
     );
-  }).pipe(
+  });
+
+  const sweep = pass(undefined).pipe(
     Effect.catchCause(logFailure("pull request watch sweep failed", {})),
     Effect.withSpan("PullRequestWatchReactor.sweep"),
+  );
+
+  const probe = Effect.gen(function* () {
+    const due = currentGroups.filter((group) => lastReads.get(group.key)?.inFlight === true);
+    if (due.length === 0) return;
+    const moved = new Set<string>();
+    yield* Effect.forEach(
+      due,
+      (group) =>
+        fingerprintOf(group).pipe(
+          Effect.flatMap((fingerprint) => {
+            const last = lastReads.get(group.key);
+            if (
+              fingerprint === null ||
+              fingerprint === "paused" ||
+              last === undefined ||
+              (last.status === fingerprint.status && last.remarks === fingerprint.remarks)
+            ) {
+              return Effect.void;
+            }
+            moved.add(group.key);
+            // Open pull request views refresh too, since the host state moved.
+            return pullRequests.invalidate(
+              { reference: referenceOf(group) },
+              { notifyReaders: true },
+            );
+          }),
+        ),
+      { concurrency: "unbounded", discard: true },
+    );
+    if (moved.size > 0) yield* pass(moved);
+  }).pipe(
+    Effect.catchCause(logFailure("pull request watch probe failed", {})),
+    Effect.withSpan("PullRequestWatchReactor.probe"),
   );
 
   // Share the internal scheduler's clock with usage-limit recovery. Its source permit keeps
   // slow sweeps from overlapping and skips missed ticks instead of building a backlog.
   let nextSweepAt = 0;
+  let nextProbeAt = 0;
   const due = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
-    if (now < nextSweepAt) return;
-    nextSweepAt = now + SWEEP_MINUTES * 60_000;
-    yield* sweep;
+    if (now >= nextSweepAt) {
+      nextSweepAt = now + SWEEP_MINUTES * 60_000;
+      nextProbeAt = now + PROBE_SECONDS * 1_000;
+      return yield* sweep;
+    }
+    if (now < nextProbeAt) return;
+    nextProbeAt = now + PROBE_SECONDS * 1_000;
+    yield* probe;
   });
   // A turn can push, which starts new checks, so a turn starting on a watched thread clears its
   // watches' answers: they hold the thread until a read sees the new head's checks.
@@ -715,7 +782,7 @@ export const make = Effect.gen(function* () {
       );
     });
 
-  return { start, sweep } satisfies PullRequestWatchReactor["Service"];
+  return { start, sweep, probe } satisfies PullRequestWatchReactor["Service"];
 });
 
 export const layer = Layer.effect(PullRequestWatchReactor, make);
