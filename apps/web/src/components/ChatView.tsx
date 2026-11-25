@@ -104,7 +104,10 @@ import {
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
-import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
+import {
+  declinePendingApprovals,
+  derivePendingThreadRequests,
+} from "@t3tools/client-runtime/state/thread-requests";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -3100,6 +3103,13 @@ export default function ChatView(props: ChatViewProps) {
     () => derivePendingApprovals(pendingRequests.approvals),
     [pendingRequests.approvals],
   );
+  // A send awaits uploads before it declines, so it reads the approvals pending by then.
+  const pendingApprovalsRef = useRef(pendingApprovals);
+  const respondingRequestIdsRef = useRef(respondingRequestIds);
+  useLayoutEffect(() => {
+    pendingApprovalsRef.current = pendingApprovals;
+    respondingRequestIdsRef.current = respondingRequestIds;
+  }, [pendingApprovals, respondingRequestIds]);
   const pendingUserInputs = useMemo(
     () => derivePendingUserInputs(pendingRequests.userInputs),
     [pendingRequests.userInputs],
@@ -7504,6 +7514,15 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "composer.increaseEffort" || command === "composer.decreaseEffort") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) {
+          composerRef.current?.stepReasoningEffort(command === "composer.increaseEffort" ? 1 : -1);
+        }
+        return;
+      }
+
       if (
         command === "composer.host" ||
         command === "composer.effort" ||
@@ -8027,6 +8046,9 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     e?.preventDefault();
+    // What the user pressed send on; uploads below can take a while, and a redirect must not
+    // decline approvals for a draft that changed meanwhile.
+    const promptAtSend = promptRef.current;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (
@@ -8638,7 +8660,8 @@ export default function ChatView(props: ChatViewProps) {
       composerFilesSnapshot.length > 0
         ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
         : supportsAttachmentUploads;
-    if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
+    // Uploads finish after the message shows as sending; the turn starts once they land.
+    if (turnUsesAttachmentUploads) {
       for (const attachment of composerAttachmentsSnapshot) {
         startAttachmentUpload({
           environmentId,
@@ -8646,16 +8669,22 @@ export default function ChatView(props: ChatViewProps) {
           draftTarget: composerDraftTarget,
         });
       }
+    }
+    // Declining is irreversible, so a redirect waits for its uploads instead of failing after.
+    if (
+      turnUsesAttachmentUploads &&
+      composerAttachmentsSnapshot.length > 0 &&
+      sendCtx.shownPendingApprovalIds.length > 0
+    ) {
       await awaitAttachmentUploads(composerAttachmentsSnapshot.map((attachment) => attachment.id));
-      const attachmentCapabilitiesAfterUpload = readLiveAttachmentCapabilities();
-      if (attachmentCapabilitiesAfterUpload.fileBlockReason !== null) {
+      const uploadBlockReason =
+        readLiveAttachmentCapabilities().fileBlockReason ??
+        (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null
+          ? "Retry or remove failed uploads before sending."
+          : null);
+      if (uploadBlockReason !== null) {
         sendInFlightRef.current = false;
-        setThreadError(threadIdForSend, attachmentCapabilitiesAfterUpload.fileBlockReason);
-        return;
-      }
-      if (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null) {
-        sendInFlightRef.current = false;
-        setThreadError(threadIdForSend, "Retry or remove failed uploads before sending.");
+        setThreadError(threadIdForSend, uploadBlockReason);
         return;
       }
     }
@@ -8685,6 +8714,92 @@ export default function ChatView(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
+    // A message sent while approvals are pending redirects the agent. They are declined only
+    // here, after everything above has accepted the send, so local commands and rejected
+    // drafts leave them alone. After navigating away during an upload, the shown approvals
+    // are another thread's, so this send leaves them alone too.
+    const approvalsToDecline =
+      currentRouteThreadKeyRef.current === routeThreadKey
+        ? pendingApprovalsRef.current.filter((approval) =>
+            sendCtx.shownPendingApprovalIds.includes(approval.requestId),
+          )
+        : [];
+    if (approvalsToDecline.length > 0) {
+      // A draft edited since send, or a paste still landing in it, is no longer the message
+      // the user sent.
+      const attachmentIdsAtSend = composerAttachmentsSnapshot.map((attachment) => attachment.id);
+      // A direct annotation send writes its image and reference into the draft as it sends,
+      // so the live draft may still lack them; anything else differing is a real edit.
+      const annotationImageId = directAnnotation?.image?.id;
+      const attachmentIdsBeforeAnnotation = attachmentIdsAtSend.filter(
+        (id) => id !== annotationImageId,
+      );
+      const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
+        left.length === right.length && left.every((id, index) => id === right[index]);
+      const draftChangedSinceSend = () => {
+        if (composerRef.current?.hasPendingAttachments() === true) return true;
+        const sendContext = composerRef.current?.getSendContext();
+        const attachmentIds = sendContext
+          ? [...sendContext.images, ...sendContext.files].map((attachment) => attachment.id)
+          : attachmentIdsAtSend;
+        const promptUnchanged =
+          promptRef.current === promptAtSend || promptRef.current === promptForSend;
+        const attachmentsUnchanged =
+          sameIds(attachmentIds, attachmentIdsAtSend) ||
+          (annotationImageId !== undefined &&
+            sameIds(attachmentIds, attachmentIdsBeforeAnnotation));
+        return !promptUnchanged || !attachmentsUnchanged;
+      };
+      const draftBeforeDecline = useComposerDraftStore
+        .getState()
+        .getComposerDraft(composerDraftTarget);
+      const changedBeforeDecline = draftChangedSinceSend();
+      const pendingIdsBeforeDecline = pendingApprovalsRef.current.map(
+        (approval) => approval.requestId,
+      );
+      const approvalResponding = approvalsToDecline.some((approval) =>
+        respondingRequestIdsRef.current.includes(approval.requestId),
+      );
+      const declined =
+        !changedBeforeDecline &&
+        !approvalResponding &&
+        (await declinePendingApprovals(approvalsToDecline, onRespondToApproval).catch(() => false));
+      const draftChanged =
+        changedBeforeDecline ||
+        draftChangedSinceSend() ||
+        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget) !==
+          draftBeforeDecline;
+      // An approval that arrived during the decline would block the redirect; keep the draft so
+      // the next send declines it too.
+      const approvalArrived = pendingApprovalsRef.current.some(
+        (approval) => !pendingIdsBeforeDecline.includes(approval.requestId),
+      );
+      if (
+        !declined ||
+        draftChanged ||
+        approvalArrived ||
+        currentRouteThreadKeyRef.current !== routeThreadKey
+      ) {
+        sendInFlightRef.current = false;
+        setDockedDraftHeroThreadKey((currentThreadKey) =>
+          currentThreadKey === activeThreadKey ? null : currentThreadKey,
+        );
+        if (draftChanged || approvalResponding || (declined && approvalArrived)) {
+          toastManager.add({
+            type: "info",
+            title: draftChanged
+              ? declined
+                ? "Approval declined. Your message changed, so it wasn't sent."
+                : "Your message changed, so it wasn't sent."
+              : approvalResponding
+                ? "An approval is already being answered, so your message wasn't sent."
+                : "Another approval arrived, so your message wasn't sent.",
+            description: "Send again when it's ready.",
+          });
+        }
+        return;
+      }
+    }
     beginLocalDispatch({
       preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
       // Only a draft has a background submission to hide behind its hero.
@@ -8704,9 +8819,10 @@ export default function ChatView(props: ChatViewProps) {
     const turnAttachmentsPromise = Promise.all(
       composerAttachmentsSnapshot.map(async (attachment) => {
         if (turnUsesAttachmentUploads) {
+          await awaitAttachmentUploads([attachment.id]);
           const uploaded = getUploadedAttachments({ environmentId, images: [attachment] })?.[0];
           if (!uploaded) {
-            throw new Error(`Attachment '${attachment.name}' did not finish uploading.`);
+            throw new Error(`Attachment '${attachment.name}' failed to upload.`);
           }
           return uploaded;
         }

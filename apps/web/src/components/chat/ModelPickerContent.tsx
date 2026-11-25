@@ -154,6 +154,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /** Right at the end of the search text moves into the popup's effort column. */
+  onFocusEffort?: () => void;
 }) {
   const {
     keybindings: providedKeybindings,
@@ -548,29 +550,29 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   }, []);
 
   const handleModelSelect = useCallback(
-    (modelSlug: string, instanceId: ProviderInstanceId, additive = false) => {
+    (modelSlug: string, instanceId: ProviderInstanceId, additive = false): boolean => {
       if (getModelDisabledReason?.(instanceId, modelSlug)) {
-        return;
+        return false;
       }
       const options = modelOptionsByInstance.get(instanceId);
       if (!options) {
-        return;
+        return false;
       }
       const entry = entryByInstanceId.get(instanceId);
       if (!entry || !isProviderInstancePickerReady(entry)) {
-        return;
+        return false;
       }
       // `resolveSelectableModel` uses the driver kind for normalization
       // (slug casing etc.). Custom instances share their driver's
       // normalization rules, so pass the driver kind here.
       const resolvedModel = resolveSelectableModel(entry.driverKind, modelSlug, options);
-      if (resolvedModel) {
-        if (additive && onToggleModel) {
-          onToggleModel(instanceId, resolvedModel);
-        } else {
-          onInstanceModelChange(instanceId, resolvedModel);
-        }
+      if (!resolvedModel) return false;
+      if (additive && onToggleModel) {
+        onToggleModel(instanceId, resolvedModel);
+      } else {
+        onInstanceModelChange(instanceId, resolvedModel);
       }
+      return true;
     },
     [
       entryByInstanceId,
@@ -867,6 +869,29 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   e.preventDefault();
                   e.stopPropagation();
                   props.onRequestClose?.();
+                  return;
+                }
+                if (
+                  props.onFocusEffort &&
+                  e.key === "ArrowRight" &&
+                  !e.altKey &&
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.shiftKey &&
+                  e.currentTarget.selectionStart === searchQuery.length
+                ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // The column shows the selected model's effort, so a highlighted model is picked
+                  // first; the owning popup then moves focus to that model's levels.
+                  const highlighted = highlightedModelKeyRef.current
+                    ? parseModelPickerModelKey(highlightedModelKeyRef.current)
+                    : null;
+                  const pickedNew =
+                    highlighted !== null &&
+                    highlightedModelKeyRef.current !== activeModelKey &&
+                    handleModelSelect(highlighted.slug, highlighted.instanceId);
+                  if (!pickedNew) props.onFocusEffort();
                   return;
                 }
                 if (e.key === "Enter" && highlightedModelKeyRef.current) {

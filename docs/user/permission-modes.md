@@ -15,8 +15,10 @@ and modes you choose in a draft keep their permissions.
 | **Auto**              | Uses the provider's automatic review to approve routine actions and ask about others. |
 | **Full access**       | Allows commands and edits without approval prompts.                                   |
 
-Approve or reject requests in the conversation to let the agent continue. Permission modes do
-not prevent the agent from asking questions about the task.
+Approve or reject requests in the conversation to let the agent continue. The composer stays
+usable while a request waits: sending a message declines the pending requests and steers the
+agent with your message instead. Permission modes do not prevent the agent from asking
+questions about the task.
 
 ## Provider differences
 

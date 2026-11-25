@@ -37,6 +37,31 @@ describe("attachmentUploadBlockReason", () => {
     ).toBe("Attachments still uploading");
   });
 
+  it("lets a send that waits for uploads through, but not past a failed one", () => {
+    const uploadsByImageId = {
+      "image-1": { status: "uploading" as const, environmentId, progress: 0.5 },
+    };
+    expect(
+      attachmentUploadBlockReason({
+        imageIds: ["image-1", "image-2"],
+        environmentId,
+        uploadsByImageId,
+        allowPending: true,
+      }),
+    ).toBeNull();
+    expect(
+      attachmentUploadBlockReason({
+        imageIds: ["image-1", "image-2"],
+        environmentId,
+        uploadsByImageId: {
+          ...uploadsByImageId,
+          "image-2": { status: "failed", environmentId, reason: "Network error" },
+        },
+        allowPending: true,
+      }),
+    ).toBe("Retry or remove the failed attachment");
+  });
+
   it("asks the user to retry or remove failed uploads", () => {
     expect(
       attachmentUploadBlockReason({
