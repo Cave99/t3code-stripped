@@ -83,6 +83,12 @@ const LIST_REFS_REFRESH_COALESCE_TTL = Duration.seconds(5);
 const LIST_REFS_REFRESH_FAILURE_COOLDOWN = Duration.seconds(30);
 const STATUS_DEFAULT_BRANCH_CACHE_TTL = Duration.minutes(5);
 const STATUS_ORIGIN_EXISTS_CACHE_TTL = Duration.minutes(5);
+const BASE_BRANCH_CACHE_TTL = Duration.minutes(5);
+
+class BaseBranchCacheKey extends Data.Class<{
+  cwd: string;
+  refName: string;
+}> {}
 const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   GCM_INTERACTIVE: "never",
   GIT_ASKPASS: "",
@@ -1567,9 +1573,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return remoteName;
   });
 
-  const resolveBaseBranchForNoUpstream = Effect.fn("resolveBaseBranchForNoUpstream")(function* (
+  const findBaseBranchForNoUpstream = Effect.fn("resolveBaseBranchForNoUpstream")(function* (
     cwd: string,
     refName: string,
+    trace?: { degraded: boolean },
   ) {
     const configuredBaseBranch = yield* runGitStdout(
       "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
@@ -1578,8 +1585,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
 
-    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
-      Effect.orElseSucceed(() => null),
+    // No remote at all is an answer; only a failed read degrades the result.
+    const primaryRemoteName = yield* Effect.gen(function* () {
+      if (yield* originRemoteExists(cwd)) return "origin";
+      return (yield* listRemoteNames(cwd))[0] ?? null;
+    }).pipe(
+      Effect.orElseSucceed(() => {
+        if (trace) trace.degraded = true;
+        return null;
+      }),
     );
     const defaultBranch =
       primaryRemoteName === null ? null : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
@@ -1623,6 +1637,171 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     return null;
   });
+
+  // Base selection reads config, which refs exist and each remote's HEAD target, never where a ref
+  // points, so commits and fetches keep the stamp. packed-refs names are re-read only when the file
+  // changes (repack, packed delete); a loose ref shadowing a packed one adds no name. Reftable keeps
+  // no names in files, so its table list's stat stands in for them.
+  // Cost: one git process, a listing per refs directory and a stat per loose ref.
+  const packedRefNames = new Map<
+    string,
+    { readonly token: string; readonly hash: string; readonly names: ReadonlySet<string> }
+  >();
+  const sha256Hex = (text: string) =>
+    Effect.map(crypto.digest("SHA-256", new TextEncoder().encode(text)), Encoding.encodeHex);
+  const readBaseBranchInputsStamp = Effect.fn("GitVcsDriverCore.readBaseBranchInputsStamp")(
+    function* (cwd: string, gitCommonDir: string) {
+      const effectiveConfig = yield* executeGit(
+        "GitVcsDriver.readBaseBranchInputsStamp",
+        cwd,
+        ["config", "--list", "-z"],
+        { allowNonZeroExit: true },
+      );
+      if (effectiveConfig.exitCode !== 0 || effectiveConfig.stdoutTruncated) return null;
+      const statOrNull = (target: string) =>
+        fileSystem.stat(target).pipe(
+          Effect.map((info) => Option.some(info)),
+          Effect.catchReason("PlatformError", "NotFound", () =>
+            Effect.succeed(Option.none<FileSystem.File.Info>()),
+          ),
+        );
+      const statToken = (target: string) =>
+        statOrNull(target).pipe(
+          Effect.map(
+            Option.match({
+              onNone: () => "-",
+              onSome: (info) =>
+                `${Option.getOrElse(info.ino, () => "")}:${info.size}:${Option.match(info.mtime, {
+                  onNone: () => "",
+                  onSome: (mtime) => mtime.getTime(),
+                })}`,
+            }),
+          ),
+        );
+      const packedRefsPath = path.join(gitCommonDir, "packed-refs");
+      const [packedToken, reftableToken] = yield* Effect.all(
+        [statToken(packedRefsPath), statToken(path.join(gitCommonDir, "reftable", "tables.list"))],
+        { concurrency: "unbounded" },
+      );
+      let packed = packedRefNames.get(gitCommonDir);
+      if (packed?.token !== packedToken) {
+        const contents =
+          packedToken === "-"
+            ? ""
+            : yield* fileSystem
+                .readFileString(packedRefsPath)
+                .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")));
+        const names = contents
+          .split("\n")
+          .map((line) => line.slice(line.indexOf(" ") + 1))
+          .filter((name) => name.startsWith("refs/heads/") || name.startsWith("refs/remotes/"));
+        packed = {
+          token: packedToken,
+          hash: yield* sha256Hex(names.join("\0")),
+          names: new Set(names),
+        };
+        packedRefNames.set(gitCommonDir, packed);
+      }
+      const remotesDirectory = path.join(gitCommonDir, "refs", "remotes");
+      const directories = [path.join(gitCommonDir, "refs", "heads"), remotesDirectory];
+      const looseNames: Array<string> = [];
+      const remoteHeads: Array<string> = [];
+      for (let index = 0; index < directories.length; index++) {
+        const directory = directories[index]!;
+        const entries = yield* fileSystem
+          .readDirectory(directory)
+          .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
+        const entryInfos = yield* Effect.forEach(
+          entries.toSorted((a, b) => a.localeCompare(b)),
+          (entry) =>
+            statOrNull(path.join(directory, entry)).pipe(Effect.map((info) => ({ entry, info }))),
+          { concurrency: 16 },
+        );
+        for (const { entry, info } of entryInfos) {
+          if (Option.isNone(info)) continue;
+          const entryPath = path.join(directory, entry);
+          if (info.value.type === "Directory") {
+            directories.push(entryPath);
+            continue;
+          }
+          const name = path.relative(gitCommonDir, entryPath).split(path.sep).join("/");
+          if (!packed.names.has(name)) looseNames.push(name);
+          // A remote name may contain "/", so its HEAD can sit deeper than refs/remotes/<name>.
+          if (entry === "HEAD" && directory.startsWith(remotesDirectory + path.sep)) {
+            remoteHeads.push(entryPath);
+          }
+        }
+      }
+      const remoteHeadTargets = yield* Effect.forEach(
+        remoteHeads,
+        (head) =>
+          fileSystem.readFileString(head).pipe(
+            Effect.map((target) => `${head}=${target}`),
+            Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(`${head}=-`)),
+          ),
+        { concurrency: "unbounded" },
+      );
+      // Hashed: names alone reach ~1 MB in busy repositories.
+      return yield* sha256Hex(
+        [
+          effectiveConfig.stdout,
+          packed.hash,
+          reftableToken,
+          ...looseNames,
+          ...remoteHeadTargets,
+        ].join("\0"),
+      );
+    },
+  );
+  const readCurrentBaseBranchInputsStamp = Effect.fnUntraced(function* (cwd: string) {
+    const gitCommonDir = (yield* resolveRepositoryPaths(cwd).pipe(Effect.orElseSucceed(() => null)))
+      ?.gitCommonDir;
+    if (gitCommonDir === undefined) return null;
+    return yield* readBaseBranchInputsStamp(cwd, gitCommonDir).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+  });
+  // The stamp lives in the value, not the key: a key per stamp would leave every superseded
+  // stamp's entry behind until capacity evicts it, since TTL only expires a key that is read again.
+  const baseBranchCache = yield* Cache.makeWith(
+    Effect.fnUntraced(function* (key: BaseBranchCacheKey) {
+      const inputsStamp = yield* readCurrentBaseBranchInputsStamp(key.cwd);
+      const trace = { degraded: false };
+      const base = yield* findBaseBranchForNoUpstream(key.cwd, key.refName, trace);
+      return { base, inputsStamp, ...trace };
+    }),
+    {
+      capacity: 2_048,
+      timeToLive: Exit.match({
+        onSuccess: () => BASE_BRANCH_CACHE_TTL,
+        onFailure: () => Duration.zero,
+      }),
+    },
+  );
+  // Status polls ask for the base on every refresh; it only moves when config, ref names or a
+  // remote HEAD change, which the inputs stamp captures in one git process.
+  const resolveBaseBranchForNoUpstream = Effect.fn("resolveBaseBranchForNoUpstream.cached")(
+    function* (cwd: string, refName: string) {
+      const cacheKey = new BaseBranchCacheKey({
+        cwd: normalizeRepositoryPathsCacheKey(cwd),
+        refName,
+      });
+      const cached = yield* Cache.getOption(baseBranchCache, cacheKey);
+      if (Option.isSome(cached)) {
+        const inputsStamp = yield* readCurrentBaseBranchInputsStamp(cwd);
+        if (inputsStamp !== null && inputsStamp === cached.value.inputsStamp) {
+          return cached.value.base;
+        }
+        yield* Cache.invalidate(baseBranchCache, cacheKey);
+      }
+      const entry = yield* Cache.get(baseBranchCache, cacheKey);
+      // A fallback forced by a failed remote lookup must not outlive the failure.
+      if (entry.degraded || entry.inputsStamp === null) {
+        yield* Cache.invalidate(baseBranchCache, cacheKey);
+      }
+      return entry.base;
+    },
+  );
 
   const computeAheadCountAgainstBase = Effect.fn("computeAheadCountAgainstBase")(function* (
     cwd: string,
