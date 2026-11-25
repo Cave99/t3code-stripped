@@ -9,9 +9,13 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { expect, it } from "vite-plus/test";
 
 import {
+  claimThreadOpen,
   createThreadSearchResultsAtomFamily,
   makeThreadSearchKey,
+  nextShownOrder,
   threadSearchMatchKey,
+  threadSearchSubject,
+  visibleThreadSearch,
 } from "./threadSearch.ts";
 
 const envA = EnvironmentId.make("env-a");
@@ -127,4 +131,90 @@ it("merges successful environments and silently ignores failures", () => {
   expect(threadSearchMatchKey(state.matches[0]!)).toBe('["env-a","thread-a"]');
 
   registry.dispose();
+});
+
+it("keeps the previous results visible only while a refined or widened query is pending", () => {
+  const previous = {
+    query: "websock",
+    matches: [
+      {
+        environmentId: envA,
+        threadId: ThreadId.make("thread-a"),
+        projectId: ProjectId.make("project-a"),
+        source: "user" as const,
+        snippet: "websocket reconnect",
+        messageCreatedAt: null,
+      },
+    ],
+  };
+  expect(visibleThreadSearch("websocke", null, previous)).toBe(previous);
+  expect(visibleThreadSearch("webso", null, previous)).toBe(previous);
+  expect(visibleThreadSearch("billing", null, previous)).toEqual({ query: "", matches: [] });
+  const ready = { query: "websocke", matches: [] };
+  expect(visibleThreadSearch("websocke", ready, previous)).toBe(ready);
+});
+
+it("ranks recent threads by this client's own latest open", () => {
+  const thread = {
+    environmentId: envA,
+    id: ThreadId.make("thread-local"),
+    title: "Local",
+    branch: null,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    latestUserMessageAt: null,
+    opens: { openedAt: 1_000, score: 1, picks: [] },
+  };
+  claimThreadOpen(envA, "thread-local", 5_000);
+  expect(threadSearchSubject(thread, null).opens?.openedAt).toBe(5_000);
+  // Also when the server has no record of opens yet.
+  claimThreadOpen(envA, "thread-unrecorded", 6_000);
+  expect(
+    threadSearchSubject({ ...thread, id: ThreadId.make("thread-unrecorded"), opens: null }, null)
+      .opens,
+  ).toEqual({ openedAt: 6_000, score: 1, picks: [] });
+});
+
+it("reuses a thread's subject across keystrokes until an open changes it", () => {
+  const thread = {
+    environmentId: envA,
+    id: ThreadId.make("thread-cached"),
+    title: "Cached",
+    branch: null,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    latestUserMessageAt: null,
+  };
+  const first = threadSearchSubject(thread, "Project");
+  expect(threadSearchSubject(thread, "Project")).toBe(first);
+  expect(threadSearchSubject(thread, "Renamed")).not.toBe(first);
+  claimThreadOpen(envA, "thread-cached", 7_000);
+  expect(threadSearchSubject(thread, "Renamed").opens?.openedAt).toBe(7_000);
+});
+
+it("keeps shown message rows in place and leaves room for a slower environment", () => {
+  // The fast environment answers first and fills the limit.
+  const fast = Array.from({ length: 12 }, (_, index) => `a${index}`);
+  const first = nextShownOrder(null, "rust", fast, 10);
+  expect(first.keys.slice(0, first.shown)).toEqual(fast.slice(0, 10));
+  // The slow one's matches rank first: shown rows hold, and its best few come next.
+  const slow = ["b0", "b1", "b2", "b3"];
+  const second = nextShownOrder(first, "rust", [...slow, ...fast], 10);
+  expect(second.keys.slice(0, second.shown)).toEqual([...fast.slice(0, 10), "b0", "b1", "b2"]);
+  // Nothing new: nothing moves and nothing grows.
+  expect(nextShownOrder(second, "rust", [...slow, ...fast], 10)).toBe(second);
+  // A third environment gets no more room past the limit.
+  const third = nextShownOrder(second, "rust", ["c0", ...slow, ...fast], 10);
+  expect(third.shown).toBe(13);
+  expect(third.keys.slice(0, 13)).toEqual(second.keys.slice(0, 13));
+  // A new query starts from its own ranking.
+  expect(nextShownOrder(second, "rusty", ["b0"], 10).keys).toEqual(["b0"]);
+});
+
+it("sends one open per thread every ten minutes by this client's clock", () => {
+  const minute = 60_000;
+  expect(claimThreadOpen(envA, "thread-open", 0)).toBe(true);
+  expect(claimThreadOpen(envA, "thread-open", 9 * minute)).toBe(false);
+  expect(claimThreadOpen(envB, "thread-open", 9 * minute)).toBe(true);
+  expect(claimThreadOpen(envA, "thread-open", 10 * minute)).toBe(true);
 });
