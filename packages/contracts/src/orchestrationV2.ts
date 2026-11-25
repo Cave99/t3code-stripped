@@ -568,6 +568,8 @@ export const OrchestrationV2Run = Schema.Struct({
   delegatedCompletion: Schema.optional(OrchestrationV2DelegatedCompletionCohort),
   /** How a launch prepares this run's workspace; prepared-run.retry repeats it. */
   workspacePreparation: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
+  /** Starts a new provider conversation; earlier runs stay visible but never reach the provider. */
+  freshContext: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2Run = typeof OrchestrationV2Run.Type;
 
@@ -1336,6 +1338,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     messageId: MessageId,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
+    freshContext: OrchestrationV2Run.fields.freshContext,
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
     context: Schema.optional(OrchestrationMessageContext),
@@ -2061,6 +2064,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     messageId: MessageId,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
+    freshContext: OrchestrationV2Run.fields.freshContext,
     inputIntent: OrchestrationV2UserMessageInputIntent,
     text: Schema.String,
     context: Schema.optional(OrchestrationMessageContext),
@@ -2740,6 +2744,8 @@ export const OrchestrationV2Command = Schema.Union([
     usageLimitContinuationOfRunId: Schema.optional(RunId),
     manualContinuationOfRunId: Schema.optional(RunId),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
+    /** Start a new provider session without the thread's earlier context. Never steers. */
+    freshContext: Schema.optional(Schema.Boolean),
     /** Resolve untargeted delivery against the server's serialized thread state. */
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),
     delegatedCompletion: Schema.optional(
