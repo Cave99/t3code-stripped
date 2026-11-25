@@ -17,7 +17,11 @@ import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
-import { projectTurnItemForWire, projectDomainEventForWire } from "./WireProjection.ts";
+import {
+  projectTurnItemForDetail,
+  projectTurnItemForWire,
+  projectDomainEventForWire,
+} from "./WireProjection.ts";
 import { threadShellFromProjection } from "./ProjectionStore.ts";
 
 const decodeTurnItem = Schema.decodeUnknownSync(OrchestrationV2TurnItem);
@@ -290,6 +294,15 @@ describe("orchestration V2 wire projection", () => {
     expect(projected).not.toHaveProperty("newStr");
     expect(projected).toMatchObject({ fileName: "src/main.ts", additions: 3, deletions: 1 });
     expect(item.diffStr).toBe("+new code");
+    expect(projectTurnItemForDetail(item)).toMatchObject({ diffStr: "+new code" });
+    expect(projectTurnItemForDetail(item)).not.toHaveProperty("oldStr");
+    expect(projectTurnItemForDetail(item)).not.toHaveProperty("newStr");
+    const { diffStr: _diff, ...contentOnly } = item;
+    expect(projectTurnItemForDetail(contentOnly)).toMatchObject({
+      oldStr: "old code",
+      newStr: "new code",
+    });
+    expect(projectTurnItemForWire(contentOnly)).not.toHaveProperty("newStr");
   });
 
   it("retains only result identities and failure metadata in live tool events", () => {

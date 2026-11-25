@@ -1,12 +1,9 @@
-import type {
-  EnvironmentId,
-  OrchestrationV2ProjectedTurnItem,
-  RunId,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationV2ProjectedTurnItem, ThreadId } from "@t3tools/contracts";
+import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import { ExternalLinkIcon, GitBranchIcon, RotateCcwIcon } from "lucide-react";
 import { memo } from "react";
 
+import type { ToolCallDiffTarget } from "../../diffPanelStore";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { cn } from "../../lib/utils";
@@ -22,7 +19,7 @@ interface V2ItemInspectorProps {
   readonly cwd?: string | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
+  readonly onOpenToolDiff: (target: ToolCallDiffTarget) => void;
   readonly onRollbackCheckpoint?: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;
@@ -100,15 +97,19 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
                 <span className="text-destructive">-{item.deletions ?? 0}</span>
               </span>
             ) : null}
-            {item.runId !== null ? (
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => props.onOpenTurnDiff(item.runId!, item.fileName)}
-              >
-                Open diff
-              </Button>
-            ) : null}
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() =>
+                props.onOpenToolDiff({
+                  threadId: props.projectedItem.sourceThreadId,
+                  itemId: props.projectedItem.sourceItemId,
+                  revision: turnItemDetailRevision(item),
+                })
+              }
+            >
+              Open diff
+            </Button>
           </div>
           {item.changes !== undefined && item.changes.length > 0 ? (
             <ul className="space-y-1 font-mono text-muted-foreground">

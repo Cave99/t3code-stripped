@@ -1,11 +1,26 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
+import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
+import type {
+  OrchestrationV2ProjectedTurnItem,
+  RunId,
+  ScopedThreadRef,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
+/** One tool call's recorded file change, read on demand by the Diff panel. */
+export interface ToolCallDiffTarget {
+  readonly threadId: ThreadId;
+  readonly itemId: TurnItemId;
+  readonly revision: string;
+}
+
 export type DiffPanelSelection =
+  | ({ kind: "tool-call" } & ToolCallDiffTarget)
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
   | { kind: "commit"; sha: string; baseRef: string | null }
@@ -21,6 +36,7 @@ interface DiffPanelStoreState {
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   /** Reviews one commit of the branch; it keeps the branch comparison's base for the list. */
   selectCommit: (ref: ScopedThreadRef, sha: string) => void;
+  selectToolCall: (ref: ScopedThreadRef, target: ToolCallDiffTarget) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -107,6 +123,18 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             branchBaseRefByThreadKey: { ...state.branchBaseRefByThreadKey, [threadKey]: baseRef },
           };
         }),
+      selectToolCall: (ref, target) =>
+        set((state) => ({
+          byThreadKey: {
+            ...state.byThreadKey,
+            [scopedThreadKey(ref)]: {
+              kind: "tool-call",
+              threadId: target.threadId,
+              itemId: target.itemId,
+              revision: target.revision,
+            },
+          },
+        })),
       reconcileTurnSelection: (ref, availableTurnIds) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -166,4 +194,17 @@ export function selectThreadBranchBaseRef(
   ref: ScopedThreadRef | null | undefined,
 ): string | null {
   return ref ? branchBaseRef(state, scopedThreadKey(ref)) : null;
+}
+
+/** Keeps a selected tool call's detail read current once a running call completes. */
+export function resolveToolCallDiffTarget(
+  target: ToolCallDiffTarget,
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+): ToolCallDiffTarget {
+  const row = items.find(
+    (row) => row.sourceThreadId === target.threadId && row.sourceItemId === target.itemId,
+  );
+  if (row?.item.type !== "file_change") return target;
+  const revision = turnItemDetailRevision(row.item);
+  return revision === target.revision ? target : { ...target, revision };
 }
