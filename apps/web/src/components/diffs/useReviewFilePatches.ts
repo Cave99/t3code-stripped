@@ -3,7 +3,15 @@ import type { FileDiffMetadata } from "@pierre/diffs";
 import type { EnvironmentId, ReviewDiffPreviewSource } from "@t3tools/contracts";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { getRenderablePatch, resolveFileDiffPath, type RenderablePatch } from "~/lib/diffRendering";
 import { reviewEnvironment } from "~/state/review";
 
@@ -64,6 +72,7 @@ export function useReviewFilePatches({
                     request: {
                       cwd,
                       ...(baseRef ? { baseRef } : {}),
+                      ...(source.kind === "commit" ? { commitSha: source.id } : {}),
                       ignoreWhitespace,
                       file: {
                         path: file.path,

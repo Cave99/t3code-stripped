@@ -10,6 +10,10 @@ rebases, the files Git brought in are left out. A file stays in the list when th
 committed it, or fixed a conflict in it. Use the branch comparison to review everything that changed
 against your base branch. Restore still returns the complete saved workspace.
 
+To review one local commit at a time, open the Diff pane's source picker and choose **Commits**.
+The list shows the newest 100 commits in the branch comparison. A merge commit shows its changes
+against its first parent. Choose the selected commit again to return to the whole branch.
+
 ## Connect an account
 
 Install Git and configure authentication on this machine. After signing in, open **Settings → Source Control**

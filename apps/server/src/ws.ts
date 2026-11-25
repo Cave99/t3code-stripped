@@ -2524,6 +2524,10 @@ const makeWsRpcLayer = (
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.reviewGetBranchCommits]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewGetBranchCommits, review.getBranchCommits(input), {
+            "rpc.aggregate": "review",
+          }),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
           observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
             "rpc.aggregate": "review",

@@ -153,8 +153,22 @@ export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): Orchest
         result:
           item.result === null ? null : (truncateDetail(item.result, MAX_ON_DEMAND_BYTES) ?? null),
       };
-    case "handoff":
     case "file_change":
+      // The Diff panel renders a tool call's recorded patch, or its recorded file contents
+      // when the provider sent no patch.
+      return {
+        ...projectTurnItemForWire(item),
+        ...(item.diffStr === undefined
+          ? {}
+          : { diffStr: truncateDetail(item.diffStr, MAX_ON_DEMAND_BYTES) }),
+        ...(!item.diffStr?.trim() && item.oldStr !== undefined
+          ? { oldStr: truncateDetail(item.oldStr, MAX_ON_DEMAND_BYTES) }
+          : {}),
+        ...(!item.diffStr?.trim() && item.newStr !== undefined
+          ? { newStr: truncateDetail(item.newStr, MAX_ON_DEMAND_BYTES) }
+          : {}),
+      };
+    case "handoff":
       return projectTurnItemForWire(item);
     default:
       return item;

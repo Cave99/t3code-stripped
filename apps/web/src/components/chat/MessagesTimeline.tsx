@@ -1,3 +1,4 @@
+import type { ToolCallDiffTarget } from "../../diffPanelStore";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { MarkdownFindContext, useFindRevealRef } from "./markdownFindContext";
@@ -328,6 +329,7 @@ interface TimelineRowSharedState {
   onImageExpand: (preview: ExpandedImagePreview) => void;
   displayThreadKey?: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
+  onOpenToolDiff: (target: ToolCallDiffTarget) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   onForkFromRun: (input: {
     readonly sourceThreadId: ThreadId;
@@ -469,6 +471,7 @@ interface MessagesTimelineProps {
   routeThreadKey: string;
   displayThreadKey?: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
+  onOpenToolDiff: (target: ToolCallDiffTarget) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   parentThreadLink?: {
     readonly threadId: ThreadId;
@@ -583,6 +586,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
+  onOpenToolDiff,
   onOpenThread,
   parentThreadLink = null,
   onForkFromRun,
@@ -1311,6 +1315,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onFileDownload,
       openPullRequest,
       onOpenTurnDiff,
+      onOpenToolDiff,
       onOpenThread,
       onForkFromRun,
       onRollbackCheckpoint,
@@ -1349,6 +1354,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onFileDownload,
       openPullRequest,
       onOpenTurnDiff,
+      onOpenToolDiff,
       onOpenThread,
       onForkFromRun,
       onRollbackCheckpoint,
@@ -3143,7 +3149,7 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
               cwd={ctx.markdownCwd}
               workspaceRoot={ctx.workspaceRoot}
               onOpenThread={ctx.onOpenThread}
-              onOpenTurnDiff={ctx.onOpenTurnDiff}
+              onOpenToolDiff={ctx.onOpenToolDiff}
               onRollbackCheckpoint={ctx.onRollbackCheckpoint}
             />
           </div>
@@ -3217,7 +3223,7 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
               cwd={ctx.markdownCwd}
               workspaceRoot={ctx.workspaceRoot}
               onOpenThread={ctx.onOpenThread}
-              onOpenTurnDiff={ctx.onOpenTurnDiff}
+              onOpenToolDiff={ctx.onOpenToolDiff}
               onRollbackCheckpoint={ctx.onRollbackCheckpoint}
             />
           </div>
@@ -5579,7 +5585,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               cwd={ctx.markdownCwd}
               workspaceRoot={workspaceRoot}
               onOpenThread={ctx.onOpenThread}
-              onOpenTurnDiff={ctx.onOpenTurnDiff}
+              onOpenToolDiff={ctx.onOpenToolDiff}
               onRollbackCheckpoint={ctx.onRollbackCheckpoint}
             />
           ) : expandedBody ? (
