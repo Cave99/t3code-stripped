@@ -13,7 +13,8 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 57 }, (_, index) => index + 1),
+        // 58 is reserved for a change on another branch that must land before this one ships.
+        [...Array.from({ length: 57 }, (_, index) => index + 1), 59],
       );
     }),
   );
@@ -29,6 +30,7 @@ layer("055_OrchestrationV2", (it) => {
         [55, "OrchestrationV2"],
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "McpAppModelContext"],
+        [59, "SettledLeafNodeIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -52,6 +54,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 55, name: "OrchestrationV2" },
         { migration_id: 56, name: "RemoveRedundantProjectionIndexes" },
         { migration_id: 57, name: "McpAppModelContext" },
+        { migration_id: 59, name: "SettledLeafNodeIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
