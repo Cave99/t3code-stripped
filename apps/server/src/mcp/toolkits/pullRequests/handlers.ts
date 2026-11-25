@@ -35,7 +35,7 @@ import {
   PullRequestHostRequiredError,
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
-  PullRequestNotOpenError,
+  MERGED_WATCH_NEXT,
   type PullRequestTargetInput,
   PullRequestWatchFailedError,
   PullRequestWatchFromSubagentError,
@@ -231,8 +231,18 @@ const make = Effect.gen(function* () {
     const before = watchedLink(thread);
     // A merged pull request cannot reopen. A closed one can, and its saved state may be stale,
     // so the watch starts and its first read ends it if the host still says closed.
+    // A watch on a merged PR could only report that it merged, so report it now instead.
     if (watching && before?.snapshot?.state === "merged") {
-      return yield* new PullRequestNotOpenError({ state: "merged" });
+      return {
+        host: target.host,
+        repository: target.repository,
+        number: target.number,
+        url: target.url,
+        watching: false,
+        wasWatching: before.watch !== undefined,
+        state: "merged" as const,
+        next: MERGED_WATCH_NEXT,
+      };
     }
     yield* engine
       .dispatch({

@@ -262,10 +262,13 @@ describe("pull request toolkit handlers", () => {
           makeLink(3, { headBranch: "watched", watch }),
         ]),
       });
-      const error = yield* harness
-        .call("watch_pull_request", { repository: "t3tools/t3code", number: 1 })
-        .pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "PullRequestNotOpenError", state: "merged" });
+      expect(
+        yield* harness.call("watch_pull_request", { repository: "t3tools/t3code", number: 1 }),
+      ).toMatchObject({
+        watching: false,
+        state: "merged",
+        next: expect.stringContaining("merged"),
+      });
       expect(
         yield* harness.call("unwatch_pull_request", { repository: "t3tools/t3code", number: 3 }),
       ).toMatchObject({ wasWatching: true });
