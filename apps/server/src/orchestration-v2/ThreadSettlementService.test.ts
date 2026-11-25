@@ -583,6 +583,16 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       listShells: () => Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.projects)),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({
+      getThreadsWithPullRequests: (readOptions) =>
+        Ref.get(snapshots).pipe(
+          Effect.map((snapshot) =>
+            snapshot.threads
+              .filter(
+                (thread) => readOptions?.includeArchived === true || thread.archivedAt === null,
+              )
+              .map((thread) => ({ ...thread, pullRequests: thread.pullRequests ?? [] })),
+          ),
+        ),
       getSettlementCandidates: (threadId) =>
         Ref.update(candidateReads, (reads) => [...reads, threadId]).pipe(
           Effect.andThen(Ref.updateAndGet(snapshotReadCount, (count) => count + 1)),
@@ -1019,6 +1029,62 @@ describe("ThreadSettlementServiceV2 worker", () => {
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
+  );
+  it.effect(
+    "an archived thread's merged pull request does not settle a local thread on its branch",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const owner = makeThread("archived-owner", {
+          branch: "feature",
+          archivedAt: DateTime.makeUnsafe("2026-08-29T00:00:00.000Z"),
+          pullRequests: [
+            {
+              host: "example.test",
+              repository: "owner/repository",
+              number: 42,
+              url: "https://example.test/owner/repository/pull/42",
+              source: "manual",
+              linkedAt: "2026-08-20T00:00:00.000Z",
+              snapshot: {
+                state: "merged",
+                title: "Pull request",
+                headBranch: "feature",
+                baseBranch: "main",
+                isDraft: false,
+                updatedAt: NOW,
+                mergedAt: NOW,
+                syncedAt: NOW,
+              },
+              stack: null,
+            },
+          ],
+        });
+        const sibling = makeThread("local-sibling", {
+          branch: "feature",
+          createdAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+          latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([owner, sibling]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleOnMerge: true,
+            sidebarAutoSettleAfterDays: null,
+          },
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          yield* fixture.publishMerge;
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+
+          expect(yield* Ref.get(fixture.commands)).toEqual([]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
   );
 });
 

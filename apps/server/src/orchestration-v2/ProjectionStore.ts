@@ -409,10 +409,9 @@ export interface ProjectionStoreV2Shape {
    * Active (not deleted, not archived) threads with at least one pull request
    * link, in shell snapshot order. Skips run, message and item reads.
    */
-  readonly getThreadsWithPullRequests: () => Effect.Effect<
-    ReadonlyArray<ProjectionThreadPullRequests>,
-    ProjectionStoreV2Error
-  >;
+  readonly getThreadsWithPullRequests: (options?: {
+    readonly includeArchived?: boolean;
+  }) => Effect.Effect<ReadonlyArray<ProjectionThreadPullRequests>, ProjectionStoreV2Error>;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -5444,13 +5443,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
 
-    const getThreadsWithPullRequests: ProjectionStoreV2Shape["getThreadsWithPullRequests"] = () =>
+    const getThreadsWithPullRequests: ProjectionStoreV2Shape["getThreadsWithPullRequests"] = (
+      options,
+    ) =>
       Effect.gen(function* () {
         const rows = yield* sql<PayloadRow>`
           SELECT payload_json
           FROM orchestration_v2_projection_threads
           WHERE deleted_at IS NULL
-            AND json_extract(payload_json, '$.archivedAt') IS NULL
+            ${options?.includeArchived === true ? sql`` : sql`AND json_extract(payload_json, '$.archivedAt') IS NULL`}
             AND json_array_length(payload_json, '$.pullRequests') > 0
           ORDER BY updated_at ASC, thread_id ASC
         `;
@@ -5951,7 +5952,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 left.id.localeCompare(right.id),
             );
         }),
-      getThreadsWithPullRequests: () =>
+      getThreadsWithPullRequests: (options) =>
         Ref.get(replayState).pipe(
           Effect.map((state) =>
             [...state.projections.values()]
@@ -5959,7 +5960,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               .filter(
                 (thread) =>
                   thread.deletedAt === null &&
-                  thread.archivedAt === null &&
+                  (options?.includeArchived === true || thread.archivedAt === null) &&
                   (thread.pullRequests ?? []).length > 0,
               )
               .toSorted(

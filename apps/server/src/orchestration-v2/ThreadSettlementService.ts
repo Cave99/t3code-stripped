@@ -4,7 +4,12 @@ import {
   isPullRequestWatchTask,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import {
+  legacyThreadPullRequestKey,
+  threadPullRequestKeyOf,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
   CommandId,
   type ThreadId,
@@ -67,6 +72,20 @@ function pullRequestMatchesProject(
     canonicalRepositoryKey(pullRequest.repositoryKey) ===
       canonicalRepositoryKey(project.repositoryIdentity.canonicalKey)
   );
+}
+
+function branchPullRequestKey(pullRequest: GitManager.GitBranchPullRequest): string | null {
+  const parsed = parseChangeRequestUrl(pullRequest.url);
+  if (parsed !== null && parsed.number === pullRequest.number) {
+    return threadPullRequestKeyOf(parsed);
+  }
+  const separator = pullRequest.repositoryKey?.indexOf("/") ?? -1;
+  if (pullRequest.repositoryKey == null || separator <= 0) return null;
+  return threadPullRequestKeyOf({
+    host: pullRequest.repositoryKey.slice(0, separator),
+    repository: pullRequest.repositoryKey.slice(separator + 1),
+    number: pullRequest.number,
+  });
 }
 
 /**
@@ -404,7 +423,7 @@ export const make = Effect.gen(function* () {
       const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
       if (reference != null) {
         return JSON.stringify([
-          "linked",
+          thread.linkedPullRequest != null ? "linked" : "branch-reference",
           reference.projectId,
           reference.repository,
           reference.number,
@@ -419,6 +438,21 @@ export const make = Effect.gen(function* () {
       );
     };
     const groups = Map.groupBy(lookupCandidates, lookupKey);
+    // A thread with no link of its own does not settle from a pull request another thread links
+    // (archived threads included): a branch reused for another thread's PR is not this work.
+    const explicitlyLinked = new Set(
+      groups.size === 0
+        ? []
+        : (yield* projections.getThreadsWithPullRequests({ includeArchived: true })).flatMap(
+            (thread) =>
+              visibleThreadPullRequests(thread.pullRequests ?? []).map(threadPullRequestKeyOf),
+          ),
+    );
+    const ownedByAnotherThread = (pullRequest: GitManager.GitBranchPullRequest | null) => {
+      if (pullRequest === null || pullRequest.state === "open") return false;
+      const key = branchPullRequestKey(pullRequest);
+      return key !== null && explicitlyLinked.has(key);
+    };
 
     const wouldSettle = Effect.fn("ThreadSettlementServiceV2.wouldSettle")(function* (
       group: ReadonlyArray<(typeof lookupCandidates)[number]>,
@@ -445,6 +479,13 @@ export const make = Effect.gen(function* () {
     ) {
       const thread = group[0]!;
       const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
+      if (
+        thread.linkedPullRequest == null &&
+        reference != null &&
+        explicitlyLinked.has(threadPullRequestKeyOf(legacyThreadPullRequestKey(reference)))
+      ) {
+        return undefined;
+      }
       if (reference != null) {
         // The event carries the merged state, so only the threads linked to
         // that exact pull request settle from it. Every other linked thread
@@ -503,7 +544,8 @@ export const make = Effect.gen(function* () {
       if (cwd === undefined) {
         return yield* Effect.die(new Error("thread project not found"));
       }
-      return yield* git.branchPullRequest({ cwd, branch: thread.branch });
+      const pullRequest = yield* git.branchPullRequest({ cwd, branch: thread.branch });
+      return ownedByAnotherThread(pullRequest) ? undefined : pullRequest;
     });
 
     yield* Effect.forEach(
