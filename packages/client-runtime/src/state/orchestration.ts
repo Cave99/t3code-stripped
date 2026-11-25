@@ -32,6 +32,12 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         tag: ORCHESTRATION_V2_WS_METHODS.subscribeThread,
         idleTtlMs: 0,
       }),
+      // The open thread's predicted next prompt, while its composer is mounted.
+      promptSuggestion: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+        label: "environment-data:orchestration-v2:prompt-suggestion",
+        tag: ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion,
+        idleTtlMs: 0,
+      }),
     },
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",

@@ -24,6 +24,7 @@ import {
 import {
   CodexSettings,
   defaultInstanceIdForDriver,
+  isDelegatedAppThread,
   isOrchestrationV2WorkActive,
   OrchestrationV2ProviderGoal,
   ProviderDriverKind,
@@ -251,6 +252,17 @@ const decodeCodexBackgroundTerminalTerminateResponse = Schema.decodeUnknownEffec
 const decodeCodexBackgroundTerminalsListResponse = Schema.decodeUnknownEffect(
   CodexBackgroundTerminalsListResponse,
 );
+const CodexThreadSampleResponse = Schema.Struct({ text: Schema.NullOr(Schema.String) });
+const decodeCodexThreadSampleResponse = Schema.decodeUnknownEffect(CodexThreadSampleResponse);
+export const CODEX_PROMPT_SUGGESTION_PROMPT =
+  "Predict the next message the user will send in this conversation. Reply with only that message, written as the user would type it, in under 20 words. Do not use tools. If there is no clear next step, reply with nothing.";
+
+/** The sampled text worth offering, or null for an empty or delegated-notice sample. */
+export function codexPromptSuggestionText(text: string | null): string | null {
+  const suggestion = text?.trim() ?? "";
+  // Delegated completion wakes arrive as user input, so samples can imitate one.
+  return suggestion.length === 0 || suggestion.startsWith("Delegated task") ? null : suggestion;
+}
 const CODEX_CLIENT_CAPABILITIES = {
   experimentalApi: true,
   optOutNotificationMethods: ["turn/diff/updated"],
@@ -1886,6 +1898,44 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
 
         const emitProviderEvent = (event: ProviderAdapterV2Event) =>
           Queue.offer(events, event).pipe(Effect.asVoid);
+
+        const promptSuggestionsEnabled = input.promptSuggestions ?? Effect.succeed(false);
+        // Best effort: older Codex lacks thread/sample, and a sample fails once the user sends again.
+        // Subagent threads share this session but have no one typing, so they never sample.
+        const samplePromptSuggestion = Effect.fn("CodexAdapterV2.samplePromptSuggestion")(
+          function* (
+            context: ActiveCodexTurnContext,
+            nativeThreadId: string,
+            nativeTurnId: string,
+          ) {
+            if (
+              isDelegatedAppThread(context.input.appThread) ||
+              !(yield* promptSuggestionsEnabled)
+            ) {
+              return;
+            }
+            const response = yield* client.raw.request("thread/sample", {
+              threadId: nativeThreadId,
+              expectedTurnId: nativeTurnId,
+              prompt: CODEX_PROMPT_SUGGESTION_PROMPT,
+              effort: "low",
+            });
+            const suggestion = codexPromptSuggestionText(
+              (yield* decodeCodexThreadSampleResponse(response)).text,
+            );
+            if (suggestion === null) return;
+            yield* emitProviderEvent({
+              type: "prompt_suggestion.updated",
+              driver: CODEX_PROVIDER,
+              threadId: context.projectionThreadId,
+              runId: context.input.runId,
+              text: suggestion,
+            });
+          },
+          Effect.catchCause((cause) =>
+            Effect.logDebug("orchestration-v2.codex-prompt-suggestion-failed", { cause }),
+          ),
+        );
 
         /** Writes the thread's current native goal onto its root provider thread. */
         const emitGoalUpdate = Effect.fnUntraced(function* (nativeThreadId: string) {
@@ -5610,6 +5660,14 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           });
           yield* emitRootTerminal(hold.context, { ...hold.event, status });
           yield* Deferred.succeed(hold.next, undefined);
+          const nativeThreadId = hold.context.providerThread.nativeThreadRef?.nativeId;
+          if (status === "completed" && nativeThreadId != null) {
+            yield* samplePromptSuggestion(
+              hold.context,
+              nativeThreadId,
+              hold.context.nativeTurnId,
+            ).pipe(Effect.forkIn(scope));
+          }
         });
 
         /** Settles a held goal run unless Stop owns it or a newer hold replaced it. */
@@ -5865,6 +5923,19 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               const retainSettledContext =
                 input.status === "completed" &&
                 (yield* turnHasRetainedBackgroundWork(input.nativeTurnId));
+              // A held goal predicts when settleGoalHold completes it.
+              if (
+                input.status === "completed" &&
+                input.context.subagent === null &&
+                !holdsForGoal &&
+                nativeThreadId != null
+              ) {
+                yield* samplePromptSuggestion(
+                  input.context,
+                  nativeThreadId,
+                  input.nativeTurnId,
+                ).pipe(Effect.forkIn(scope));
+              }
               if (retainSettledContext) {
                 yield* Ref.update(settledTurns, (current) => {
                   const updated = new Map(current);

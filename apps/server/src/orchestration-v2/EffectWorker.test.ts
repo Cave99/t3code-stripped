@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -109,6 +110,7 @@ function makeExecutorLayer(input: {
         closeInstance: () => Effect.void,
         release: () => record("release"),
         detach: () => record("detach"),
+        subscribePromptSuggestion: () => Stream.empty,
       }),
     ),
     Layer.succeed(

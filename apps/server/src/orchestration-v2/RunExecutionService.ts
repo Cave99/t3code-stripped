@@ -452,6 +452,9 @@ export function routeProviderEvent(
             state.ownedProviderTurnIds.has(event.runtimeRequest.providerTurnId)),
         state,
       ];
+    case "prompt_suggestion.updated":
+      // The session manager serves these to clients directly; runs never see them.
+      return [false, state];
     case "turn.terminal":
       return event.providerTurnId === state.rootProviderTurnId
         ? [true, { ...state, rootTurnEnded: true }]

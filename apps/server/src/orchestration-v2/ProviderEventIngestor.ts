@@ -384,6 +384,9 @@ export const layer: Layer.Layer<
               }),
             ];
           }
+          case "prompt_suggestion.updated":
+            // The session manager serves these to clients before ingestion.
+            return [];
           case "turn.terminal":
             const dismissed = yield* dismissNativeUserInputs(input, input.event.providerTurnId);
             if (input.event.status !== "failed") {

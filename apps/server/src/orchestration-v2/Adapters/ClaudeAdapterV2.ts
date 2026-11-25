@@ -65,6 +65,7 @@ import {
   type ProviderThreadId,
   type ThreadId,
   type ToolActivitySource,
+  isDelegatedAppThread,
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
@@ -812,6 +813,7 @@ export function makeClaudeQueryOptions(input: {
    */
   readonly attachmentsDir?: string;
   readonly settings?: ClaudeSettings;
+  readonly promptSuggestions?: boolean;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
@@ -866,6 +868,7 @@ export function makeClaudeQueryOptions(input: {
         ? "bypassPermissions"
         : (input.permissionMode ?? "default")),
     includePartialMessages: true,
+    ...(input.promptSuggestions === true ? { promptSuggestions: true } : {}),
     ...(compiledSelection.effort === undefined
       ? {}
       : {
@@ -3027,6 +3030,7 @@ export function makeClaudeAdapterV2(
     planSelectionTransition: () => Effect.succeed(turnScopedSelectionTransition()),
     openSession: Effect.fn("ClaudeAdapterV2.openSession")(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
+        const promptSuggestionsEnabled = input.promptSuggestions ?? Effect.succeed(false);
         const sessionScope = yield* Effect.scope;
         const now = yield* DateTime.now;
         const session = providerSession({
@@ -3090,6 +3094,8 @@ export function makeClaudeAdapterV2(
         const lastProviderThreadByNativeThread = yield* Ref.make(
           new Map<string, OrchestrationV2ProviderThread>(),
         );
+        // The latest completed turn per native session, which owns a late prompt suggestion.
+        const settledTurnByNativeThread = new Map<string, ActiveClaudeTurnContext>();
         // Native `/goal` per session, seeded from the persisted provider thread.
         const goalsByNativeThread = new Map<string, OrchestrationV2ProviderGoal | null>();
         // Turns whose model output met an active goal's Stop hook check at its end.
@@ -5096,6 +5102,15 @@ export function makeClaudeAdapterV2(
           yield* Ref.update(activeTurn, (current) =>
             current?.providerTurnId === input.context.providerTurnId ? null : current,
           );
+          const settledNativeThreadId =
+            input.context.input.providerThread.nativeThreadRef?.nativeId ?? null;
+          if (settledNativeThreadId !== null) {
+            if (input.status === "completed") {
+              settledTurnByNativeThread.set(settledNativeThreadId, input.context);
+            } else {
+              settledTurnByNativeThread.delete(settledNativeThreadId);
+            }
+          }
           yield* Ref.update(interruptedTurns, (current) => {
             const next = new Set(current);
             next.delete(input.context.providerTurnId);
@@ -5514,6 +5529,27 @@ export function makeClaudeAdapterV2(
           }
 
           const message = input.message;
+          if (message.type === "prompt_suggestion") {
+            // Arrives after `result`; offer it only while the completed turn is still the latest.
+            // A continuation can settle from buffered frames first, so its suggestion may be a user turn's.
+            const settled = settledTurnByNativeThread.get(liveQuery.nativeThreadId);
+            const text = message.suggestion.trim();
+            if (
+              settled !== undefined &&
+              !isClaudeProviderContinuationTurn(settled.input) &&
+              text.length > 0 &&
+              (yield* Ref.get(activeTurn)) === null
+            ) {
+              yield* emitProviderEvent({
+                type: "prompt_suggestion.updated",
+                driver: CLAUDE_PROVIDER,
+                threadId: settled.input.threadId,
+                runId: settled.input.runId,
+                text,
+              });
+            }
+            return;
+          }
           // Before any routing: a Monitor started during an idle wake turn
           // reports its task before the drain replays the tool call.
           yield* trackClaudeMonitorCalls(message);
@@ -7091,6 +7127,9 @@ export function makeClaudeAdapterV2(
                 cwd: turnInput.runtimePolicy.cwd,
                 attachmentsDir,
                 settings: adapterOptions.settings,
+                // Subagent threads have no one typing, so they never ask for suggestions.
+                promptSuggestions:
+                  !isDelegatedAppThread(turnInput.appThread) && (yield* promptSuggestionsEnabled),
                 // Jobs the agent starts inherit the thread, so port discovery can attribute
                 // their servers.
                 environment: {

@@ -2074,6 +2074,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly interrupt?: Effect.Effect<void>;
     readonly stopTask?: (taskId: string) => Effect.Effect<void>;
     readonly environment?: NodeJS.ProcessEnv;
+    readonly promptSuggestions?: boolean;
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2156,18 +2157,26 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         providerSessionId: ProviderSessionId.make("provider-session-claude-wake"),
         modelSelection: CLAUDE_TEST_MODEL_SELECTION,
         runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
+        promptSuggestions: Effect.succeed(options?.promptSuggestions === true),
       });
       const providerThread = yield* runtime.ensureThread({
         threadId,
         modelSelection: CLAUDE_TEST_MODEL_SELECTION,
         runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
       });
+      const promptSuggestionReceipts =
+        yield* Queue.unbounded<
+          Extract<ProviderAdapterV2Event, { type: "prompt_suggestion.updated" }>
+        >();
       const events: Array<ProviderAdapterV2Event> = [];
       yield* runtime.events.pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             events.push(event);
             if (event.type === "subagent.updated") yield* Queue.offer(subagentReceipts, event);
+            if (event.type === "prompt_suggestion.updated") {
+              yield* Queue.offer(promptSuggestionReceipts, event);
+            }
             if (event.type === "turn.terminal") {
               yield* Queue.offer(terminalReceipts, event);
             }
@@ -2203,6 +2212,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         continuationRequests,
         events,
         terminalReceipts,
+        promptSuggestionReceipts,
         subagentReceipts,
         systemNoticeReceipts,
         getOpenedOptions: () => openedOptions,
@@ -2211,6 +2221,69 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect.each(["root", "subagent", "toggled-off"] as const)(
+    "asks Claude for suggestions only on threads a person drives (%s)",
+    (lineage) =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarnessWithOptions({
+          promptSuggestions: lineage !== "toggled-off",
+        });
+        const base = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-prompt-suggestion"),
+          text: "Add a subtract function.",
+          attachments: [],
+        });
+        const parentThreadId = ThreadId.make("thread-claude-suggestion-parent");
+        const offered = lineage === "root";
+        const input =
+          lineage === "subagent"
+            ? {
+                ...base,
+                appThread: {
+                  ...base.appThread,
+                  lineage: {
+                    parentThreadId,
+                    relationshipToParent: "subagent" as const,
+                    rootThreadId: parentThreadId,
+                  },
+                },
+              }
+            : base;
+        yield* harness.runtime.startTurn(input);
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000690", result: "Done." }),
+        );
+        yield* Queue.take(harness.terminalReceipts);
+        // Subagent threads have no one typing, so the SDK is never asked for suggestions.
+        assert.equal(harness.getOpenedOptions()?.promptSuggestions === true, offered);
+        if (!offered) return;
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "prompt_suggestion",
+            suggestion: "  add tests for subtract\n",
+            uuid: "00000000-0000-4000-8000-000000000691",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        assert.deepEqual(yield* Queue.take(harness.promptSuggestionReceipts), {
+          type: "prompt_suggestion.updated",
+          driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+          threadId: harness.threadId,
+          runId: input.runId,
+          text: "add tests for subtract",
+        });
+        assert.equal(
+          harness.events.filter((event) => event.type === "prompt_suggestion.updated").length,
+          1,
+        );
+      }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+  );
 
   it.effect(
     "reuses a background shell's query for omitted and explicit Normal, but blocks Fast",

@@ -82,6 +82,7 @@ import {
   RuntimeMode,
   TerminalOpenInput,
   type WorktreeSetupSnapshot,
+  type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import {
@@ -582,6 +583,7 @@ import {
   recallableComposerPrompt,
 } from "./chat/composerPromptHistory";
 
+const EMPTY_RUNS: ReadonlyArray<OrchestrationV2Run> = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
@@ -11024,6 +11026,7 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadId={activeThreadId}
                               activeThreadEnvironmentId={activeThread?.environmentId}
                               activeThread={activeThread}
+                              activeThreadRuns={serverProjection?.runs ?? EMPTY_RUNS}
                               activeThreadShell={activeThreadShell}
                               promptHistoryMessages={timelineMessages}
                               isServerThread={isServerThread}

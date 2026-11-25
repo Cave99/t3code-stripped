@@ -517,6 +517,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "prompt-suggestions-beta",
+    title: "Suggest next prompt (beta)",
+    to: "/settings/general",
+    searchTerms: ["tab autocomplete predict next message claude codex ghost text"],
+  },
+  {
     id: "legacy-plan-mode",
     title: "Plan mode (legacy)",
     to: "/settings/general",

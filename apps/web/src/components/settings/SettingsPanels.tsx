@@ -331,6 +331,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
         ? ["Snooze limited threads"]
         : []),
+      ...(settings.promptSuggestionsEnabled !== DEFAULT_UNIFIED_SETTINGS.promptSuggestionsEnabled
+        ? ["Suggest next prompt"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.persistComposerContextStrip !==
       DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
@@ -451,6 +454,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleOnMerge,
       settings.autoResumeLimitedThreads,
       settings.snoozeLimitedThreads,
+      settings.promptSuggestionsEnabled,
       settings.sidebarProjectGroupingMode,
       settings.sidebarWorkingShelfEnabled,
       settings.sidebarThreadPreviewCount,
@@ -556,6 +560,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
+      promptSuggestionsEnabled: DEFAULT_UNIFIED_SETTINGS.promptSuggestionsEnabled,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
@@ -2466,6 +2471,23 @@ export function GeneralSettingsPanel() {
                 updateSettings({ composerCollapseOnScroll: Boolean(checked) })
               }
               aria-label="Collapse composer on scroll"
+            />
+          }
+        />
+
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("prompt-suggestions-beta")}
+          description="Show a predicted next message in the empty composer after a Claude or Codex turn. Tab uses it. Each is an extra cached request on your plan. Needs Codex 0.165+. Open Claude threads follow a change after they restart."
+          settingKeys={["promptSuggestionsEnabled"]}
+          control={
+            <ScopedSwitch
+              settingKeys={["promptSuggestionsEnabled"]}
+              checked={settings.promptSuggestionsEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ promptSuggestionsEnabled: Boolean(checked) })
+              }
+              aria-label="Suggest next prompt"
             />
           }
         />

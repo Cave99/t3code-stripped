@@ -3,6 +3,7 @@ import {
   ModelSelection,
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
+  type OrchestrationV2PromptSuggestion,
   type OrchestrationV2ProviderThread,
   OrchestrationV2RuntimeRequest,
   ProviderInstanceId,
@@ -28,6 +29,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -54,6 +56,8 @@ const DEFAULT_IDLE_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
 const RELEASE_SCOPE_CLOSE_TIMEOUT_MS = 30 * 1000;
 const UNLOAD_THREAD_TIMEOUT_MS = 10 * 1000;
+/** Suggestions outlive their sessions, so keep only the most recently updated threads. */
+const MAX_PROMPT_SUGGESTIONS = 256;
 
 export const ProviderSessionReleaseReason = Schema.Literals([
   "idle_timeout",
@@ -180,6 +184,10 @@ export interface ProviderSessionManagerV2Shape {
      */
     readonly revokeMcpCredential?: boolean;
   }) => Effect.Effect<void, ProviderSessionManagerV2Error>;
+  /** The thread's latest predicted next prompt, then each replacement. */
+  readonly subscribePromptSuggestion: (
+    threadId: ThreadId,
+  ) => Stream.Stream<OrchestrationV2PromptSuggestion>;
 }
 
 export class ProviderSessionManagerV2 extends Context.Service<
@@ -330,6 +338,17 @@ export const layerWithOptions = (
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const promptSuggestionStore = yield* SubscriptionRef.make<
+        ReadonlyMap<ThreadId, NonNullable<OrchestrationV2PromptSuggestion>>
+      >(new Map());
+      // Beta flag, read live: Codex per turn (its shared session outlives a toggle), Claude per query.
+      // Unreadable settings keep it off.
+      const promptSuggestionsEnabled = Option.isNone(serverSettings)
+        ? Effect.succeed(false)
+        : serverSettings.value.getSettings.pipe(
+            Effect.map((settings) => settings.promptSuggestionsEnabled),
+            Effect.orElseSucceed(() => false),
+          );
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
           if (Option.isNone(serverSettings)) return { browser: true };
@@ -1560,6 +1579,19 @@ export const layerWithOptions = (
         return entry.runtime.events.pipe(
           Stream.runForEach((event) => {
             if (shutdownSignal.received) return Effect.void;
+            // Served to clients directly; never persisted or routed to runs.
+            if (event.type === "prompt_suggestion.updated") {
+              return SubscriptionRef.update(promptSuggestionStore, (current) => {
+                const next = new Map(current);
+                next.delete(event.threadId);
+                next.set(event.threadId, { runId: event.runId, text: event.text });
+                for (const threadId of next.keys()) {
+                  if (next.size <= MAX_PROMPT_SUGGESTIONS) break;
+                  next.delete(threadId);
+                }
+                return next;
+              });
+            }
             if (
               event.type === "provider_session.updated" &&
               event.providerSession.status === "stopped"
@@ -1754,6 +1786,7 @@ export const layerWithOptions = (
                   providerSessionId: input.providerSessionId,
                   modelSelection: input.modelSelection,
                   runtimePolicy: input.runtimePolicy,
+                  promptSuggestions: promptSuggestionsEnabled,
                   ...(input.resumeFromSession === undefined
                     ? {}
                     : { resumeFromSession: input.resumeFromSession }),
@@ -2068,6 +2101,21 @@ export const layerWithOptions = (
                 }),
               ),
             ),
+          ),
+        // Stored suggestions can outlive a deleted thread, so check the thread before serving one.
+        subscribePromptSuggestion: (threadId) =>
+          SubscriptionRef.changes(promptSuggestionStore).pipe(
+            Stream.map((suggestions) => suggestions.get(threadId) ?? null),
+            Stream.changes,
+            Stream.mapEffect((suggestion) =>
+              suggestion === null
+                ? Effect.succeed(null)
+                : projectionStore.getThread(threadId).pipe(
+                    Effect.map((thread) => (thread.deletedAt === null ? suggestion : null)),
+                    Effect.orElseSucceed(() => null),
+                  ),
+            ),
+            Stream.changes,
           ),
       } satisfies ProviderSessionManagerV2Shape);
     }),

@@ -105,6 +105,16 @@ the text is an unedited recalled prompt, with the caret on the first visual line
 the last visual line for `ArrowDown`, counting wrapped lines. Editing a recalled prompt turns it
 into a normal draft.
 
+## Suggested next prompt
+
+Turn on **Suggest next prompt (beta)** in Settings > General. After a Claude or Codex turn
+completes, the empty composer shows a predicted next message. Press `Tab` or click the `Tab` hint to
+fill it in, then edit or send it, or press `Escape` to dismiss it. The suggestion comes from the
+provider's own CLI and reuses the turn's prompt cache, so it uses a little of your plan's usage.
+Claude skips suggestions on the first turn of a thread and near usage limits. Codex needs version
+0.165 or later. Codex follows a change to the setting at once; open Claude threads follow it after
+they restart. Subagent threads never get suggestions.
+
 ## Edit an earlier prompt
 
 Choose **Edit from here** beneath a sent message to rewind
