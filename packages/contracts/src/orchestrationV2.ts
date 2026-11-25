@@ -437,6 +437,10 @@ export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
  * Cursor native subagents). The provider owns its conversation, so it cannot
  * take messages; T3 delegate_task children (`creationSource: "mcp"`) can.
  */
+/** A thread another agent drives (a subagent), where no one types the next prompt. */
+export const isDelegatedAppThread = (thread: Pick<OrchestrationV2AppThread, "lineage">): boolean =>
+  thread.lineage.relationshipToParent === "subagent";
+
 export function isProviderNativeSubagentThread(
   thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">,
 ): boolean {
@@ -3019,7 +3023,18 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   subscribeArchivedShell: "orchestration.subscribeArchivedShell",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
+  subscribePromptSuggestion: "orchestration.subscribePromptSuggestion",
 } as const;
+
+export const OrchestrationV2SubscribePromptSuggestionInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+/** Unpersisted predicted next prompt for the run that produced it; null when there is none. */
+export const OrchestrationV2PromptSuggestion = Schema.NullOr(
+  Schema.Struct({ runId: RunId, text: Schema.String }),
+);
+export type OrchestrationV2PromptSuggestion = typeof OrchestrationV2PromptSuggestion.Type;
 
 export const OrchestrationV2ArchivedShellSnapshot = Schema.Struct({
   schemaVersion: PositiveInt,
@@ -3452,6 +3467,10 @@ export const OrchestrationV2RpcSchemas = {
   subscribeThread: {
     input: OrchestrationV2SubscribeThreadInput,
     output: OrchestrationV2ThreadStreamItem,
+  },
+  subscribePromptSuggestion: {
+    input: OrchestrationV2SubscribePromptSuggestionInput,
+    output: OrchestrationV2PromptSuggestion,
   },
 } as const;
 

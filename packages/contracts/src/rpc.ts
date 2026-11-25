@@ -1331,6 +1331,15 @@ const WsOrchestrationV2SubscribeThreadRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS
   stream: true,
 });
 
+const WsOrchestrationV2SubscribePromptSuggestionRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion,
+  {
+    payload: OrchestrationV2RpcSchemas.subscribePromptSuggestion.input,
+    success: OrchestrationV2RpcSchemas.subscribePromptSuggestion.output,
+    stream: true,
+  },
+);
+
 const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -1530,4 +1539,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
+  WsOrchestrationV2SubscribePromptSuggestionRpc,
 );

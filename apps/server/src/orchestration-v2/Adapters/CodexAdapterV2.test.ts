@@ -1663,6 +1663,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onEvent: (event: ProviderAdapterV2Event) => Effect.Effect<unknown> = () => Effect.void,
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: (threadId: string) => Effect.Effect<unknown>,
+    promptSuggestions: Effect.Effect<boolean> = Effect.succeed(false),
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1721,6 +1722,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        promptSuggestions,
       });
       const providerThread = yield* runtime.ensureThread({
         threadId,
@@ -1876,6 +1878,104 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.isBelow(requests.indexOf("thread/inject_items"), requests.indexOf("turn/start"));
       }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
   );
+
+  it.effect("samples a next-prompt suggestion after a completed root turn", () =>
+    Effect.gen(function* () {
+      const nativeThreadId = "suggest-thread";
+      const nativeTurnId = "suggest-turn";
+      const prompt = "Add a subtract function.";
+      const transcript = makeCodexReplayTranscript({
+        scenario: "prompt-suggestion",
+        entries: [
+          ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }),
+          {
+            type: "emit_inbound",
+            label: "turn/completed",
+            frame: {
+              method: "turn/completed",
+              params: {
+                threadId: nativeThreadId,
+                turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+              },
+            },
+          },
+          {
+            type: "expect_outbound",
+            label: "thread/sample",
+            frame: {
+              id: 4,
+              method: "thread/sample",
+              params: {
+                threadId: nativeThreadId,
+                expectedTurnId: nativeTurnId,
+                prompt: CodexAdapterV2.CODEX_PROMPT_SUGGESTION_PROMPT,
+                effort: "low",
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: "thread/sample",
+            frame: {
+              id: 4,
+              result: {
+                sourceTurnId: nativeTurnId,
+                responseId: "resp-suggest",
+                text: "  add tests for subtract\n",
+                inputTokens: 11448,
+                cachedInputTokens: 11264,
+                outputTokens: 16,
+              },
+            },
+          },
+        ],
+      });
+      const suggested = yield* Deferred.make<void>();
+      const harness = yield* makeCodexReplayHarness(
+        transcript,
+        (event) =>
+          event.type === "prompt_suggestion.updated"
+            ? Deferred.succeed(suggested, undefined)
+            : Effect.void,
+        undefined,
+        undefined,
+        Effect.succeed(true),
+      );
+      const turnInput = makeCodexTestTurnInput({
+        threadId: harness.threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId: RunAttemptId.make("suggest-attempt"),
+        text: prompt,
+      });
+      yield* harness.runtime.startTurn(turnInput);
+      yield* Deferred.await(suggested);
+      assert.deepEqual(
+        harness.events.filter((event) => event.type === "prompt_suggestion.updated"),
+        [
+          {
+            type: "prompt_suggestion.updated",
+            driver: CodexAdapterV2.CODEX_DRIVER_KIND,
+            threadId: harness.threadId,
+            runId: turnInput.runId,
+            text: "add tests for subtract",
+          },
+        ],
+      );
+    }).pipe(Effect.scoped, Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+  );
+
+  it("offers only sampled text that reads like a person's next prompt", () => {
+    assert.equal(CodexAdapterV2.codexPromptSuggestionText("  run the tests\n"), "run the tests");
+    assert.isNull(CodexAdapterV2.codexPromptSuggestionText(null));
+    assert.isNull(CodexAdapterV2.codexPromptSuggestionText("  \n"));
+    // Delegated completion wakes arrive as user input, so a sample can imitate one.
+    assert.isNull(
+      CodexAdapterV2.codexPromptSuggestionText(
+        "Delegated task task-1 reached a terminal state. Use task_status with taskId task-1 to read the result.",
+      ),
+    );
+  });
 
   it.effect("identifies sessions to Codex with the same client info as main", () =>
     Effect.gen(function* () {

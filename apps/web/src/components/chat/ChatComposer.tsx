@@ -238,7 +238,13 @@ import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threa
 import { readThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
+import type {
+  ComposerContextClipboardFragment,
+  ComposerContextRecord,
+  OrchestrationV2Run,
+} from "@t3tools/contracts";
+import { Kbd } from "../ui/kbd";
+import { promptSuggestionToAccept, usePromptSuggestion } from "./usePromptSuggestion";
 import { resolveAssetUrl } from "~/assets/assetUrls";
 import { assetEnvironment } from "~/state/assets";
 import { readPreparedConnection } from "~/state/session";
@@ -1518,6 +1524,7 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThreadEnvironmentId: EnvironmentId | undefined;
   activeThread: Thread | undefined;
+  activeThreadRuns: ReadonlyArray<OrchestrationV2Run>;
   /** The routed server thread's shell, present before its detail loads. */
   activeThreadShell: ThreadShell | null;
   /** Timeline messages including optimistic sends, for ArrowUp prompt recall. */
@@ -1705,6 +1712,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
+    activeThreadRuns,
     promptHistoryMessages,
     isServerThread: _isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
@@ -4329,6 +4337,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Callbacks: command key
   // ------------------------------------------------------------------
+  // Escape dismisses the suggestion so Tab moves focus again.
+  const { suggestion: promptSuggestion, dismiss: dismissPromptSuggestion } = usePromptSuggestion(
+    environmentId,
+    activeThread,
+    activeThreadRuns,
+  );
+  // Offered only where the default placeholder would show, so it never hides a pending question.
+  const offeredPromptSuggestion =
+    phase !== "running" &&
+    phase !== "disconnected" &&
+    !isSendBusy &&
+    composerContextRecords.size === 0 &&
+    !isComposerApprovalState &&
+    !activePendingProgress &&
+    !(showPlanFollowUpPrompt && activeProposedPlan) &&
+    !projectSelectionRequired &&
+    !showProviderUnavailable
+      ? promptSuggestion
+      : null;
+
   const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem = false) => {
     const submissionIntent = composerSubmissionIntentForKey({
       event,
@@ -4347,7 +4375,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive = composerMenuOpenRef.current || trigger !== null;
     if (key === "Escape") {
-      if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
+      if (event.isComposing || event.keyCode === 229) return false;
+      if (!menuIsActive && offeredPromptSuggestion !== null && promptRef.current.length === 0) {
+        dismissPromptSuggestion();
+        return true;
+      }
+      if (!menuIsActive) return false;
       dismissComposerTrigger(trigger);
       composerMenuOpenRef.current = false;
       return true;
@@ -4367,6 +4400,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onSelectComposerItem(selectedItem);
         return true;
       }
+    }
+    const acceptedSuggestion = promptSuggestionToAccept(offeredPromptSuggestion, promptRef.current);
+    if (
+      key === "Tab" &&
+      acceptedSuggestion !== null &&
+      !menuIsActive &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.isComposing &&
+      event.keyCode !== 229
+    ) {
+      // The typing guard must see this draft, so an approval that lands next is not answered with it.
+      return applyPromptReplacement(0, 0, acceptedSuggestion);
     }
     if ((key === "ArrowUp" || key === "ArrowDown") && submissionIntent === null) {
       return navigatePromptHistory(key === "ArrowUp" ? "backward" : "forward", event);
@@ -7345,7 +7393,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : (offeredPromptSuggestion ??
+                                    "Ask anything, @tag files/folders, $use skills, or / for commands")
+                    }
+                    placeholderSuffix={
+                      offeredPromptSuggestion !== null ? (
+                        // The placeholder ignores pointer events so clicks reach the editor; only this hint opts back in.
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label="Use suggested prompt"
+                          className="pointer-events-auto ml-2 inline-flex cursor-pointer rounded align-[1px] [&:hover_kbd]:text-foreground"
+                          onPointerDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            const accepted = promptSuggestionToAccept(
+                              offeredPromptSuggestion,
+                              promptRef.current,
+                            );
+                            if (accepted !== null) applyPromptReplacement(0, 0, accepted);
+                          }}
+                        >
+                          <Kbd variant="outline">⇥ Tab</Kbd>
+                        </button>
+                      ) : undefined
                     }
                     disabled={
                       isConnecting ||

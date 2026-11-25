@@ -275,6 +275,7 @@ it.effect(
           closeInstance: () => Effect.void,
           release: () => Effect.void,
           detach: () => Effect.void,
+          subscribePromptSuggestion: () => Stream.empty,
         }),
       );
       const controlLayer = ProviderTurnControlService.layer.pipe(

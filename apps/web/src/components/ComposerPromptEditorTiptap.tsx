@@ -36,6 +36,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 
@@ -153,6 +154,8 @@ export interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   placeholder: string;
+  /** Rendered after the placeholder text, such as a key hint. */
+  placeholderSuffix?: ReactNode;
   ariaLabel?: string | undefined;
   /** Identifies an editor with suggestions, even while its list is closed. */
   suggestionListId?: string | undefined;
@@ -812,6 +815,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     containerClassName,
     className,
     placeholderClassName,
+    placeholderSuffix,
     onChange,
     onVisibleSelectionChange,
     onCommandKeyDown,
@@ -1694,12 +1698,13 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         <ComposerCitationCommentContext value={citationCommentActions}>
           <div
             className={cn(
-              "relative flow-root font-(family-name:--font-composer,var(--font-sans)) text-(length:--font-size-prompt,var(--text-sm)) max-sm:pointer-coarse:text-(length:--font-size-prompt-touch)",
+              "relative grid grid-cols-[minmax(0,1fr)] font-(family-name:--font-composer,var(--font-sans)) text-(length:--font-size-prompt,var(--text-sm)) max-sm:pointer-coarse:text-(length:--font-size-prompt-touch)",
               containerClassName,
             )}
           >
             <EditorContent
               editor={editor}
+              className="col-start-1 row-start-1"
               onKeyDown={(event) => {
                 if (
                   event.key === "Control" ||
@@ -1744,11 +1749,12 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             {isEmpty && contextRecords.size === 0 && placeholder ? (
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-0 leading-relaxed text-placeholder/75",
+                  "pointer-events-none relative col-start-1 row-start-1 leading-relaxed text-placeholder/75",
                   placeholderClassName,
                 )}
               >
                 {placeholder}
+                {placeholderSuffix}
               </div>
             ) : null}
           </div>
