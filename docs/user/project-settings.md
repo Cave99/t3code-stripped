@@ -18,6 +18,11 @@ setting you are editing, the layers icon counts them and the chain lists each on
 click a project to jump to it, or **Reset all** to make those projects follow the environment
 again.
 
+## Projects with several repositories
+
+A project covers every repository inside its folder, and any folder you add under **Settings →
+Projects → Repositories**; see [Projects with several repositories](multi-repo-projects.md).
+
 ## Worktree branch names
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,

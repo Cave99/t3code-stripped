@@ -10,6 +10,10 @@ rebases, the files Git brought in are left out. A file stays in the list when th
 committed it, or fixed a conflict in it. Use the branch comparison to review everything that changed
 against your base branch. Restore still returns the complete saved workspace.
 
+In a [project with several repositories](multi-repo-projects.md), a turn's changed files and diff
+also cover each repository the turn changed, with paths that start at the thread's folder. This
+works when the project folder itself is not a Git repository.
+
 To review one local commit at a time, open the Diff pane's source picker and choose **Commits**.
 The list shows the newest 100 commits in the branch comparison. A merge commit shows its changes
 against its first parent. Choose the selected commit again to return to the whole branch.

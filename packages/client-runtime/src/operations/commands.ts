@@ -34,6 +34,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
 import { getInitialServerConfig, request } from "../rpc/client.ts";
+import { repositoryCheckpointScopeIds } from "../state/threadCheckpoints.ts";
 
 interface CommandMetadata {
   readonly commandId?: CommandId;
@@ -60,6 +61,9 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  /** Applied to the list the server has, so two clients' edits do not undo each other. */
+  readonly trackFolders?: ReadonlyArray<{ readonly path: string; readonly name: string }>;
+  readonly untrackFolders?: ReadonlyArray<string>;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -383,6 +387,8 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.trackFolders === undefined ? {} : { trackFolders: input.trackFolders }),
+    ...(input.untrackFolders === undefined ? {} : { untrackFolders: input.untrackFolders }),
   });
 });
 
@@ -909,14 +915,18 @@ export const revertThreadCheckpoint = Effect.fn("EnvironmentCommands.revertThrea
       });
     }
     const projection = yield* getProjection(input.threadId);
+    // A tracked repository's baseline also sits at ordinal zero; it is never a rewind target.
+    const repositoryScopeIds = repositoryCheckpointScopeIds(projection.checkpointScopes);
     const checkpoint =
       projection.checkpoints.find(
         (candidate) => candidate.id === input.checkpointId && candidate.scopeId === input.scopeId,
       ) ??
-      projection.checkpoints.findLast((candidate) =>
-        input.turnCount === 0
-          ? candidate.ordinalWithinScope === 0 && candidate.appRunOrdinal === null
-          : candidate.appRunOrdinal === input.turnCount,
+      projection.checkpoints.findLast(
+        (candidate) =>
+          !repositoryScopeIds.has(candidate.scopeId) &&
+          (input.turnCount === 0
+            ? candidate.ordinalWithinScope === 0 && candidate.appRunOrdinal === null
+            : candidate.appRunOrdinal === input.turnCount),
       );
     if (checkpoint === undefined || checkpoint.status !== "ready") {
       const target =

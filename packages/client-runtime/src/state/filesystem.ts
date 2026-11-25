@@ -79,5 +79,17 @@ export function createFilesystemEnvironmentAtoms<R, E>(
       label: "environment-data:filesystem:browse",
       tag: WS_METHODS.filesystemBrowse,
     }),
+    /** A project's tracked folders with what is on disk now: a repository, plain files, or gone. */
+    listFolders: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:workspace:list-folders",
+      tag: WS_METHODS.workspaceListFolders,
+      staleTimeMs: 0,
+    }),
+    /** Repositories under a folder and in its `.code-workspace` file, read from disk each time. */
+    scanFolders: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:workspace:scan-folders",
+      tag: WS_METHODS.workspaceScanFolders,
+      staleTimeMs: 0,
+    }),
   };
 }

@@ -63,6 +63,20 @@ capture workspace state without adding commits to the user's branch. A revert mu
 workspace state with the provider conversation. A provider that cannot roll back its conversation
 must reject that operation before changing the filesystem.
 
+A thread also gets one `repository` checkpoint scope per tracked Git folder it reaches, under its
+root scope. A project can track dozens of repositories while a turn touches a few, so these scopes
+are sparse: a turn costs one `git status` per repository, and only a repository the turn changed
+gets a snapshot ref, a `checkpoint.captured` record and, the first time, its
+`checkpoint-scope.created`. A missing record means the turn left the repository alone, and a ref
+does not exist for every run ordinal. The root scope's captures, restores and diffs leave out the
+folders of repository scopes inside it, so a nested clone is not also recorded as a gitlink.
+Repository checkpoints are never a rewind target and a rewind does not restore them, since the
+project's repositories are shared with its other local threads; the discarded runs' records go
+stale and their snapshot refs are deleted, because run ordinals are never reused.
+[WorkspaceFolders](../../apps/server/src/workspace/WorkspaceFolders.ts) reads which folders a
+project covers from disk on every use; the project's stored `trackedFolders` only keeps clients in
+step.
+
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR
 and inactivity settings without a connected client. Merge notifications invalidate cached PR state

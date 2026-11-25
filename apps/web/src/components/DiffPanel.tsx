@@ -47,6 +47,7 @@ import {
   getDiffCollapseIconClassName,
   getDiffLineStat,
   getRenderablePatch,
+  getRenderablePatchSections,
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
@@ -296,6 +297,9 @@ export default function DiffPanel({
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByRunId } =
     useTurnDiffSummaries(activeThreadProjection);
+  // A project folder that is not a repository can still hold tracked repositories a turn changed.
+  const canShowTurnDiffs =
+    isGitRepo || turnDiffSummaries.some((summary) => summary.repositories !== undefined);
   const orderedTurnDiffSummaries = useMemo(
     () =>
       [...turnDiffSummaries].toSorted((left, right) => {
@@ -371,7 +375,7 @@ export default function DiffPanel({
       ignoreWhitespace: diffIgnoreWhitespace,
       cacheScope: selectedTurn ? `turn:${selectedTurn.runId}` : null,
     },
-    { enabled: isGitRepo && selectedTurn !== undefined },
+    { enabled: canShowTurnDiffs && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
     isGitSelection && activeThread && activeCwd
@@ -537,10 +541,15 @@ export default function DiffPanel({
     toolCallSelection && toolCallItem?.type === "file_change"
       ? toolCallDiff(toolCallItem, activeCwd)
       : null;
+  // A turn's tracked repositories each bring their own patch, shown below the thread folder's.
+  const turnDiffData = selectedTurn && !toolCallSelection ? activeCheckpointDiff.data : null;
+  const turnRepositoryDiffs = turnDiffData?.repositories;
   const selectedPatch = toolCallSelection
     ? toolCallPreview?.patch
     : selectedTurn
-      ? activeCheckpointDiff.data?.diff
+      ? turnRepositoryDiffs === undefined || turnDiffData == null
+        ? activeCheckpointDiff.data?.diff
+        : [turnDiffData.diff, ...turnRepositoryDiffs.map((entry) => entry.diff)].join("")
       : gitDiff;
   const isSelectedPatchTruncated =
     toolCallPreview?.truncated === true ||
@@ -565,19 +574,33 @@ export default function DiffPanel({
     () =>
       lazySource
         ? null
-        : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
-            compactPartialHunkOffsets: isGitSelection,
-            // Git and checkpoint reads apply whitespace hiding on the server; a recorded patch
-            // is filtered here.
-            ...(toolCallSelection ? { ignoreWhitespace: diffIgnoreWhitespace } : {}),
-          }),
+        : turnRepositoryDiffs !== undefined && turnDiffData != null
+          ? getRenderablePatchSections(
+              [
+                { key: "thread", relativePath: "", diff: turnDiffData.diff },
+                ...turnRepositoryDiffs.map((entry) => ({
+                  key: entry.repositoryPath,
+                  relativePath: entry.relativePath,
+                  diff: entry.diff,
+                })),
+              ],
+              `diff-panel:${resolvedTheme}`,
+            )
+          : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
+              compactPartialHunkOffsets: isGitSelection,
+              // Git and checkpoint reads apply whitespace hiding on the server; a recorded patch
+              // is filtered here.
+              ...(toolCallSelection ? { ignoreWhitespace: diffIgnoreWhitespace } : {}),
+            }),
     [
+      turnDiffData,
       diffIgnoreWhitespace,
       isGitSelection,
       lazySource,
       resolvedTheme,
       selectedPatch,
       toolCallSelection,
+      turnRepositoryDiffs,
     ],
   );
   const recordedToolCallFileCount =
@@ -1236,7 +1259,7 @@ export default function DiffPanel({
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
-      ) : !isGitRepo && !toolCallSelection ? (
+      ) : !canShowTurnDiffs && !toolCallSelection ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>

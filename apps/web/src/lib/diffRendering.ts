@@ -201,6 +201,42 @@ export function getRenderablePatch(
 }
 
 /**
+ * Several patches as one file list. Each file is named from the folder the patches share, so the
+ * same path in two repositories stays two files.
+ */
+export function getRenderablePatchSections(
+  sections: ReadonlyArray<{
+    readonly key: string;
+    readonly relativePath: string;
+    readonly diff: string;
+  }>,
+  cacheScope = "diff-panel",
+  options: RenderablePatchOptions = {},
+): RenderablePatch | null {
+  const files: FileDiffMetadata[] = [];
+  const sourceFiles: FileDiffMetadata[] = [];
+  for (const section of sections) {
+    const patch = getRenderablePatch(section.diff, `${cacheScope}:${section.key}`, options);
+    if (patch === null) continue;
+    if (patch.kind === "raw") {
+      return { ...patch, text: sections.map((entry) => entry.diff).join("\n") };
+    }
+    const prefix = section.relativePath === "" ? "" : `${section.relativePath}/`;
+    const inFolder = (file: FileDiffMetadata): FileDiffMetadata =>
+      prefix === ""
+        ? file
+        : {
+            ...file,
+            name: `${prefix}${file.name}`,
+            ...(file.prevName === undefined ? {} : { prevName: `${prefix}${file.prevName}` }),
+          };
+    files.push(...patch.files.map(inFolder));
+    sourceFiles.push(...patch.sourceFiles.map(inFolder));
+  }
+  return files.length === 0 ? null : { kind: "files", files, sourceFiles };
+}
+
+/**
  * What the patch called the file, as the file's own name. Git writes a name holding a tab, a
  * newline, a quote or a backslash quoted and escaped, and the parser hands one of those back still
  * escaped. A viewed mark, a review comment and a file's contents are all asked for by this path,
