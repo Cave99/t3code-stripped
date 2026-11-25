@@ -76,6 +76,7 @@ import Migration0060 from "./Migrations/060_TurnItemMessageOrdinalIndex.ts";
 import Migration0061 from "./Migrations/061_TurnItemTypeStatusIndex.ts";
 import Migration0062 from "./Migrations/062_LastExecutedRunIndex.ts";
 import Migration0063 from "./Migrations/063_TurnItemCounts.ts";
+import Migration0064 from "./Migrations/064_DeferredCommandMessageIndex.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -152,6 +153,7 @@ export const migrationEntries = [
   [61, "TurnItemTypeStatusIndex", Migration0061],
   [62, "LastExecutedRunIndex", Migration0062],
   [63, "TurnItemCounts", Migration0063],
+  [64, "DeferredCommandMessageIndex", Migration0064],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

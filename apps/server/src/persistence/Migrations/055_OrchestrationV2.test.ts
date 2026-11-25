@@ -14,7 +14,7 @@ layer("055_OrchestrationV2", (it) => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
         // 58 is reserved for a change on another branch that must land before this one ships.
-        [...Array.from({ length: 57 }, (_, index) => index + 1), 59, 60, 61, 62, 63],
+        [...Array.from({ length: 57 }, (_, index) => index + 1), 59, 60, 61, 62, 63, 64],
       );
     }),
   );
@@ -35,6 +35,7 @@ layer("055_OrchestrationV2", (it) => {
         [61, "TurnItemTypeStatusIndex"],
         [62, "LastExecutedRunIndex"],
         [63, "TurnItemCounts"],
+        [64, "DeferredCommandMessageIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -63,6 +64,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 61, name: "TurnItemTypeStatusIndex" },
         { migration_id: 62, name: "LastExecutedRunIndex" },
         { migration_id: 63, name: "TurnItemCounts" },
+        { migration_id: 64, name: "DeferredCommandMessageIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

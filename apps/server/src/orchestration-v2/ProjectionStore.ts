@@ -90,6 +90,10 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
   OLDER_THREAD_USER_TURN_LIMIT,
 } from "./threadHistoryPaging.ts";
+import {
+  DEFERRED_COMMAND_MESSAGE_CONDITION,
+  JAVASCRIPT_TRIM_WHITESPACE,
+} from "./deferredCommandMessage.ts";
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
   "ProjectionStoreApplyEventError",
@@ -3823,10 +3827,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
     );
 
-    // SQLite trim defaults to ASCII spaces; compact recognition uses JavaScript trim.
-    const javascriptTrimWhitespace =
-      " \t\n\r\v\f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
-
     // Startup needs execution metadata, not the transcript or inherited fork history.
     const getTurnStartContext: ProjectionStoreV2Shape["getTurnStartContext"] = (threadId, runId) =>
       sql
@@ -3881,19 +3881,24 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               ORDER BY sessions.updated_at ASC, sessions.provider_session_id ASC
             `.pipe(Effect.flatMap(decodeRows(decodeProviderSessionPayload, threadId)));
             // Compact retries need their original markers; emptiness is an existence check.
+            // Each side seeks its own index; one OR over both reads every message of the thread.
+            // `+` keeps the run's message on its primary key instead of walking the thread.
             const messages = yield* sql<PayloadRow>`
-              SELECT payload_json FROM orchestration_v2_projection_messages
-              WHERE thread_id = ${threadId} AND (
-                message_id IN (SELECT json_extract(payload_json, '$.userMessageId') FROM orchestration_v2_projection_runs
-                  WHERE thread_id = ${threadId} AND run_id = ${runId})
-                OR (role = 'user' AND lower(trim(json_extract(payload_json, '$.text'), ${javascriptTrimWhitespace})) = '/compact')
+              SELECT payload_json FROM (
+                SELECT payload_json, created_at, message_id FROM orchestration_v2_projection_messages
+                WHERE +thread_id = ${threadId}
+                  AND message_id IN (SELECT json_extract(payload_json, '$.userMessageId') FROM orchestration_v2_projection_runs
+                    WHERE thread_id = ${threadId} AND run_id = ${runId})
+                UNION
+                SELECT payload_json, created_at, message_id FROM orchestration_v2_projection_messages
+                WHERE thread_id = ${threadId} AND ${sql.literal(DEFERRED_COMMAND_MESSAGE_CONDITION)}
               ) ORDER BY created_at ASC, message_id ASC
             `.pipe(Effect.flatMap(decodeRows(decodeMessagePayload, threadId)));
             const conversation = yield* sql<{ present: number }>`
               SELECT EXISTS(
                 SELECT 1 FROM orchestration_v2_projection_messages
                 WHERE thread_id = ${threadId} AND role = 'user'
-                    AND (lower(trim(json_extract(payload_json, '$.text'), ${javascriptTrimWhitespace})) <> '/compact'
+                    AND (lower(trim(json_extract(payload_json, '$.text'), ${JAVASCRIPT_TRIM_WHITESPACE})) <> '/compact'
                       OR json_array_length(payload_json, '$.attachments') > 0)
               ) AS present
             `;

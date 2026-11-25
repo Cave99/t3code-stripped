@@ -405,4 +405,40 @@ it.layer(TestLayer)("ProjectionStoreV2 long threads", (it) => {
         );
       }),
   );
+
+  it.effect("turn start finds a long thread's /compact prompts without reading every message", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const runs = 20;
+      const threadId = yield* seedLongThread({ suffix: "turn-start-messages", runs });
+
+      const { statements, tracer } = traceSqlStatements();
+      const context = yield* store
+        .getTurnStartContext(threadId, RunId.make(`run:turn-start-messages:${runs}`))
+        .pipe(Effect.withTracer(tracer));
+      assert.deepEqual(
+        context.messages.map((message) => String(message.id)),
+        [`message:turn-start-messages:${runs}:user`],
+      );
+      assert.isTrue(context.hasConversation);
+
+      const messageRead = statements.find(
+        (statement) =>
+          statement.includes("FROM orchestration_v2_projection_messages") &&
+          statement.includes("UNION"),
+      );
+      assert.isDefined(messageRead);
+      const plan = yield* queryPlan(messageRead!);
+      assert.isTrue(
+        plan.some((detail) =>
+          detail.includes("orchestration_v2_projection_messages_deferred_command_idx"),
+        ),
+        plan.join("\n"),
+      );
+      assert.isFalse(
+        plan.some((detail) => detail.includes("messages_thread_created_idx (thread_id=?)")),
+        plan.join("\n"),
+      );
+    }),
+  );
 });
