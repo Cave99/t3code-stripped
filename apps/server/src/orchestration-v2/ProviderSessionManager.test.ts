@@ -393,7 +393,7 @@ function makeProviderAdapter(
 
 function makeTestLayer(input: {
   readonly state: Ref.Ref<TestProviderRuntimeState>;
-  readonly idleTimeoutMs: number;
+  readonly idleTimeoutMs?: number;
   readonly maxIdlePinMs?: number;
   readonly failEventStream?: boolean;
   readonly capabilities?: OrchestrationV2ProviderCapabilities;
@@ -442,7 +442,7 @@ function makeTestLayer(input: {
     IdAllocator.layer,
     TestMcpRegistryLayer,
     ProviderSessionManager.layerWithOptions({
-      idleTimeoutMs: input.idleTimeoutMs,
+      ...(input.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: input.idleTimeoutMs }),
       ...(input.maxIdlePinMs === undefined ? {} : { maxIdlePinMs: input.maxIdlePinMs }),
     }).pipe(
       Layer.provide(
@@ -1693,6 +1693,35 @@ it.effect("ProviderSessionManagerV2 releases idle sessions without sweeping all 
     });
 
     yield* effect.pipe(Effect.provide(makeTestLayer({ state, idleTimeoutMs: 1000 })));
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 releases an idle session after 2 minutes by default", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const threadId = ThreadId.make("thread-default-idle-timeout");
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({ idAllocator, threadId, now: yield* DateTime.now }),
+        ],
+      });
+      yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(2 * 60_000 - 1_000);
+      // `manager.get` counts as activity, so the adapter close count is the probe.
+      assert.equal((yield* Ref.get(state)).closeCount, 0);
+      yield* TestClock.adjust("1 second");
+      yield* Effect.yieldNow;
+      assert.equal((yield* Ref.get(state)).closeCount, 1);
+    }).pipe(Effect.provide(makeTestLayer({ state })));
   }),
 );
 

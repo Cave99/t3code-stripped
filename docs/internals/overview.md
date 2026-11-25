@@ -53,6 +53,11 @@ checkpoint or diff must not extend the recorded provider duration or keep the cl
 provider work as active. PR discovery after completion also checks that the checkout still matches
 the thread's non-default branch and that a newer run is not active.
 
+A run is `completed` when its provider turn ends; the turn-end checkpoint is captured afterwards as
+an outbox effect on the thread's effect lane. Until that capture commits, command decisions still
+see the run as `waiting`, so steers, queued turns and forks from the latest stable run line up
+behind the capture.
+
 [Checkpoints](../../apps/server/src/checkpointing/CheckpointStore.ts) use hidden Git refs to
 capture workspace state without adding commits to the user's branch. A revert must coordinate
 workspace state with the provider conversation. A provider that cannot roll back its conversation
