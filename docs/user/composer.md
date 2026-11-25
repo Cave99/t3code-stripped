@@ -45,6 +45,24 @@ photos over the image limit are also resized to fit.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
 
+## Dictate on a Mac
+
+On macOS 26 or later, the desktop app can turn speech into text in the composer.
+Click the microphone beside **Attach files**, press `mod+shift+d`, or choose
+**Dictate into the composer** in the command palette. Press again to finish, or
+hold the shortcut and release it to finish. `Esc` discards the recording.
+
+macOS transcribes the recording on this Mac with Apple Speech, in your Mac's
+language. Audio never leaves the Mac and nothing is sent until you send the
+message. The transcript lands at the caret. If you switch threads while dictating,
+it goes to the thread you started in.
+
+The first time, macOS asks to let C3 Code use the microphone. If you declined,
+allow it in **System Settings → Privacy & Security → Microphone**. If your
+language's speech model is not on this Mac yet, dictation stops and offers
+**Download model**; that one download comes from Apple, and dictation works
+offline afterwards. A recording can be up to five minutes long.
+
 ## Send while the agent is working
 
 Choose **Settings → General → Follow-up behavior** to queue

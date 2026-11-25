@@ -41,6 +41,7 @@ import {
 } from "./methods/snapShot.ts";
 import * as WebLinksIpc from "./methods/webLinks.ts";
 import * as PreviewIpc from "./methods/preview.ts";
+import * as AppleSpeechIpc from "./methods/appleSpeech.ts";
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
@@ -80,6 +81,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(showContextMenu);
   yield* ipc.handle(openExternal);
   yield* ipc.handle(pasteAsText);
+  for (const appleSpeechMethod of AppleSpeechIpc.methods) {
+    yield* ipc.handle(appleSpeechMethod);
+  }
   for (const previewMethod of PreviewIpc.methods) {
     yield* ipc.handle(previewMethod);
   }

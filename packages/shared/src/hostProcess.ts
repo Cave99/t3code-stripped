@@ -24,6 +24,14 @@ export const HostProcessHostname = Context.Reference<string>(
   },
 );
 
+/** The OS kernel release, e.g. Darwin "25.0.0" on macOS 26. */
+export const HostProcessKernelRelease = Context.Reference<string>(
+  "@t3tools/shared/hostProcess/HostProcessKernelRelease",
+  {
+    defaultValue: () => NodeOS.release(),
+  },
+);
+
 export const HostProcessEnvironment = Context.Reference<NodeJS.ProcessEnv>(
   "@t3tools/shared/hostProcess/HostProcessEnvironment",
   {

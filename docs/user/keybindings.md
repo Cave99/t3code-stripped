@@ -26,6 +26,8 @@ Use `mod+shift+e` for effort, `mod+shift+a` for access mode, `mod+shift+x` for t
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
+On macOS, `mod+shift+d` starts [dictation](./composer.md#dictate-on-a-mac); press it
+again to finish, or hold it and release. Rebind it under **Composer: Dictate (macOS)**.
 
 To change effort one step without opening the picker, bind
 **Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.

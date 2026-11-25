@@ -25,6 +25,7 @@ import {
   DESKTOP_ELECTRON_LANGUAGES,
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
+  MAC_APPLE_SPEECH_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
   PREVIEW_BROWSER_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
@@ -432,6 +433,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!apps/desktop/gnome-extension/**/*",
       "!apps/desktop/prod-resources/preview-browser",
       "!apps/desktop/prod-resources/preview-browser/**/*",
+      "!apps/desktop/prod-resources/apple-speech",
+      "!apps/desktop/prod-resources/apple-speech/**/*",
     ]);
     assert.equal(WINDOWS_SERVER_RESOURCE_SOURCE_DIR, "apps/desktop/prod-resources/windows-server");
     assert.deepStrictEqual(WINDOWS_SERVER_EXTRA_RESOURCES, [
@@ -460,6 +463,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(mac.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...PREVIEW_BROWSER_EXTRA_RESOURCES,
+        ...MAC_APPLE_SPEECH_EXTRA_RESOURCES,
       ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
@@ -474,7 +478,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       // A universal app would need both architectures' browsers merged, so it
       // downloads one at runtime instead.
       const universal = yield* createBuildConfig("mac", "dmg", "1.2.3", false, "universal");
-      assert.deepStrictEqual(universal.extraResources, DESKTOP_EXTRA_RESOURCES);
+      assert.deepStrictEqual(universal.extraResources, [
+        ...DESKTOP_EXTRA_RESOURCES,
+        ...MAC_APPLE_SPEECH_EXTRA_RESOURCES,
+      ]);
       assert.deepStrictEqual(win.nsis, { differentialPackage: true });
       // The Claude SDK platform packages and .bin shims never ship.
       assert.deepStrictEqual(WINDOWS_SERVER_ASAR_IGNORE_GLOBS, [

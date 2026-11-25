@@ -53,6 +53,7 @@ import * as BrowserSession from "./preview/BrowserSession.ts";
 import * as PreviewPasskeys from "./preview/Passkeys.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
+import * as AppleSpeech from "./speech/AppleSpeech.ts";
 
 // Set the encryption identity synchronously: service construction can yield
 // before Electron captures the macOS Keychain / Linux secret-store name.
@@ -98,6 +99,7 @@ const desktopFoundationLayer = Layer.mergeAll(
   DesktopConnectionCatalogStore.layer.pipe(Layer.provideMerge(DesktopSavedEnvironments.layer)),
   DesktopAssets.layer,
   DesktopObservability.layer,
+  AppleSpeech.layer,
 ).pipe(Layer.provideMerge(desktopEnvironmentLayer));
 
 const desktopServerExposureLayer = DesktopServerExposure.layer.pipe(

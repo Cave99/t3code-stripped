@@ -841,6 +841,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/gnome-extension/**/*",
   "!apps/desktop/prod-resources/preview-browser",
   "!apps/desktop/prod-resources/preview-browser/**/*",
+  "!apps/desktop/prod-resources/apple-speech",
+  "!apps/desktop/prod-resources/apple-speech/**/*",
 ] as const;
 // Windows terminal helpers cannot run on macOS and slow signing and notarization.
 export const MAC_FILE_EXCLUSIONS = [
@@ -916,6 +918,9 @@ export const WINDOWS_SERVER_EXTRA_RESOURCES = [
     to: ".",
     filter: [WINDOWS_SERVER_ASAR_RESOURCE, `${WINDOWS_SERVER_ASAR_RESOURCE}.unpacked/**/*`],
   },
+] as const;
+export const MAC_APPLE_SPEECH_EXTRA_RESOURCES = [
+  { from: "apps/desktop/prod-resources/apple-speech", to: "apple-speech" },
 ] as const;
 export const DESKTOP_EXTRA_RESOURCES = [
   {
@@ -1644,6 +1649,38 @@ export const stageLinuxCaptureHelper = Effect.fn("stageLinuxCaptureHelper")(func
   }
 });
 
+/**
+ * Compiles the on-device dictation helper (needs Xcode 26). Without it the app ships and hides
+ * Mac dictation; set T3CODE_REQUIRE_APPLE_SPEECH=1 to fail packaging instead.
+ */
+export const stageAppleSpeech = Effect.fn("stageAppleSpeech")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  if (input.platform !== "mac") return;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  // extraResources copies this folder, so it exists even when the helper could not be built.
+  yield* fs.makeDirectory(path.join(input.stageResourcesDir, "apple-speech"), { recursive: true });
+  yield* runCommand(
+    ChildProcess.make(
+      "node",
+      [
+        path.join(input.repoRoot, "apps/desktop/scripts/build-apple-speech.mjs"),
+        "--arch",
+        input.arch,
+        "--output",
+        path.join(input.stageResourcesDir, "apple-speech", "t3-apple-speech"),
+      ],
+      { cwd: input.repoRoot },
+    ),
+    { label: "build macOS Apple Speech helper", verbose: input.verbose },
+  );
+});
+
 export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* (input: {
   readonly repoRoot: string;
   readonly stageResourcesDir: string;
@@ -2109,6 +2146,10 @@ ${keychainAccessGroups}${browserPasskeys}
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- The hardened runtime denies the microphone, with no prompt, unless the
+         app claims it. Composer dictation records through it. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>
 `;
@@ -2148,6 +2189,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
       ...(arch === "universal" ? [] : PREVIEW_BROWSER_EXTRA_RESOURCES),
+      ...(platform === "mac" ? MAC_APPLE_SPEECH_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
     ],
@@ -2162,6 +2204,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       extendInfo: {
         NSScreenCaptureUsageDescription:
           "C3 Code captures the active window when you use the window capture shortcut.",
+        NSMicrophoneUsageDescription:
+          "C3 Code records your voice when you dictate into the composer, and lets commands run by terminals and coding agents use the microphone.",
+        NSSpeechRecognitionUsageDescription:
+          "C3 Code transcribes your dictation on this Mac with Apple Speech.",
         // macOS lists an app under Default web browser only when it opens web
         // pages as documents as well as http and https links (see protocols).
         CFBundleDocumentTypes: [
@@ -2906,6 +2952,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
   }
   yield* stageResourceMonitor({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
+  yield* stageAppleSpeech({
     repoRoot,
     stageResourcesDir,
     platform: options.platform,

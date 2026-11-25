@@ -1026,6 +1026,28 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
   input: PreviewAutomationWaitForInput,
 });
 
+export const DesktopAppleSpeechResultSchema = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), value: Schema.String }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    // `not-installed`: the locale's on-device model is missing and was not downloaded.
+    code: Schema.Literals(["unavailable", "unsupported-locale", "not-installed", "failed"]),
+  }),
+]);
+export type DesktopAppleSpeechResult = typeof DesktopAppleSpeechResultSchema.Type;
+
+export const DesktopAppleSpeechPrepareInputSchema = Schema.Struct({
+  locale: Schema.String.check(Schema.isMaxLength(64)),
+  /** Lets macOS download the locale's model from Apple; only after the user asked for it. */
+  install: Schema.Boolean,
+});
+
+export const DesktopAppleSpeechTranscribeInputSchema = Schema.Struct({
+  locale: Schema.String.check(Schema.isMaxLength(64)),
+  // 16 kHz mono Float32 PCM, at most five minutes.
+  pcm: Schema.Uint8Array,
+});
+
 /**
  * A System Settings pane the app can deep-link to. The identifier crosses IPC
  * rather than a URL, so the renderer can only reach these known destinations.
@@ -1046,6 +1068,14 @@ export interface DesktopBridge {
   getClientPlatform?: () => string;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
+  /** On-device dictation; present only in the macOS desktop app. Audio never leaves the Mac. */
+  appleSpeech?: {
+    supportedLocales: () => Promise<readonly string[]>;
+    prepare: (input: { locale: string; install: boolean }) => Promise<DesktopAppleSpeechResult>;
+    transcribe: (input: { locale: string; pcm: Uint8Array }) => Promise<DesktopAppleSpeechResult>;
+    /** Stops this window's running transcription, killing its helper process. */
+    cancel: () => Promise<void>;
+  };
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
   /**
    * The OS locale as a BCP-47 tag, which the renderer cannot read for itself:
