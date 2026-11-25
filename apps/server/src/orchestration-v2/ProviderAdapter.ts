@@ -44,6 +44,20 @@ import type {
   ProviderSelectionTransitionPlan,
 } from "./ProviderSelectionTransition.ts";
 
+/** The folders of a multi-folder thread besides `cwd`. Single-folder threads omit it. */
+export const ProviderAdapterV2RuntimeWorkspace = Schema.Struct({
+  folders: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      path: Schema.String,
+      isGitRepository: Schema.Boolean,
+    }),
+  ),
+  /** Folder paths outside `cwd`. Adapters grant them as writable roots where the provider can. */
+  extraRoots: Schema.Array(Schema.String),
+});
+export type ProviderAdapterV2RuntimeWorkspace = typeof ProviderAdapterV2RuntimeWorkspace.Type;
+
 export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -51,6 +65,7 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
   reasoningEffort: Schema.optional(Schema.String),
+  workspace: Schema.optional(ProviderAdapterV2RuntimeWorkspace),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 

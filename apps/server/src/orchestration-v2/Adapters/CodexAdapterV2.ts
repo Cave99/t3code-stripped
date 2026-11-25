@@ -93,6 +93,7 @@ import {
   buildCodexAdditionalContext,
   buildCodexDeveloperInstructions,
 } from "../../provider/CodexDeveloperInstructions.ts";
+import { buildWorkspaceInstructions } from "../../provider/RuntimeInstructions.ts";
 import {
   describeMcpElicitation,
   toMcpElicitationResponse,
@@ -764,10 +765,21 @@ export function buildCodexTurnStartParams(input: {
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    const baseSandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    // A multi-folder thread's other folders are writable wherever its own folder is.
+    const extraRoots = input.runtimePolicy.workspace?.extraRoots ?? [];
+    const sandboxPolicy =
+      baseSandboxPolicy?.type === "workspaceWrite" && extraRoots.length > 0
+        ? {
+            ...baseSandboxPolicy,
+            writableRoots: [
+              ...new Set([...(baseSandboxPolicy.writableRoots ?? []), ...extraRoots]),
+            ],
+          }
+        : baseSandboxPolicy;
     const selectedEffort = getModelSelectionStringOptionValue(
       input.modelSelection,
       "reasoningEffort",
@@ -801,10 +813,18 @@ export function buildCodexTurnStartParams(input: {
             },
           )
         : undefined;
-    const additionalContext =
-      t3Context === undefined && Object.keys(appContext).length === 0
+    // Its own entry, so the folder list reaches the model without C3 Code's MCP tools too.
+    const workspaceInstructions = buildWorkspaceInstructions(input.runtimePolicy);
+    const workspaceContext =
+      workspaceInstructions === ""
         ? undefined
-        : { ...t3Context, ...appContext };
+        : { t3_code_workspace: { kind: "application" as const, value: workspaceInstructions } };
+    const additionalContext =
+      t3Context === undefined &&
+      workspaceContext === undefined &&
+      Object.keys(appContext).length === 0
+        ? undefined
+        : { ...t3Context, ...workspaceContext, ...appContext };
     const collaborationMode: CodexSchema.ClientRequest__CollaborationMode | undefined =
       input.runtimePolicy.interactionMode !== "plan" && developerInstructions === undefined
         ? undefined

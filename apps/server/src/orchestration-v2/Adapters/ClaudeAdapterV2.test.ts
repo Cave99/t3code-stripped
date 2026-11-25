@@ -157,6 +157,24 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("grants and lists a multi-folder thread's other folders", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-add-dir",
+      resume: false,
+      cwd: "/workspace",
+      workspace: {
+        folders: [{ name: "api", path: "/repos/api", isGitRepository: true }],
+        extraRoots: ["/repos/api"],
+      },
+      attachmentsDir: "/attachments",
+    });
+    assert.deepEqual(options.additionalDirectories, ["/workspace", "/repos/api", "/attachments"]);
+    const append = (options.systemPrompt as { readonly append?: string }).append;
+    assert.include(append, "<workspace_folders>\nThis project spans several folders.");
+    assert.include(append, "- api (Git repository): /repos/api\n</workspace_folders>");
+  });
+
   it.each([false, true])("requests thinking summaries with resume=%s", (resume) => {
     const options = ClaudeAdapterV2.makeClaudeQueryOptions({
       modelSelection: CLAUDE_TEST_MODEL_SELECTION,
@@ -644,6 +662,25 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
         ClaudeAdapterV2.claudeMcpQueryOverrides({ threadId, readOnlySandbox: false }),
       );
       assert.notEqual(rotatedKey, initialKey);
+      // A query fixes its directories at start, so a changed folder list needs a new one too.
+      const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+        threadId,
+        readOnlySandbox: false,
+      });
+      const workspace = (path: string) => ({
+        folders: [{ name: "api", path, isGitRepository: true }],
+        extraRoots: [path],
+      });
+      const keyFor = (path?: string) =>
+        ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(
+          queryPolicy,
+          overrides,
+          path === undefined ? undefined : workspace(path),
+        );
+      assert.equal(keyFor(), rotatedKey);
+      assert.notEqual(keyFor("/repos/api"), rotatedKey);
+      assert.notEqual(keyFor("/repos/api"), keyFor("/repos/api-moved"));
+      assert.equal(keyFor("/repos/api"), keyFor("/repos/api"));
     });
   });
 
