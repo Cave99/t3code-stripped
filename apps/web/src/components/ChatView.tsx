@@ -91,6 +91,7 @@ import {
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import { claimThreadOpen } from "@t3tools/client-runtime/state/thread-search";
 import { useThreadActions } from "../hooks/useThreadActions";
 import {
   deriveProviderSubagentStatus,
@@ -1687,6 +1688,7 @@ export default function ChatView(props: ChatViewProps) {
   const visitThreadMutation = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
   const lastVisitDispatchAtRef = useRef(0);
+  const recordedOpenRef = useRef<string | null>(null);
   const settings = useEnvironmentSettings(environmentId);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -2769,6 +2771,31 @@ export default function ChatView(props: ChatViewProps) {
     },
     [openOrReuseProjectDraftThread],
   );
+
+  // Opening a thread is one visit that also counts toward search ranking. A
+  // palette pick already sent it with the query. It runs before the watermark
+  // effect, which then sees this watermark as sent.
+  useEffect(() => {
+    if (!serverThread?.id) return;
+    if (recordedOpenRef.current === routeThreadKey) return;
+    recordedOpenRef.current = routeThreadKey;
+    // Recorded here even when the server cannot take opens, so recents follow it.
+    const claimed = claimThreadOpen(serverThread.environmentId, serverThread.id, Date.now());
+    if (!claimed || serverThread.lastVisitedAt === undefined) return;
+    lastDispatchedVisitRef.current = `${routeThreadKey}:${serverThread.updatedAt}`;
+    lastVisitDispatchAtRef.current = Date.now();
+    void visitThreadMutation({
+      environmentId: serverThread.environmentId,
+      input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt, opened: true },
+    });
+  }, [
+    routeThreadKey,
+    serverThread?.environmentId,
+    serverThread?.id,
+    serverThread?.lastVisitedAt,
+    serverThread?.updatedAt,
+    visitThreadMutation,
+  ]);
 
   useEffect(() => {
     if (!serverThread?.id) return;

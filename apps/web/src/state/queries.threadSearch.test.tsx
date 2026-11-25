@@ -8,11 +8,14 @@ import { useThreadSearch } from "./queries";
 const searchResults = vi.hoisted(() => ({
   matches: [{ threadId: "thread-1", source: "user", snippet: "a link" }],
   isLoading: false,
+  failed: false,
 }));
 vi.mock("@effect/atom-react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@effect/atom-react")>()),
   useAtomValue: (atom: { label?: ReadonlyArray<unknown> }) =>
-    String(atom.label?.[0]).includes("empty") ? { matches: [], isLoading: false } : searchResults,
+    String(atom.label?.[0]).includes("empty")
+      ? { matches: [], isLoading: false, failed: false }
+      : searchResults,
 }));
 
 const environmentIds = [EnvironmentId.make("local")];
@@ -48,17 +51,27 @@ describe("useThreadSearch", () => {
     };
 
     render("");
-    const typing = ["li", "lin", "link "].map(render);
-    expect(typing.map((result) => result.query)).toEqual(["", "", ""]);
+    // Two letters can never match a message, so nothing is asked or pending.
+    expect(render("li").isPending).toBe(false);
+    const typing = ["lin", "link "].map(render);
+    expect(typing.map((result) => result.query)).toEqual(["", ""]);
     expect(new Set(typing.map((result) => result.matches)).size).toBe(1);
     expect(typing.every((result) => result.isPending)).toBe(true);
 
     act(() => {
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(120);
     });
     const settled = results.at(-1)!;
     expect(settled.query).toBe("link");
     expect(settled.matches).toBe(searchResults.matches);
     expect(settled.isPending).toBe(false);
+
+    // Refining the query keeps the last results on screen until its own arrive.
+    const refining = render("links");
+    expect(refining.query).toBe("link");
+    expect(refining.matches).toBe(searchResults.matches);
+    expect(refining.isPending).toBe(true);
+    // An unrelated query clears them.
+    expect(render("billing").matches).toEqual([]);
   });
 });
