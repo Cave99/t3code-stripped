@@ -40,6 +40,7 @@ describe("V2 preview upgrade", () => {
         [57, "McpAppModelContext"],
         [59, "SettledLeafNodeIndex"],
         [60, "TurnItemMessageOrdinalIndex"],
+        [61, "TurnItemTypeStatusIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -122,6 +123,7 @@ describe("V2 preview upgrade", () => {
         [57, "McpAppModelContext"],
         [59, "SettledLeafNodeIndex"],
         [60, "TurnItemMessageOrdinalIndex"],
+        [61, "TurnItemTypeStatusIndex"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

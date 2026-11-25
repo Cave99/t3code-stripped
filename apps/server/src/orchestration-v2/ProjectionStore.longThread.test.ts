@@ -341,4 +341,33 @@ it.layer(TestLayer)("ProjectionStoreV2 long threads", (it) => {
       );
     }),
   );
+
+  it.effect("reads a long thread's user messages through the type index", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const runs = 30;
+      const threadId = yield* seedLongThread({ suffix: "typed-items", runs });
+
+      const { statements, tracer } = traceSqlStatements();
+      const { turnItems } = yield* store
+        .getThreadRecords(threadId, ["turnItems"], { turnItemTypes: ["user_message", "error"] })
+        .pipe(Effect.withTracer(tracer));
+      assert.deepEqual(
+        turnItems.map((item) => String(item.id)),
+        Array.from({ length: runs }, (_, index) => `item:typed-items:${index + 1}:user`),
+      );
+
+      const itemRead = statements.find((statement) => statement.includes("WHERE rowid IN"));
+      assert.isDefined(itemRead);
+      const plan = yield* queryPlan(itemRead!);
+      assert.isTrue(
+        plan.some((detail) =>
+          detail.includes(
+            "orchestration_v2_projection_turn_items_thread_type_idx (thread_id=? AND type=?)",
+          ),
+        ),
+        plan.join("\n"),
+      );
+    }),
+  );
 });
