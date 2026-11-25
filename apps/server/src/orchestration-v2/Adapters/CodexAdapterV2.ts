@@ -86,6 +86,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { resolveAttachmentPath, resolveAttachmentPathById } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
+import * as PortScanner from "../../preview/PortScanner.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexAdditionalContext,
@@ -1535,6 +1536,9 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
           const environment = {
             ...input.environment,
             ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
+            // Each thread runs its own app-server, and the jobs its shells start inherit the
+            // thread, so port discovery can attribute their servers.
+            [PortScanner.AGENT_THREAD_ENV]: input.threadId,
           };
           const command = yield* makeCodexAppServerSpawnCommand({
             command: input.settings.binaryPath || "codex",

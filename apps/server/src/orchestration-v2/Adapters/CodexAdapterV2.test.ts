@@ -69,6 +69,7 @@ import {
   type ProviderAdapterV2TurnInput,
 } from "../ProviderAdapter.ts";
 import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
+import * as PortScanner from "../../preview/PortScanner.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import {
   makeReplayServerConfig,
@@ -788,6 +789,39 @@ describe("CodexAdapterV2 process spawning", () => {
         ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
         ["app-server", "--enable", "env-feature"],
       ]);
+    }).pipe(Effect.provideService(HostProcessPlatform, "linux")),
+  );
+
+  it.effect("launches the app-server with its thread in the environment", () =>
+    Effect.gen(function* () {
+      const spawnedEnvironments: Array<Record<string, string | undefined> | undefined> = [];
+      const spawner = ChildProcessSpawner.make((command) => {
+        if (ChildProcess.isStandardCommand(command)) spawnedEnvironments.push(command.options.env);
+        return Effect.fail(
+          PlatformError.systemError({ _tag: "NotFound", module: "ChildProcess", method: "spawn" }),
+        );
+      });
+      const factory = yield* CodexAdapterV2.CodexAppServerClientFactory.pipe(
+        Effect.provide(CodexAdapterV2.codexAppServerClientFactoryFromSettingsLayer),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      );
+      yield* factory
+        .open({
+          instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+          threadId: ThreadId.make("thread-dev-server"),
+          providerSessionId: ProviderSessionId.make("provider-session-dev-server"),
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          settings: DEFAULT_CODEX_SETTINGS,
+          environment: {},
+        })
+        .pipe(Effect.scoped, Effect.exit);
+
+      // Jobs its shells start inherit the thread, so port discovery can attribute their servers.
+      assert.equal(spawnedEnvironments[0]?.[PortScanner.AGENT_THREAD_ENV], "thread-dev-server");
     }).pipe(Effect.provideService(HostProcessPlatform, "linux")),
   );
 
