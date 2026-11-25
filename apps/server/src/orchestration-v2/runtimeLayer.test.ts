@@ -2212,6 +2212,198 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("reads each watched PR as soon as its own fingerprint lands", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projectId = ProjectId.make("pr-watch-pipeline-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch pipeline",
+        workspaceRoot: "/workspace/watch-pipeline",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      for (const number of [21, 22]) {
+        const threadId = ThreadId.make(`runtime-pull-request-watch-pipeline-${number}`);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`pr-watch-pipeline-create-${number}`),
+          threadId,
+          projectId,
+          title: "Watch pipeline",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make(`pr-watch-pipeline-start-${number}`),
+          threadId,
+          host: "github.com",
+          repository: "pingdotgg/t3code",
+          number,
+          watching: true,
+          link: { url: `https://github.com/pingdotgg/t3code/pull/${number}`, source: "agent" },
+        });
+      }
+      const at = "2026-10-02T12:00:00.000Z";
+      const texts = (number: number) =>
+        orchestrator
+          .getThreadRecords(ThreadId.make(`runtime-pull-request-watch-pipeline-${number}`), [
+            "messages",
+          ])
+          .pipe(Effect.map(({ messages }) => messages.map((message) => message.text).join("\n")));
+      // #21's host answers only after #22 has been read, so waiting on every fingerprint first
+      // never finishes.
+      const read22 = yield* Deferred.make<void>();
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          watchFingerprint: (input) =>
+            input.number === 21
+              ? Deferred.await(read22).pipe(Effect.as(null))
+              : Effect.succeed(null),
+          detail: (input) =>
+            (input.number === 22 ? Deferred.succeed(read22, undefined) : Effect.void).pipe(
+              Effect.as(watchedPullRequestDetail({ projectId, number: input.number, at })),
+            ),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+        }),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      assert.include(yield* texts(21), "#21");
+      assert.include(yield* texts(22), "#22");
+    }),
+  );
+
+  it.effect("probes a PR with running checks and reads it only once its fingerprint moves", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-pull-request-watch-probe");
+      const projectId = ProjectId.make("pr-watch-probe-project");
+      yield* seedProject({
+        projectId,
+        title: "Watch probe",
+        workspaceRoot: "/workspace/watch-probe",
+        defaultModelSelection: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("pr-watch-probe-create"),
+        threadId,
+        projectId,
+        title: "Watch probe",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const key = { host: "github.com", repository: "pingdotgg/t3code", number: 16 };
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-probe-start"),
+        threadId,
+        ...key,
+        watching: true,
+        link: { url: "https://github.com/pingdotgg/t3code/pull/16", source: "agent" },
+      });
+
+      let checks: PullRequestDetail["checks"] = [
+        { name: "lint", status: "pending", description: null, url: null, required: true },
+      ];
+      let status = "pending";
+      let detailReads = 0;
+      let notified = 0;
+      const host = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(PullRequestService.PullRequestService)({
+          // Watches other cases left on share this mock, so only this project's reads count.
+          detail: (input) =>
+            Effect.sync(() => {
+              if (input.projectId === projectId) detailReads += 1;
+              return {
+                ...watchedPullRequestDetail({
+                  projectId,
+                  number: 16,
+                  at: "2026-10-02T12:00:00.000Z",
+                }),
+                headSha: "bbbbbbbbbb",
+                checks,
+              };
+            }),
+          activity: () =>
+            Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            }),
+          watchFingerprint: () => Effect.sync(() => ({ status, remarks: "" })),
+          invalidate: (input, options) =>
+            Effect.sync(() => {
+              if (input.reference?.projectId === projectId && options?.notifyReaders === true) {
+                notified += 1;
+              }
+            }),
+        }),
+      );
+      const wakes = Effect.map(
+        orchestrator.getThreadRecords(threadId, ["messages"]),
+        ({ messages }) =>
+          messages.filter(
+            (message) => message.notification !== undefined && message.notification !== null,
+          ),
+      );
+      const reactor = yield* PullRequestWatchReactor.make.pipe(Effect.provide(host));
+      yield* reactor.sweep;
+      assert.equal(detailReads, 1);
+      const before = (yield* wakes).length;
+
+      // An unchanged fingerprint costs no detail read.
+      yield* reactor.probe;
+      assert.equal(detailReads, 1);
+
+      checks = [{ name: "lint", status: "failure", description: null, url: null, required: true }];
+      status = "failure";
+      yield* reactor.probe;
+      assert.equal(detailReads, 2);
+      assert.equal(notified, 1, "open views refresh when the host state moved");
+      const woken = yield* wakes;
+      assert.lengthOf(woken, before + 1);
+      assert.include(woken.at(-1)!.notification?.summary ?? "", "failed");
+
+      // Nothing is in flight once the check finished, so probes leave it to the sweep.
+      status = "success";
+      yield* reactor.probe;
+      assert.equal(detailReads, 2);
+
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make("pr-watch-probe-end"),
+        threadId,
+        ...key,
+        watching: false,
+      });
+    }),
+  );
+
   it.effect("shares the internal scheduler and sweeps only when due", () =>
     Effect.gen(function* () {
       let sweeps = 0;
