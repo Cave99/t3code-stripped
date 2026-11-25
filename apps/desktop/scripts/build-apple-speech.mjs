@@ -12,8 +12,10 @@ const hostPlatform = process.platform;
 const { values } = NodeUtil.parseArgs({
   options: { output: { type: "string" }, arch: { type: "string", default: hostArch } },
 });
-// Packaging passes --output and must not ship without the helper; dev builds only lose the option.
-const required = values.output !== undefined;
+// Without the helper a build still works; it just hides Mac dictation. Packaging passes
+// --output, and fails only when T3CODE_REQUIRE_APPLE_SPEECH=1 asks it to.
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Build script; no Effect runtime.
+const required = values.output !== undefined && process.env.T3CODE_REQUIRE_APPLE_SPEECH === "1";
 
 if (hostPlatform !== "darwin") {
   if (required) throw new Error("The Apple Speech helper can only be built on macOS.");

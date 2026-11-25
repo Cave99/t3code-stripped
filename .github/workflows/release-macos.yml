@@ -56,6 +56,17 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.rust_target }}
 
+      - name: Select Xcode 26 for the Apple Speech helper
+        shell: bash
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [[ -n "$xcode" ]]; then
+            sudo xcode-select -s "$xcode"
+            echo "Using $xcode"
+          else
+            echo "::warning::Xcode 26 not found; this build ships without Mac dictation."
+          fi
+
       - name: Resolve version
         id: version
         shell: bash

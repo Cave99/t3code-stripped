@@ -1649,7 +1649,10 @@ export const stageLinuxCaptureHelper = Effect.fn("stageLinuxCaptureHelper")(func
   }
 });
 
-/** Compiles the on-device dictation helper; mac packaging fails without it (needs Xcode 26). */
+/**
+ * Compiles the on-device dictation helper (needs Xcode 26). Without it the app ships and hides
+ * Mac dictation; set T3CODE_REQUIRE_APPLE_SPEECH=1 to fail packaging instead.
+ */
 export const stageAppleSpeech = Effect.fn("stageAppleSpeech")(function* (input: {
   readonly repoRoot: string;
   readonly stageResourcesDir: string;
@@ -1658,7 +1661,10 @@ export const stageAppleSpeech = Effect.fn("stageAppleSpeech")(function* (input: 
   readonly verbose: boolean;
 }) {
   if (input.platform !== "mac") return;
+  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  // extraResources copies this folder, so it exists even when the helper could not be built.
+  yield* fs.makeDirectory(path.join(input.stageResourcesDir, "apple-speech"), { recursive: true });
   yield* runCommand(
     ChildProcess.make(
       "node",
