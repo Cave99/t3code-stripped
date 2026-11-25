@@ -2205,6 +2205,26 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect.skipIf(process.platform === "win32")(
+      "loads working-tree contents in a repository whose folder name ends in a space",
+      () =>
+        Effect.gen(function* () {
+          const pathService = yield* Path.Path;
+          const cwd = pathService.join(yield* makeTmpDir(), "repo ");
+          yield* (yield* FileSystem.FileSystem).makeDirectory(cwd);
+          yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* writeTextFile(cwd, "app/.keep", "");
+          yield* writeTextFile(cwd, "README.md", "# changed\n");
+
+          const contents = yield* driver.getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(pathService.join(cwd, "app")),
+          );
+
+          assert.strictEqual(contents.newContents, "# changed\n");
+        }),
+    );
+
     it.effect("attributes working-tree filesystem failures to the failing operation", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

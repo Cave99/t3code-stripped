@@ -595,8 +595,9 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
 
     return {
       kind: "git" as const,
-      rootPath: root.stdout.trim(),
-      metadataPath: gitCommonDir?.stdout.trim() || null,
+      // Only Git's line ending goes: a folder name can end in whitespace.
+      rootPath: root.stdout.replace(/\n$/, ""),
+      metadataPath: gitCommonDir?.stdout.replace(/\n$/, "") || null,
       freshness: yield* nowFreshness(),
     };
   });

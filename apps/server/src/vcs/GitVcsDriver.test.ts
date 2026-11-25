@@ -255,6 +255,23 @@ it.effect("a clean folder is snapshotted from its HEAD without staging its files
   }).pipe(Effect.scoped, Effect.provide(GitContractLayer)),
 );
 
+it.effect.skipIf(process.platform === "win32")(
+  "detection keeps whitespace at the end of a repository's folder name",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const parent = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-edge-space-repo-" });
+      const driver = yield* GitVcsDriver.makeVcsDriverShape();
+      const cwd = path.join(parent, "repo ");
+      yield* fileSystem.makeDirectory(cwd);
+      yield* driver.execute({ operation: "space-test", cwd, args: ["init"] });
+
+      const repository = yield* driver.detectRepository(cwd);
+      assert.strictEqual(repository?.rootPath, yield* fileSystem.realPath(cwd));
+    }).pipe(Effect.scoped, Effect.provide(GitContractLayer)),
+);
+
 it.effect("checkpoint recovery discovers nested HEAD independently of inherited GIT_DIR", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
