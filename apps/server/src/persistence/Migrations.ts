@@ -74,6 +74,8 @@ import Migration0057 from "./Migrations/057_McpAppModelContext.ts";
 import Migration0059 from "./Migrations/059_SettledLeafNodeIndex.ts";
 import Migration0060 from "./Migrations/060_TurnItemMessageOrdinalIndex.ts";
 import Migration0061 from "./Migrations/061_TurnItemTypeStatusIndex.ts";
+import Migration0062 from "./Migrations/062_LastExecutedRunIndex.ts";
+import Migration0063 from "./Migrations/063_TurnItemCounts.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -148,6 +150,8 @@ export const migrationEntries = [
   [59, "SettledLeafNodeIndex", Migration0059],
   [60, "TurnItemMessageOrdinalIndex", Migration0060],
   [61, "TurnItemTypeStatusIndex", Migration0061],
+  [62, "LastExecutedRunIndex", Migration0062],
+  [63, "TurnItemCounts", Migration0063],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

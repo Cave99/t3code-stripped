@@ -370,4 +370,39 @@ it.layer(TestLayer)("ProjectionStoreV2 long threads", (it) => {
       );
     }),
   );
+
+  it.effect(
+    "thread list reads count a long thread's items without walking its runs and items",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* ProjectionStore.ProjectionStoreV2;
+        const runs = 30;
+        const threadId = yield* seedLongThread({ suffix: "shell-counts", runs });
+
+        const { statements, tracer } = traceSqlStatements();
+        const shell = yield* store.getShellSnapshot().pipe(Effect.withTracer(tracer));
+        const thread = shell.threads.find((candidate) => candidate.id === threadId);
+        assert.isDefined(thread);
+        assert.strictEqual(thread!.visibleItemCount, runs * (TOOLS_PER_RUN + 2));
+
+        const threadRead = statements.find((statement) =>
+          statement.includes("AS forked_from_run_source_thread_id"),
+        );
+        assert.isDefined(threadRead);
+        const plan = yield* queryPlan(threadRead!);
+        // Counts come from the counts table; runs are only sought, never walked in full.
+        assert.isFalse(
+          plan.some((detail) =>
+            /SCAN (i|item)\b|turn_items_thread_run_idx \(thread_id=\?\)$/.test(detail),
+          ),
+          plan.join("\n"),
+        );
+        assert.isTrue(
+          plan.some((detail) =>
+            detail.includes("orchestration_v2_projection_runs_last_executed_idx"),
+          ),
+          plan.join("\n"),
+        );
+      }),
+  );
 });

@@ -41,6 +41,8 @@ describe("V2 preview upgrade", () => {
         [59, "SettledLeafNodeIndex"],
         [60, "TurnItemMessageOrdinalIndex"],
         [61, "TurnItemTypeStatusIndex"],
+        [62, "LastExecutedRunIndex"],
+        [63, "TurnItemCounts"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -124,6 +126,8 @@ describe("V2 preview upgrade", () => {
         [59, "SettledLeafNodeIndex"],
         [60, "TurnItemMessageOrdinalIndex"],
         [61, "TurnItemTypeStatusIndex"],
+        [62, "LastExecutedRunIndex"],
+        [63, "TurnItemCounts"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
