@@ -249,3 +249,143 @@ it.effect.each(forkCases)(
       assert.isNull(target.providerThreads[0]?.forkedFrom);
     }).pipe(Effect.provide(layer)),
 );
+
+it.effect("a fresh send in a fork that has not run yet starts without the fork's context", () =>
+  Effect.gen(function* () {
+    const { driver, instanceId, modelSelection } = forkCases[0]!;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const parentId = ThreadId.make("fresh-fork-parent");
+    const forkId = ThreadId.make("fresh-fork-child");
+    const providerThreadId = ProviderThreadId.make("fresh-fork-native-thread");
+    const runId = RunId.make("fresh-fork-parent-run");
+    const messageId = MessageId.make("fresh-fork-parent-message");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("fresh-fork-create"),
+      threadId: parentId,
+      projectId: ProjectId.make("fresh-fork-project"),
+      title: "Fresh fork parent",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* eventSink.write({
+      events: [
+        {
+          id: EventId.make("fresh-fork-provider-thread"),
+          type: "provider-thread.updated",
+          threadId: parentId,
+          occurredAt: now,
+          payload: {
+            id: providerThreadId,
+            driver,
+            providerInstanceId: instanceId,
+            providerSessionId: null,
+            appThreadId: parentId,
+            ownerNodeId: null,
+            nativeThreadRef: { driver, nativeId: "native-fresh-fork", strength: "strong" },
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: 1,
+            handoffIds: [],
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: EventId.make("fresh-fork-run"),
+          type: "run.created",
+          threadId: parentId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: runId,
+            threadId: parentId,
+            ordinal: 1,
+            providerInstanceId: instanceId,
+            modelSelection,
+            providerThreadId,
+            userMessageId: messageId,
+            rootNodeId: null,
+            activeAttemptId: null,
+            status: "completed",
+            queuePosition: null,
+            requestedAt: now,
+            startedAt: now,
+            completedAt: now,
+            checkpointId: null,
+            contextHandoffId: null,
+          },
+        },
+        {
+          id: EventId.make("fresh-fork-item"),
+          type: "turn-item.updated",
+          threadId: parentId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make("fresh-fork-item"),
+            threadId: parentId,
+            runId,
+            nodeId: null,
+            providerThreadId,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            status: "completed",
+            title: null,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+            type: "user_message",
+            createdBy: "user",
+            creationSource: "web",
+            inputIntent: "turn_start",
+            messageId,
+            text: "PARENT_MARKER",
+            attachments: [],
+          },
+        },
+      ],
+    });
+    yield* orchestrator.dispatch({
+      type: "thread.fork",
+      commandId: CommandId.make("fresh-fork"),
+      sourceThreadId: parentId,
+      targetThreadId: forkId,
+      sourcePoint: { type: "run", runId },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("fresh-fork-send"),
+      threadId: forkId,
+      messageId: MessageId.make("fresh-fork-send"),
+      text: "Start over",
+      attachments: [],
+      modelSelection,
+      freshContext: true,
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const fork = yield* orchestrator.getThreadProjection(forkId);
+    assert.isTrue(fork.runs.at(-1)?.freshContext === true);
+    assert.lengthOf(fork.contextHandoffs, 0);
+    // Superseded, or the next ordinary send would bring the parent's context back.
+    assert.deepEqual(
+      fork.contextTransfers.filter((transfer) => transfer.type === "fork").map((t) => t.status),
+      ["superseded"],
+    );
+  }).pipe(Effect.provide(forkCases[0]!.layer)),
+);

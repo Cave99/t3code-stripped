@@ -275,6 +275,7 @@ import { V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
 import {
+  FreshSessionRow,
   isV2LifecycleItem,
   SubagentAvatar,
   SubagentElapsed,
@@ -2062,6 +2063,11 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
+      {row.kind === "message" &&
+      row.projectedItem?.item.type === "user_message" &&
+      row.projectedItem.item.freshContext === true ? (
+        <FreshSessionRow />
+      ) : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />

@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { detectComposerTrigger, serializeComposerFileLink } from "./composerTrigger.ts";
+import {
+  detectComposerTrigger,
+  isClearComposerCommand,
+  serializeComposerFileLink,
+} from "./composerTrigger.ts";
+
+describe("isClearComposerCommand", () => {
+  it("matches only a message that is /clear alone", () => {
+    expect(isClearComposerCommand(" /Clear \n")).toBe(true);
+    expect(isClearComposerCommand("/clear the cache")).toBe(false);
+    expect(isClearComposerCommand("/clearer")).toBe(false);
+    expect(isClearComposerCommand("please /clear")).toBe(false);
+  });
+});
 
 describe("detectComposerTrigger", () => {
   it.each(["$", "€", "£", "¥", "₹", "₩", "₿", "𑿝"])(

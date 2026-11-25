@@ -483,6 +483,21 @@ it.effect(
         });
         assert.equal(followUp.delivery, "queued");
         assert.equal(followUp.run.status, "queued");
+        // A fresh send queues instead of steering, so it needs no steerable run.
+        const fresh = yield* threads.sendToThread({
+          projectId,
+          commandId: CommandId.make("command:launch:queued-fresh"),
+          threadId: launched.threadId,
+          messageId: MessageId.make("message:launch:queued-fresh"),
+          text: "Start over",
+          attachments: [],
+          mode: "steer",
+          freshContext: true,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        assert.equal(fresh.delivery, "queued");
+        assert.isTrue(fresh.run.freshContext);
         assert.equal(
           (yield* threads.getThreadRecords(launched.threadId, ["nodes"])).nodes.find(
             (node) => node.runId === followUp.run.id && node.kind === "root_turn",

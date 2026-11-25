@@ -34,6 +34,14 @@ import {
   isUsageLimitsCommand,
 } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import {
+  armFreshSession,
+  disarmFreshSession,
+  freshSessionBannerItem,
+  readFreshSessionArm,
+  useFreshSessionArmed,
+} from "./chat/freshSessionArms";
+import { isClearComposerCommand } from "@t3tools/shared/composerTrigger";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
@@ -7052,12 +7060,26 @@ export default function ChatView(props: ChatViewProps) {
         ? "Compaction is unavailable for this provider"
         : "Compacting is unavailable right now"
     : null;
+  // `/clear` arms a fresh provider session for the thread's next message.
+  const freshSessionAvailable = isServerThread && activeMessageCount > 0;
+  // While a question or approval owns the composer, its text answers that, not the agent.
+  const freshSessionCommandAvailable =
+    freshSessionAvailable && activePendingApproval === null && pendingUserInputs.length === 0;
+  const freshSessionArmed = useFreshSessionArmed(routeThreadKey);
+  const freshSessionPending = freshSessionAvailable && freshSessionArmed;
+  const armFreshSessionForThread = useCallback(
+    () => armFreshSession(routeThreadKey),
+    [routeThreadKey],
+  );
   // Tokens a stale Claude session would re-read on its next turn. While set,
   // the composer shows a Compact chip and Enter compacts first; turning the
   // chip off sends the next message with full history. Held queues and
   // multi-model sends never compact first, so the offer hides for them.
+  // The context window is the current conversation's, so the fresh session armed by /clear
+  // does not inherit it.
   const resumeCompactionTokens =
     activeContextWindow &&
+    !freshSessionPending &&
     !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&
@@ -7141,12 +7163,18 @@ export default function ChatView(props: ChatViewProps) {
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    // An approval's feedback goes to that approval; the armed session waits for the next message.
+    const freshSessionItems =
+      freshSessionPending && activePendingApproval === null
+        ? [freshSessionBannerItem(() => disarmFreshSession(routeThreadKey))]
+        : [];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
+        ...freshSessionItems,
         ...systemComposerBannerItems,
         ...backgroundWorkItems,
       ];
@@ -7156,6 +7184,7 @@ export default function ChatView(props: ChatViewProps) {
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,
+      ...freshSessionItems,
       ...systemComposerBannerItems,
       ...backgroundWorkItems,
       {
@@ -7199,6 +7228,9 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
+    activePendingApproval,
+    freshSessionPending,
+    routeThreadKey,
     activeThreadShell,
     serverRuntime?.usageLimitResetAt,
     feedbackBannerItems,
@@ -8404,7 +8436,27 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     if (
+      freshSessionCommandAvailable &&
+      multipleModelSelections === null &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      composerPreviewAnnotations.length === 0 &&
+      composerReviewComments.length === 0 &&
+      composerThreadContexts.length === 0 &&
+      isClearComposerCommand(trimmed)
+    ) {
+      armFreshSession(routeThreadKey);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
+    // Read once: an arm made while this send is in flight belongs to the next message.
+    const freshArm = freshSessionAvailable ? readFreshSessionArm(routeThreadKey) : undefined;
+    if (
       !directAnnotation &&
+      freshArm === undefined &&
       sendInteractionModeEnabled &&
       showPlanFollowUpPrompt &&
       activeProposedPlan &&
@@ -8574,13 +8626,19 @@ export default function ChatView(props: ChatViewProps) {
     // A stale Claude session compacts before this message so the turn does not re-read the
     // old history. The message queues behind the /compact run, since steering into it is
     // rejected.
+    // A fresh session neither compacts the old one first nor joins the running turn.
     const compactBeforeSend =
+      freshArm === undefined &&
       resumeCompactionTokens !== null &&
       !keepFullHistory &&
       messageTextForSend.toLowerCase() !== "/compact";
-    const turnDispatchMode = compactBeforeSend ? "queue" : dispatchMode;
+    const requestedDispatchMode =
+      freshArm !== undefined && (dispatchMode === "steer" || dispatchMode === "restart")
+        ? "queue"
+        : dispatchMode;
+    const turnDispatchMode = compactBeforeSend ? "queue" : requestedDispatchMode;
     const shouldQueueBehindActiveRun =
-      compactBeforeSend || (phase === "running" && dispatchMode === "queue");
+      compactBeforeSend || (phase === "running" && requestedDispatchMode === "queue");
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
@@ -9329,6 +9387,7 @@ export default function ChatView(props: ChatViewProps) {
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,
+          ...(freshArm === undefined ? {} : { freshContext: true }),
           ...(bootstrap ? { bootstrap } : {}),
           createdAt: messageCreatedAt,
         },
@@ -9363,6 +9422,7 @@ export default function ChatView(props: ChatViewProps) {
       } else {
         turnStartSucceeded = true;
         setKeepFullHistory(routeThreadKey, false);
+        if (freshArm !== undefined) disarmFreshSession(routeThreadKey, freshArm);
         // The turn is under way and will spend quota, so that thread's limits
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
@@ -11000,6 +11060,9 @@ export default function ChatView(props: ChatViewProps) {
                                 !composerHasNonPromptContent
                                   ? openUsageLimits
                                   : undefined
+                              }
+                              onFreshSession={
+                                freshSessionCommandAvailable ? armFreshSessionForThread : undefined
                               }
                               environmentUnavailable={activeEnvironmentUnavailableState}
                               activePendingApproval={activePendingApproval}
