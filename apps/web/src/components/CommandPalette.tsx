@@ -3450,7 +3450,9 @@ function OpenCommandPaletteDialog(props: {
                   }
                 : threadSearch.isPending
                   ? { emptyStateMessage: "Searching messages…" }
-                  : {})}
+                  : threadSearch.failed
+                    ? { emptyStateMessage: "Couldn't search thread messages." }
+                    : {})}
       />
     </CommandPaletteContent>
   );

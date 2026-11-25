@@ -48,6 +48,11 @@ export interface EnvironmentThreadSearchMatch extends OrchestrationThreadSearchM
 export interface ThreadSearchResultsState {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly isLoading: boolean;
+  /**
+   * Every environment asked failed to answer, so an empty result says nothing about matches. One
+   * environment failing beside another that answered still counts as an answer.
+   */
+  readonly failed: boolean;
 }
 
 const ThreadSearchKey = Schema.fromJsonString(
@@ -91,23 +96,29 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
     Atom.make((get): ThreadSearchResultsState => {
       const parsedKey = parseThreadSearchKey(key);
       if (Option.isNone(parsedKey)) {
-        return { matches: [], isLoading: false };
+        return { matches: [], isLoading: false, failed: false };
       }
 
       const [environmentIds, query] = parsedKey.value;
       const matches: EnvironmentThreadSearchMatch[] = [];
       let isLoading = false;
+      let failures = 0;
 
       for (const environmentId of environmentIds) {
         const result = get(options.getSearchAtom(environmentId, query));
         isLoading ||= result.waiting;
+        if (AsyncResult.isFailure(result)) failures += 1;
         const value = Option.getOrNull(AsyncResult.value(result));
         if (value !== null) {
           matches.push(...value.matches.map((match) => ({ ...match, environmentId })));
         }
       }
 
-      return { matches, isLoading };
+      return {
+        matches,
+        isLoading,
+        failed: environmentIds.length > 0 && failures === environmentIds.length,
+      };
     }).pipe(Atom.withLabel(`${options.labelPrefix}:${key}`)),
   );
 }

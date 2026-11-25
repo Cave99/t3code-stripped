@@ -8,11 +8,14 @@ import { useThreadSearch } from "./queries";
 const searchResults = vi.hoisted(() => ({
   matches: [{ threadId: "thread-1", source: "user", snippet: "a link" }],
   isLoading: false,
+  failed: false,
 }));
 vi.mock("@effect/atom-react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@effect/atom-react")>()),
   useAtomValue: (atom: { label?: ReadonlyArray<unknown> }) =>
-    String(atom.label?.[0]).includes("empty") ? { matches: [], isLoading: false } : searchResults,
+    String(atom.label?.[0]).includes("empty")
+      ? { matches: [], isLoading: false, failed: false }
+      : searchResults,
 }));
 
 const environmentIds = [EnvironmentId.make("local")];

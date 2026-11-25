@@ -90,15 +90,15 @@ it("ignores invalid search keys", () => {
     const state = registry.get(searchAtom(makeThreadSearchKey([envA], "a".repeat(201))));
     const malformedState = registry.get(searchAtom("not json{{"));
 
-    expect(state).toEqual({ matches: [], isLoading: false });
-    expect(malformedState).toEqual({ matches: [], isLoading: false });
+    expect(state).toEqual({ matches: [], isLoading: false, failed: false });
+    expect(malformedState).toEqual({ matches: [], isLoading: false, failed: false });
     expect(searchCount).toBe(0);
   } finally {
     registry.dispose();
   }
 });
 
-it("merges successful environments and silently ignores failures", () => {
+it("merges successful environments, and reports a failure only when none answered", () => {
   const result: OrchestrationSearchThreadsResult = {
     matches: [
       {
@@ -127,8 +127,15 @@ it("merges successful environments and silently ignores failures", () => {
   expect(state).toEqual({
     matches: [{ ...result.matches[0], environmentId: envA }],
     isLoading: false,
+    failed: false,
   });
   expect(threadSearchMatchKey(state.matches[0]!)).toBe('["env-a","thread-a"]');
+  // With no environment answering, an empty result must not read as "no matches".
+  expect(registry.get(searchAtom(makeThreadSearchKey([envB], "needle")))).toEqual({
+    matches: [],
+    isLoading: false,
+    failed: true,
+  });
 
   registry.dispose();
 });
